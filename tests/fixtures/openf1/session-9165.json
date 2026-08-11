@@ -1,0 +1,64 @@
+{
+  "format": "slipstream.openf1-recording.v1",
+  "schema_version": 1,
+  "source": "openf1",
+  "source_capabilities": {
+    "historical_replay": true,
+    "live_timing": false,
+    "positions": true,
+    "intervals": true,
+    "location_xy": false,
+    "circuit_shape": true,
+    "race_control": true,
+    "weather": true,
+    "local_time": true,
+    "authenticated": false
+  },
+  "captured_at": "2023-09-18T00:00:00Z",
+  "session_key": 9165,
+  "circuit_info": {
+    "source_url": "https://api.multiviewer.app/api/v1/circuits/61/2023",
+    "payload": {
+      "circuitKey": 61,
+      "circuitName": "Marina Bay Street Circuit",
+      "rotation": 335,
+      "year": 2023,
+      "x": [1076,843,683,530,124,-586,-1003,-1131,-943,-576,-430,-728,-1435,-2489,-3576,-5131,-6490,-7456,-8211,-8751,-9114,-9452,-9859,-10239,-10826,-11396,-11884,-12351,-13015,-13174,-12710,-12191,-11972,-11361,-10944,-10655,-10509,-10393,-10164,-9854,-9532,-9082,-8595,-7908,-6810,-5541,-4282,-3070,-2504,-2265,-1665,-793,367,1038,1162],
+      "y": [-441,1090,2385,3311,3629,4025,3962,3480,2612,1691,875,279,153,234,320,490,1164,1780,2142,1786,1115,548,762,1236,1643,1377,501,-365,-1480,-2113,-2642,-3153,-3760,-4281,-4826,-4825,-4260,-3450,-2128,-959,-98,73,-313,-940,-1434,-1519,-1592,-1628,-1793,-2341,-2597,-2621,-2661,-2112,-974]
+    }
+  },
+  "endpoints": {
+    "sessions": [{"circuit_short_name":"Marina Bay","date_end":"2023-09-17T14:00:00+00:00","date_start":"2023-09-17T12:00:00+00:00","gmt_offset":"08:00:00","location":"Singapore","meeting_key":1219,"session_key":9165,"session_name":"Race","session_type":"Race"}],
+    "meetings": [{"circuit_info_url":"https://api.multiviewer.app/api/v1/circuits/61/2023","circuit_key":61,"meeting_key":1219,"meeting_name":"Singapore Grand Prix"}],
+    "drivers": [
+      {"driver_number":55,"full_name":"Carlos SAINZ","name_acronym":"SAI","team_colour":"F91536","team_name":"Ferrari"},
+      {"driver_number":4,"full_name":"Lando NORRIS","name_acronym":"NOR","team_colour":"F58020","team_name":"McLaren"}
+    ],
+    "laps": [
+      {"date_start":"2023-09-17T13:56:40+00:00","driver_number":55,"lap_duration":96.334,"lap_number":62},
+      {"date_start":"2023-09-17T13:56:41+00:00","driver_number":4,"lap_duration":96.291,"lap_number":62}
+    ],
+    "position": [
+      {"date":"2023-09-17T13:59:00+00:00","driver_number":55,"position":1},
+      {"date":"2023-09-17T13:59:00+00:00","driver_number":4,"position":2}
+    ],
+    "intervals": [
+      {"date":"2023-09-17T13:59:00+00:00","driver_number":55,"gap_to_leader":null,"interval":null},
+      {"date":"2023-09-17T13:59:00+00:00","driver_number":4,"gap_to_leader":0.812,"interval":0.812}
+    ],
+    "race_control": [{"category":"Flag","date":"2023-09-17T13:59:20+00:00","flag":"CHEQUERED","message":"CHEQUERED FLAG"}],
+    "session_result": [
+      {"dnf":false,"dns":false,"dsq":false,"driver_number":55,"gap_to_leader":0,"number_of_laps":62,"position":1},
+      {"dnf":false,"dns":false,"dsq":false,"driver_number":4,"gap_to_leader":0.812,"number_of_laps":62,"position":2}
+    ],
+    "stints": [
+      {"compound":"HARD","driver_number":55,"lap_end":62,"lap_start":1,"stint_number":1,"tyre_age_at_start":0},
+      {"compound":"HARD","driver_number":4,"lap_end":62,"lap_start":1,"stint_number":1,"tyre_age_at_start":0}
+    ],
+    "pit": [],
+    "weather": [
+      {"air_temperature":29.2,"date":"2023-09-17T13:30:00+00:00","humidity":75,"pressure":1008.6,"rainfall":0,"track_temperature":36.7,"wind_direction":143,"wind_speed":2.4},
+      {"air_temperature":28.8,"date":"2023-09-17T13:58:30+00:00","humidity":77,"pressure":1008.8,"rainfall":0,"track_temperature":34.1,"wind_direction":151,"wind_speed":2.1}
+    ]
+  }
+}

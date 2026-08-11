@@ -1,0 +1,185 @@
+import json
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from slipstream.api import create_app
+from slipstream.catalog import CATALOG_FORMAT
+
+RECORDING = Path(__file__).parent / "fixtures" / "openf1" / "session-9165.json"
+NORMALIZED_REPLAY = (
+    Path(__file__).parent / "fixtures" / "replays" / "sample-session.json"
+)
+
+
+def test_versioned_state_and_capabilities_endpoints() -> None:
+    with TestClient(create_app(RECORDING)) as client:
+        state = client.get("/api/v1/state")
+        capabilities = client.get("/api/v1/capabilities")
+        replay = client.get("/api/v1/replay")
+
+    assert state.status_code == 200
+    assert state.json()["v"] == 1
+    assert state.json()["type"] == "state.snapshot"
+    assert state.json()["data"]["session"]["key"] == "9165"
+    assert state.json()["data"]["session"]["local_time"].endswith("+08:00")
+    assert state.json()["data"]["weather"]["track_temperature"] == 34.1
+    assert state.json()["data"]["circuit"]["name"] == "Marina Bay Street Circuit"
+    assert len(state.json()["data"]["circuit"]["path"]) == 55
+    assert capabilities.json()["source"] == "openf1"
+    assert replay.json()["eventCount"] > 0
+    assert replay.json()["startTime"] <= replay.json()["endTime"]
+    assert replay.json()["durationSeconds"] > 0
+
+
+def test_catalog_exposes_season_weekend_and_session_metadata() -> None:
+    with TestClient(create_app(RECORDING)) as client:
+        catalog = client.get("/api/v1/catalog").json()
+
+    assert catalog["defaultSessionKey"] == "9165"
+    assert catalog["sessions"] == [
+        {
+            "sessionKey": "9165",
+            "year": 2023,
+            "meetingKey": "1219",
+            "meetingName": "Singapore Grand Prix",
+            "sessionName": "Race",
+            "sessionType": "Race",
+            "circuit": "Marina Bay",
+            "location": "Singapore",
+            "dateStart": "2023-09-17T12:00:00+00:00",
+            "dateEnd": "2023-09-17T14:00:00+00:00",
+            "available": True,
+            "isLive": False,
+            "downloadable": True,
+            "circuitShapeAvailable": True,
+            "positionMode": "timing_estimate",
+        }
+    ]
+
+
+def test_recording_directory_can_switch_between_library_sessions() -> None:
+    with TestClient(create_app(RECORDING.parent)) as client:
+        catalog = client.get("/api/v1/catalog").json()
+        selected = client.get("/api/v1/state?session_key=100").json()
+
+    assert {item["sessionKey"] for item in catalog["sessions"]} == {"100", "9165"}
+    assert selected["data"]["session"]["key"] == "100"
+
+
+def test_websocket_uses_per_client_seek_cursor() -> None:
+    with (
+        TestClient(create_app(RECORDING)) as client,
+        client.websocket_connect("/api/v1/stream") as socket,
+    ):
+        initial = socket.receive_json()
+        socket.send_json({"type": "seek", "at": "2023-09-17T13:59:10Z"})
+        sought = socket.receive_json()
+
+    assert initial["data"]["session"]["status"] == "STARTED"
+    assert sought["data"]["session"]["status"] == "STARTED"
+    assert sought["seq"] > initial["seq"]
+
+
+def test_websocket_seeks_by_event_cursor() -> None:
+    with (
+        TestClient(create_app(RECORDING)) as client,
+        client.websocket_connect("/api/v1/stream") as socket,
+    ):
+        socket.receive_json()
+        socket.send_json({"type": "seek", "seq": 1})
+        sought = socket.receive_json()
+
+    assert sought["seq"] == 1
+    assert sought["data"]["session"]["status"] == "STARTED"
+
+
+def test_websocket_delay_is_per_client() -> None:
+    with (
+        TestClient(create_app(RECORDING)) as client,
+        client.websocket_connect("/api/v1/stream") as delayed_socket,
+        client.websocket_connect("/api/v1/stream") as current_socket,
+    ):
+        delayed_initial = delayed_socket.receive_json()
+        current_initial = current_socket.receive_json()
+        delayed_socket.send_json({"type": "delay", "seconds": 3600})
+        delayed = delayed_socket.receive_json()
+        current_socket.send_json({"type": "snapshot"})
+        current = current_socket.receive_json()
+
+    assert delayed["sessionTime"] > delayed_initial["sessionTime"]
+    assert current_initial["seq"] == delayed_initial["seq"]
+    assert current["seq"] == delayed_initial["seq"]
+    assert current["sessionTime"] == current_initial["sessionTime"]
+
+
+def test_websocket_play_advances_clock_and_pause_stops_it() -> None:
+    with (
+        TestClient(create_app(NORMALIZED_REPLAY)) as client,
+        client.websocket_connect("/api/v1/stream") as socket,
+    ):
+        initial = socket.receive_json()
+        socket.send_json({"type": "play", "speed": 120})
+        playing = socket.receive_json()
+        socket.send_json({"type": "pause"})
+        paused = socket.receive_json()
+
+    assert playing["sessionTime"] > initial["sessionTime"]
+    assert playing["playback"]["playing"] is True
+    assert paused["playback"]["playing"] is False
+
+
+def test_catalog_session_can_be_downloaded_and_used_without_restart(
+    tmp_path: Path,
+) -> None:
+    catalog = {
+        "format": CATALOG_FORMAT,
+        "schema_version": 1,
+        "source": "openf1",
+        "updated_at": "2026-08-11T00:00:00Z",
+        "years": [2023],
+        "meetings": {
+            "999": {
+                "meeting_key": 999,
+                "meeting_name": "Download Grand Prix",
+                "circuit_short_name": "Marina Bay",
+            }
+        },
+        "sessions": [
+            {
+                "session_key": 999,
+                "meeting_key": 999,
+                "session_name": "Race",
+                "session_type": "Race",
+                "circuit_short_name": "Marina Bay",
+                "location": "Singapore",
+                "date_start": "2023-09-17T12:00:00+00:00",
+                "date_end": "2023-09-17T14:00:00+00:00",
+                "gmt_offset": "08:00:00",
+                "year": 2023,
+            }
+        ],
+    }
+    recording = json.loads(RECORDING.read_text(encoding="utf-8"))
+    recording["session_key"] = 999
+    recording["endpoints"]["sessions"][0]["session_key"] = 999
+    recording["endpoints"]["sessions"][0]["meeting_key"] = 999
+    recording["endpoints"]["meetings"][0]["meeting_key"] = 999
+    recording["endpoints"]["meetings"][0]["meeting_name"] = "Download Grand Prix"
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+
+    with TestClient(
+        create_app(tmp_path, capture_session=lambda session_key: recording)
+    ) as client:
+        before = client.get("/api/v1/catalog").json()
+        downloaded = client.post("/api/v1/download?session_key=999")
+        after = client.get("/api/v1/catalog").json()
+        state = client.get("/api/v1/state?session_key=999").json()
+
+    assert before["downloadsEnabled"] is True
+    assert before["sessions"][0]["available"] is False
+    assert downloaded.status_code == 200
+    assert downloaded.json()["status"] == "available"
+    assert after["sessions"][0]["available"] is True
+    assert state["data"]["session"]["key"] == "999"
+    assert (tmp_path / "openf1-999.json").exists()

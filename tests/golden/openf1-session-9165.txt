@@ -1,0 +1,11 @@
+Slipstream F1 | Singapore Grand Prix - Race
+Status: FINISHED | Lap: 62/62 | Track: CHEQUERED | Updated: 2023-09-17T14:00:00+00:00
+Local: 2023-09-17T22:00:00+08:00 | Air: 28.8°C | Track temp: 34.1°C | Rain: NO | Humidity: 77% | Wind: 2.1 m/s @ 151°
+
+POS  DRV  DRIVER             LAP        GAP        INT TYRE         AGE STINT PIT TRACK   LAST LAP STATUS
+--------------------------------------------------------------------------------------------------------------------------
+1    SAI  Carlos SAINZ        62     LEADER          - HARD          62    62   0 0.999   1:36.334 FINISHED
+2    NOR  Lando NORRIS        62     +0.812     +0.812 HARD          62    62   0 0.999   1:36.291 FINISHED
+
+Race control:
+- 2023-09-17T13:59:20+00:00 Flag: CHEQUERED FLAG

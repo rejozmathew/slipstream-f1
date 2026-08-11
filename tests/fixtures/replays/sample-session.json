@@ -1,0 +1,8 @@
+[
+  {"kind":"session","occurred_at":"2025-03-16T04:00:00Z","source":"fixture","payload":{"key":"9999","name":"Race","meeting_name":"Australian Grand Prix","status":"GREEN"}},
+  {"kind":"driver","occurred_at":"2025-03-16T04:00:01Z","source":"fixture","payload":{"number":"4","code":"NOR","name":"Lando Norris","team":"McLaren","status":"RUNNING"}},
+  {"kind":"driver","occurred_at":"2025-03-16T04:00:01Z","source":"fixture","payload":{"number":"1","code":"VER","name":"Max Verstappen","team":"Red Bull Racing","status":"RUNNING"}},
+  {"kind":"timing","occurred_at":"2025-03-16T04:02:00Z","source":"fixture","payload":{"number":"4","position":1,"lap":3,"gap_to_leader":"LEADER","last_lap":"1:20.233"}},
+  {"kind":"timing","occurred_at":"2025-03-16T04:02:00Z","source":"fixture","payload":{"number":"1","position":2,"lap":3,"gap_to_leader":"+1.238","last_lap":"1:20.417"}},
+  {"kind":"race_control","occurred_at":"2025-03-16T04:02:30Z","source":"fixture","payload":{"category":"Flag","message":"GREEN FLAG","flag":"GREEN"}}
+]

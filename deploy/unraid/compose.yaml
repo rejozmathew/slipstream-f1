@@ -1,0 +1,52 @@
+name: slipstream-f1
+
+services:
+  backend:
+    image: ghcr.io/${SLIPSTREAM_IMAGE_OWNER:-rejozmathew}/slipstream-f1-backend:${SLIPSTREAM_TAG:-latest}
+    user: "${SLIPSTREAM_PUID:-99}:${SLIPSTREAM_PGID:-100}"
+    command:
+      - serve
+      - /data
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --catalog-years
+      - "3"
+    volumes:
+      - ${SLIPSTREAM_RECORDINGS_DIR:-./recordings}:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/capabilities', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  web:
+    image: ghcr.io/${SLIPSTREAM_IMAGE_OWNER:-rejozmathew}/slipstream-f1-web:${SLIPSTREAM_TAG:-latest}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  gateway:
+    image: nginx:1.29-alpine
+    depends_on:
+      backend:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    ports:
+      - ${SLIPSTREAM_PORT:-3000}:80
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

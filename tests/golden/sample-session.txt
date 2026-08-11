@@ -1,0 +1,10 @@
+Slipstream F1 | Australian Grand Prix - Race
+Status: GREEN | Lap: 3/- | Track: GREEN | Updated: 2025-03-16T04:02:30Z
+
+POS  DRV  DRIVER             LAP        GAP        INT TYRE         AGE STINT PIT TRACK   LAST LAP STATUS
+--------------------------------------------------------------------------------------------------------------------------
+1    NOR  Lando Norris         3     LEADER          - -              -     -   0     -   1:20.233 RUNNING
+2    VER  Max Verstappen       3     +1.238          - -              -     -   0     -   1:20.417 RUNNING
+
+Race control:
+- 2025-03-16T04:02:30Z Flag: GREEN FLAG

@@ -1,0 +1,31 @@
+{
+  "format":"slipstream.openf1-recording.v1",
+  "schema_version":1,
+  "source":"openf1",
+  "captured_at":"2025-01-01T14:00:00Z",
+  "session_key":100,
+  "source_capabilities":{},
+  "endpoints":{
+    "sessions":[{"circuit_short_name":"Test Circuit","date_start":"2025-01-01T12:00:00Z","date_end":"2025-01-01T13:30:00Z","location":"Test","session_key":100,"session_name":"Race","session_type":"Race"}],
+    "meetings":[{"meeting_name":"Test Grand Prix"}],
+    "drivers":[{"driver_number":4,"full_name":"Lando NORRIS","name_acronym":"NOR","team_name":"McLaren"}],
+    "laps":[
+      {"date_start":"2025-01-01T12:18:00Z","driver_number":4,"lap_duration":90.0,"lap_number":18},
+      {"date_start":"2025-01-01T12:19:30Z","driver_number":4,"lap_duration":91.0,"lap_number":19},
+      {"date_start":"2025-01-01T12:21:01Z","driver_number":4,"lap_duration":92.0,"lap_number":20}
+    ],
+    "position":[],
+    "intervals":[],
+    "race_control":[
+      {"category":"Flag","date":"2025-01-01T12:18:30Z","flag":"YELLOW","message":"YELLOW FLAG"},
+      {"category":"Flag","date":"2025-01-01T12:19:45Z","flag":"GREEN","message":"GREEN FLAG"}
+    ],
+    "session_result":[],
+    "stints":[
+      {"compound":null,"driver_number":4,"lap_start":null,"lap_end":null,"stint_number":0,"tyre_age_at_start":null},
+      {"compound":"MEDIUM","driver_number":4,"lap_start":1,"lap_end":19,"stint_number":1,"tyre_age_at_start":0},
+      {"compound":"HARD","driver_number":4,"lap_start":20,"lap_end":30,"stint_number":2,"tyre_age_at_start":0}
+    ],
+    "pit":[{"date":"2025-01-01T12:20:30Z","driver_number":4,"lap_number":19}]
+  }
+}

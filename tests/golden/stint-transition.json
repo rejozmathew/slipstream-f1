@@ -1,0 +1,23 @@
+{
+  "lap_19": {
+    "compound": "MEDIUM",
+    "tyre_age": 19,
+    "stint_laps": 19,
+    "pit_count": 0,
+    "track_status": "YELLOW"
+  },
+  "after_pit": {
+    "compound": "MEDIUM",
+    "tyre_age": 19,
+    "stint_laps": 19,
+    "pit_count": 1,
+    "track_status": "GREEN"
+  },
+  "lap_20": {
+    "compound": "HARD",
+    "tyre_age": 1,
+    "stint_laps": 1,
+    "pit_count": 1,
+    "track_status": "GREEN"
+  }
+}
