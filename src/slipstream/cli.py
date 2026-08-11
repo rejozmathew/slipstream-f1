@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import os
 import re
 import sys
 from datetime import UTC, timedelta
@@ -76,6 +77,17 @@ def main() -> None:
     serve_command.add_argument("--host", default="127.0.0.1")
     serve_command.add_argument("--port", type=int, default=8000)
     serve_command.add_argument(
+        "--web-dir",
+        type=Path,
+        help="Serve a compiled browser application from this directory",
+    )
+    serve_command.add_argument(
+        "--mode",
+        choices=("full", "api-only"),
+        default=os.environ.get("SLIPSTREAM_MODE", "full"),
+        help="Run the complete application or disable browser routes",
+    )
+    serve_command.add_argument(
         "--catalog-years",
         type=int,
         default=0,
@@ -145,7 +157,12 @@ def main() -> None:
                     file=sys.stderr,
                 )
 
-        uvicorn.run(create_app(args.path), host=args.host, port=args.port)
+        web_dir = args.web_dir if args.mode == "full" else None
+        uvicorn.run(
+            create_app(args.path, web_dir=web_dir),
+            host=args.host,
+            port=args.port,
+        )
         return
     if args.command == "live":
         from datetime import datetime

@@ -12,6 +12,8 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .adapters.openf1 import OpenF1Client, write_recording
 from .events import parse_timestamp
@@ -25,6 +27,7 @@ def create_app(
     *,
     now: Callable[[], datetime] | None = None,
     capture_session: Callable[[int], dict[str, Any]] | None = None,
+    web_dir: Path | None = None,
 ) -> FastAPI:
     clock = now or (lambda: datetime.now(UTC))
     library_ref = [ReplayLibrary(recording_path, now=clock)]
@@ -184,6 +187,28 @@ def create_app(
             pass
         finally:
             await _stop_playback(playback_task, controller)
+
+    if web_dir is not None:
+        index_path = web_dir / "index.html"
+        if not index_path.is_file():
+            raise FileNotFoundError(f"Web build not found at {index_path}")
+        assets_path = web_dir / "assets"
+        if assets_path.is_dir():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=assets_path),
+                name="web-assets",
+            )
+
+        @app.get("/", include_in_schema=False)
+        def web_index() -> FileResponse:
+            return FileResponse(index_path)
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def web_fallback(path: str) -> FileResponse:
+            if path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="Not Found")
+            return FileResponse(index_path)
 
     return app
 
