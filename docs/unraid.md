@@ -1,10 +1,10 @@
 # Unraid deployment
 
-Slipstream publishes separate backend and browser images to GitHub Container Registry. The Unraid stack adds an internal Nginx gateway so the UI, REST API, and WebSocket share one address. Historical recordings remain in Unraid appdata and are not built into either image.
+Slipstream publishes separate backend and browser images to GitHub Container Registry. The default `gateway` profile adds a small Nginx container so the UI, API, and WebSocket work at one address without requiring an existing reverse proxy. Historical recordings remain in Unraid appdata and are not built into any image.
 
 ## First deployment
 
-1. Create `/mnt/user/appdata/slipstream-f1`, copy `deploy/unraid/compose.yaml`, `nginx.conf`, and `.env.example` into it, then rename `.env.example` to `.env`.
+1. Create `/mnt/user/appdata/slipstream-f1`, copy `deploy/unraid/compose.yaml`, `nginx.conf`, and `.env.example` into it, then rename `.env.example` to `.env`. Set `SLIPSTREAM_IMAGE_OWNER` to the GitHub account or organization that publishes the images. Keep this machine-specific `.env` private and never commit it.
 2. Create `/mnt/user/appdata/slipstream-f1/recordings`.
    On first backend startup, Slipstream creates `/data/catalog.json` with session dates and circuit outlines for the latest three seasons. It refreshes that small cache after 24 hours; this does not download timing recordings.
    The supplied Compose file runs the backend as Unraid's standard `nobody:users` identity (`99:100`) so the page can save requested replays into this directory. Change `SLIPSTREAM_PUID` and `SLIPSTREAM_PGID` only if your share uses different ownership.
@@ -27,10 +27,10 @@ Slipstream publishes separate backend and browser images to GitHub Container Reg
 4. Start or restart the stack after adding recordings:
 
    ```sh
-   docker compose up -d
+   docker compose up -d --wait
    ```
 
-5. Open `http://UNRAID-IP:3000`. Change `SLIPSTREAM_PORT` in `.env` if that port is already in use.
+5. Open `http://UNRAID-IP:3000`. Change `SLIPSTREAM_PORT` in the private `.env` if that port is already in use.
 
 If the GHCR packages are private, sign in once on Unraid with a GitHub personal access token that has `read:packages`. Public packages need no registry credentials.
 
@@ -48,6 +48,14 @@ For automatic refresh, copy `refresh.sh` into the stack directory and schedule `
 
 For controlled releases, set `SLIPSTREAM_TAG` to a tested `run-N` or `sha-...` tag instead of `latest`, then run the same refresh script. Rollback is the same operation with the prior immutable tag.
 
-## Reverse proxy
+## Existing reverse proxy
 
-Point the public hostname at the `gateway` service on the configured Unraid port. WebSocket upgrade headers are already handled between the gateway and backend. TLS should terminate at the existing Unraid reverse proxy; only that proxy should be internet-facing.
+The bundled gateway is optional. On a server that already has Nginx Proxy Manager or another capable reverse proxy, clear the profile in the private `.env`:
+
+```dotenv
+COMPOSE_PROFILES=
+```
+
+When creating the two containers in Unraid, place `slipstream-f1-web` and `slipstream-f1-backend` on the Docker network used by that proxy. This network is a deployment choice and is intentionally not named in the public configuration.
+
+Route the proxy host's default `/` location to `slipstream-f1-web:3000` and add a custom `/api/` location pointing to `slipstream-f1-backend:8000`. Enable WebSocket support because `/api/v1/stream` is a WebSocket endpoint. The proxy should terminate TLS; only it should be internet-facing.
