@@ -1,53 +1,126 @@
 # Docker deployment
 
-Slipstream is packaged as one Linux container that includes the compiled browser application and the Python service. Node is used only while building the image. At runtime there is one process, one container, and one internal port: `3444`.
+Slipstream is distributed as one Linux container. The image uses Node only to compile the React application; the runtime contains one Python process serving the browser, REST API, and WebSocket on internal port `3444`.
 
-## Windows and macOS
+It runs under Docker Desktop on Windows and macOS, Docker Engine on Linux, and compatible container platforms.
 
-1. Install Docker Desktop and start it.
-2. Clone the repository, open a terminal in the repository folder, and run:
+## Run the published image
 
-   ```sh
-   docker compose up -d --build
-   ```
+Replace `OWNER` with the GitHub account or organization that publishes the package:
 
-3. Open `http://localhost:3444`.
+```sh
+docker run -d \
+  --name slipstream-f1 \
+  --restart unless-stopped \
+  -p 3444:3444 \
+  -v slipstream-recordings:/data \
+  ghcr.io/OWNER/slipstream-f1:latest
+```
 
-Docker Desktop runs the Linux image automatically. No Python or Node installation is needed on the host.
+Open `http://localhost:3444`.
 
-## Linux
+The named volume stores `catalog.json` and downloaded session recordings. Deleting and recreating the container does not delete the volume.
 
-Install Docker Engine with the Compose plugin, clone the repository, and run the same command:
+## Build from a checkout
+
+The repository Compose file builds a local image and uses a named volume:
 
 ```sh
 docker compose up -d --build
 ```
 
-## Choose another host port
+Use this path for development or when you want to build an unmerged checkout. No host Python or Node installation is needed.
 
-Port `3444` is only the default host address. Map any free host port to container port `3444`:
+## Configuration
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| Container port | `3444` | Internal HTTP and WebSocket port; do not change it in normal deployments |
+| `SLIPSTREAM_PORT` | `3444` | Host-side port used by the repository Compose file |
+| `SLIPSTREAM_RECORDINGS_DIR` | Docker volume | Optional host directory mounted at `/data` by Compose |
+| `SLIPSTREAM_MODE` | `full` | `full` serves browser and API; `api-only` omits browser routes |
+
+Choose another host port by changing only the published side:
+
+```sh
+docker run -d --name slipstream-f1 -p 7444:3444 -v slipstream-recordings:/data ghcr.io/OWNER/slipstream-f1:latest
+```
+
+With Compose on Linux or macOS:
 
 ```sh
 SLIPSTREAM_PORT=7444 docker compose up -d --build
 ```
 
-On PowerShell:
+With PowerShell:
 
 ```powershell
 $env:SLIPSTREAM_PORT = "7444"
 docker compose up -d --build
 ```
 
-Then open `http://localhost:7444`.
+## Storage and permissions
 
-## Run a published image directly
+The image runs as a non-root user. A fresh named volume inherits writable ownership from the image. For a bind mount, make sure the chosen host directory is writable by the container user or explicitly run the container with a UID/GID appropriate for that host.
 
-Replace the image placeholder with the package path shown on the GitHub repository:
+Recordings can be large, especially when `--include-location` is enabled. The catalog is small and does not contain timing data.
+
+Do not store credentials or authenticated captures under a repository checkout. `/data` is operational storage and should be backed up according to the host’s normal container-volume practice.
+
+## Download sessions
+
+The browser can download any finished session listed by the catalog. CLI acquisition is also available inside the running container:
 
 ```sh
-docker run -d --name slipstream-f1 --restart unless-stopped -p 3444:3444 -v slipstream-recordings:/data ghcr.io/your-github-owner/slipstream-f1:latest
+docker exec slipstream-f1 python -m slipstream fetch 9165 --output /data/session-9165.json
+docker exec slipstream-f1 python -m slipstream fetch-weekend 1219 --output-dir /data
+docker exec slipstream-f1 python -m slipstream fetch-season 2023 --output-dir /data
 ```
 
-To expose only the API and WebSocket, add `-e SLIPSTREAM_MODE=api-only`.
+For the repository Compose service:
 
-A reverse proxy is optional. If one is used, send one hostname to container port `3444` and enable WebSocket forwarding. Slipstream does not bundle or configure a proxy.
+```sh
+docker compose run --rm slipstream fetch 9165 --output /data/session-9165.json
+```
+
+Add `--include-location` only when source X/Y history is worth the additional download and storage.
+
+## API-only mode
+
+API-only mode keeps REST and WebSocket routes while returning no browser application:
+
+```sh
+docker run -d \
+  --name slipstream-f1 \
+  -e SLIPSTREAM_MODE=api-only \
+  -p 3444:3444 \
+  -v slipstream-recordings:/data \
+  ghcr.io/OWNER/slipstream-f1:latest
+```
+
+## Updates and rollback
+
+For a published-image deployment:
+
+1. pull the desired tag;
+2. stop and remove the existing container;
+3. recreate it with the same port, environment, and `/data` volume.
+
+The volume survives container replacement. `latest` follows the newest successful `main` build. Release workflows also publish immutable `run-N` and `sha-COMMIT` tags; use one of those when controlled rollback matters.
+
+For a source-build deployment:
+
+```sh
+git pull --ff-only
+docker compose up -d --build
+```
+
+## Reverse proxy
+
+A reverse proxy is optional. Route one hostname to container port `3444` and enable WebSocket forwarding. The website, `/api/v1/*`, and `/api/v1/stream` must remain on the same upstream origin.
+
+Slipstream does not bundle Nginx, open multiple application ports, join a particular Docker network, or configure TLS. Those remain host-level decisions.
+
+## Health check
+
+The supplied Compose files check `GET /api/v1/catalog`. A healthy response proves the process is accepting requests and its replay library initialized. It does not prove that a live upstream source is connected.

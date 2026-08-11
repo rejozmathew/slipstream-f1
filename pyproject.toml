@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "slipstream-f1"
 version = "0.1.0"
-description = "Self-hosted Formula 1 timing state, starting with replay ingestion."
+description = "Self-hosted Formula 1 historical timing and replay application."
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

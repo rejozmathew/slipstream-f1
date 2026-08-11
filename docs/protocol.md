@@ -1,33 +1,154 @@
-# Protocol conventions
+# Protocol and data conventions
 
-`RaceState` is the normalized contract for every output. Its serialized form begins at `schema_version: 1`. Timestamps are ISO 8601 UTC strings. Normalized events preserve `source`, `occurred_at`, and optional `received_at`; upstream payload shapes never leak into state.
+This document defines the compatibility boundary between source adapters, canonical state, and downstream clients. It describes the current version 1 behavior; it is not a promise that every possible field is already populated by every source.
 
-HTTP routes use `/api/v1/`. State envelopes use `{ "v": 1, "seq": 123, "type": "state.snapshot", "sessionTime": "...", "sourceTime": "...", "playback": { "playing": false }, "data": ... }`. Additive fields are compatible within a major version; changed meanings/removals require a new major version. Clients ignore unknown fields and event types.
+## Versioning
 
-Routes are `GET /api/v1/catalog`, `GET /api/v1/state`, `GET /api/v1/capabilities`, `GET /api/v1/replay`, `POST /api/v1/download`, and WebSocket `/api/v1/stream`. State, capability, replay, stream, and download routes accept a `session_key` as applicable. Catalog returns season/weekend/session metadata and a default key; `available` means a timing recording exists locally, `downloadable` means the session has ended, and `circuitShapeAvailable` only describes preloaded geometry. `downloadsEnabled` indicates that the server owns a writable recording directory. `isLive` is evaluated against the current clock. An active session is the default even when its live timing adapter is not connected.
+- Canonical state contains `schema_version: 1`.
+- HTTP and WebSocket routes use `/api/v1/`.
+- Transport envelopes contain `v: 1`.
+- Raw recording formats include their major version in the `format` value.
 
-`POST /api/v1/download?session_key=...` accepts only sessions already present in the catalog and whose scheduled end is in the past. Acquisition requests are serialized per instance. A successful response includes the refreshed catalog, and the new recording is immediately available without a process restart.
+Adding optional fields is compatible within version 1. Removing a field, changing its meaning, or changing a required type requires a new major version. Clients must ignore unknown object fields and unknown event types.
 
-Replay metadata exposes `available`, `isLive`, and `positionMode`. Position modes are `precise_xy`, `timing_estimate`, and `unavailable`. For an active live session, `endTime` is the earlier of the scheduled end and the current time; clients must not construct a seek target later than that bound.
+## Canonical state
 
-WebSocket clients may send `snapshot`, `play`, `pause`, `seek`, `seek_relative`, `step`, `delay`, or `reset`; each connection owns its own replay cursor and clock. `play` accepts a speed greater than zero and at most 120. `seek` accepts either an inclusive ISO 8601 `at` timestamp or an event-count `seq` cursor. `seek_relative` moves by signed source-clock seconds. `delay` accepts any non-negative numeric `seconds` value (for example `21`) and seeks relative to the newest event visible to that connection. The browser exposes this as a live-only per-viewer TV-sync control; zero means the newest live point, not “leave the cursor unchanged.” Playback snapshots are batched rather than emitted once per upstream event.
+`RaceState` is the normalized contract used by the terminal, REST API, WebSocket, and browser. Provider response shapes must not appear in it.
 
-For historical races, `session.total_laps` is static replay metadata derived from the recorded race result and is available from the session-start snapshot. Practice and qualifying sessions leave it `null` because they do not have a meaningful scheduled lap denominator.
+```text
+RaceState
+├── schema_version
+├── updated_at
+├── session
+├── circuit
+├── weather
+├── drivers[number]
+└── race_control[]
+```
 
-With multiple adapters, descriptors expose boolean capabilities: `historical_replay`, `live_timing`, `positions`, `intervals`, `location_xy`, `circuit_shape`, `race_control`, `weather`, `local_time`, and `authenticated`.
+Normalized events preserve `source`, `occurred_at`, and optional `received_at`. Event ordering is determined by parsed timestamps, not JSON array order or textual timestamp formatting. Replay seeks and CLI `--at` snapshots include events occurring exactly at the target timestamp.
 
-Raw OpenF1 captures use `format: slipstream.openf1-recording.v1`. The envelope records capture time, session key, source capabilities, and unmodified endpoint arrays. Recordings are input artifacts, not the public API contract.
+Source/event timestamps use ISO 8601. Canonical event times are UTC; `session.local_time` intentionally carries the circuit offset derived from `gmt_offset`.
 
-The lightweight season cache uses `format: slipstream.openf1-catalog.v1`. It contains session and meeting metadata plus normalized linked circuit geometry, but no timing events. It may be refreshed independently from recordings and is not a substitute for replay or live-timing capability.
+## State envelopes
 
-Raw public-live captures use newline-delimited JSON beginning with a `slipstream.f1-signalr-recording.v1` header. Each following row records `received_at`, `stream`, optional provider `source_timestamp`, raw `payload`, and whether it came from the initial subscription result. These rows are evidence for the future live normalizer; they are not normalized events or public API messages.
+REST state responses and WebSocket snapshots use:
 
-Replay order is determined by parsed UTC event time, not JSON array order or textual timestamp formatting. CLI snapshots are inclusive of the `--at` timestamp.
+```json
+{
+  "v": 1,
+  "seq": 123,
+  "type": "state.snapshot",
+  "sessionTime": "2023-09-17T13:30:00+00:00",
+  "sourceTime": "2023-09-17T13:30:00+00:00",
+  "playback": { "playing": false },
+  "data": { "schema_version": 1 }
+}
+```
 
-Driver metrics carry an `availability` map separate from their values. Status values are `available`, `unavailable`, `unsupported`, and (for future live ingestion) `stale`. `null` alone must not be used to mean both “the source cannot provide this” and “the source can provide this but has no current value.”
+`seq` is the number of normalized events applied to the snapshot. `sessionTime` is the viewer’s replay playhead. `sourceTime` currently follows the same clock and is reserved for distinguishing source receipt time later.
 
-`RaceState.weather` carries the observation timestamp, air and track temperature in °C, humidity in percent, pressure in hPa, rainfall detection, wind speed in m/s, wind direction in degrees, and per-field availability. Rainfall means precipitation detected at the sensor; it must not be presented as a guaranteed wet/dry surface classification. `session.local_time` is derived from each event timestamp and the source-provided `gmt_offset`.
+## HTTP API
 
-`RaceState.circuit.path` is an ordered array of canonical `[x, y]` coordinate pairs for the historical circuit outline. `circuit.rotation` is the source-provided display rotation in degrees, while `circuit.source` preserves the linked geometry URL for provenance. `circuit_shape` means an exact recorded outline is available; it does not imply precise driver location. When `location_xy` is available, drivers carry source coordinates in `x`, `y`, and optional `z`; otherwise `track_position` remains a timing-derived lap fraction mapped onto the outline.
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/catalog` | List known seasons, weekends, and sessions; identify the default session and whether downloads are writable |
+| `GET /api/v1/state` | Return the final normalized state for a selected session resource |
+| `GET /api/v1/capabilities` | Describe the selected source/session data capabilities |
+| `GET /api/v1/replay` | Return event count, time bounds, availability, live schedule status, and position mode |
+| `POST /api/v1/download` | Download one finished catalog session into the recording directory |
+| `WS /api/v1/stream` | Create an independent interactive replay controller for one client |
 
-Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` when supplied. Driver- and sector-scoped flags never update the session-wide `track_status` field.
+Pass `session_key` as a query parameter where a session can be selected. Omitting it uses the library default.
+
+`POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past. Downloads are serialized per application instance. After a successful write, the library is refreshed and the session becomes available without restarting the process.
+
+## Catalog semantics
+
+Catalog session fields have specific meanings:
+
+- `available`: a local timing recording exists.
+- `downloadable`: the scheduled session end is in the past.
+- `isLive`: the current clock is inside the scheduled start/end window.
+- `circuitShapeAvailable`: cached circuit geometry exists; this says nothing about car position.
+- `positionMode`: `precise_xy`, `timing_estimate`, or `unavailable`.
+- `downloadsEnabled`: the server is using a writable recording directory.
+
+`isLive` is schedule status, not proof that a live timing adapter is connected. An active scheduled session is selected by default even when only its catalog placeholder is available.
+
+For an active scheduled session, replay `endTime` is capped at the earlier of the scheduled end and the current time. Clients must not create future seek targets.
+
+For historical races, `session.total_laps` is derived from recorded race-result metadata and is available from the session-start snapshot. Practice and qualifying sessions leave it `null` because they have no meaningful scheduled lap denominator.
+
+## WebSocket commands
+
+Each WebSocket connection receives an initial snapshot and owns its own `ReplayController`.
+
+| Command | Fields | Behavior |
+| --- | --- | --- |
+| `snapshot` | none | Return the current snapshot without moving the cursor |
+| `play` | `speed` | Play at a speed greater than 0 and at most 120 |
+| `pause` | none | Stop automatic clock advancement |
+| `seek` | `at` or `seq` | Reconstruct through an inclusive timestamp or event-count cursor |
+| `seek_relative` | `seconds` | Move by signed source-clock seconds, clamped to replay bounds |
+| `step` | none | Apply one normalized event |
+| `delay` | `seconds` | Seek to a non-negative number of seconds behind the newest event |
+| `reset` | none | Reconstruct state at the official session-start boundary |
+
+Commands that move the cursor pause current playback first. The browser exposes delay as live TV synchronization, but the protocol operation is defined for any replay. A delay of zero means the newest event.
+
+Invalid input produces a versioned error frame:
+
+```json
+{ "v": 1, "type": "error", "error": "description" }
+```
+
+Playback advances in clock batches and emits snapshots at the transport cadence rather than once per source event.
+
+## Capability vocabulary
+
+Session/source descriptors use these boolean capabilities:
+
+- `historical_replay`
+- `live_timing`
+- `positions`
+- `intervals`
+- `location_xy`
+- `circuit_shape`
+- `race_control`
+- `weather`
+- `local_time`
+- `authenticated`
+
+Consumers select behavior from capabilities and `positionMode`, never from provider names.
+
+Driver and weather fields carry an `availability` map separate from their values. Allowed status values are:
+
+- `available`: the source supplied a usable value;
+- `unavailable`: the capability exists but no current value is present;
+- `unsupported`: the selected source cannot provide the field;
+- `stale`: reserved for live data whose last observation is too old.
+
+`null` alone must not mean all four cases.
+
+## Circuit, position, and conditions
+
+`RaceState.circuit.path` is an ordered array of `[x, y]` points. `rotation` is the source display rotation and `source` preserves geometry provenance.
+
+`circuit_shape` means the outline is available. `location_xy` means driver source coordinates are present in `x`, `y`, and optional `z`. Otherwise `track_position` may contain a timing-derived lap fraction mapped onto the outline.
+
+Weather carries observation time, air and track temperature in degrees Celsius, humidity percentage, pressure in hPa, rain detection, wind speed in m/s, and wind direction in degrees. Rain detection is a sensor observation; it must not be presented as a guaranteed wet/dry surface classification.
+
+Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` when supplied. Only whole-track green, yellow, double-yellow, red, chequered, safety-car, and virtual-safety-car messages may update `session.track_status`. Driver- and sector-scoped flags remain messages only.
+
+## Recording formats
+
+| Format | Purpose |
+| --- | --- |
+| `slipstream.openf1-recording.v1` | Historical OpenF1 session capture with unmodified endpoint arrays and declared source capabilities |
+| `slipstream.openf1-catalog.v1` | Lightweight session/meeting metadata and normalized circuit geometry; no timing events |
+| `slipstream.f1-signalr-recording.v1` | Raw public live SignalR JSONL evidence; not normalized state |
+
+Historical recording envelopes include capture time, session key, source capabilities, and endpoint arrays. Raw live files begin with a header, followed by rows containing `received_at`, `stream`, optional `source_timestamp`, raw `payload`, and whether the row came from the initial subscription result.
+
+Recordings are private operational inputs. Their formats may need migrations independently of API v1, and they must never contain committed credentials or authenticated captures.

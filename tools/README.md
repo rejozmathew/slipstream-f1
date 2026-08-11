@@ -1,3 +1,7 @@
 # Tools
 
-One-off inspection and migration helpers belong here; runtime acquisition stays in the Python package. Keep recordings under the ignored `recordings/` directory, and never put credentials or captured authenticated traffic in the repository.
+This directory is reserved for one-off inspection, migration, and validation helpers that are not part of the installed `slipstream` command.
+
+Runtime acquisition belongs in `src/slipstream` and should be exposed through the CLI. Keep downloaded recordings under the ignored `recordings/` directory. Never place credentials, cookies, `.env` files, authenticated captures, or protected provider payloads in `tools/`.
+
+A helper promoted into a supported workflow should move into the package, gain tests, and be documented through `slipstream --help` rather than remaining an undocumented script.
