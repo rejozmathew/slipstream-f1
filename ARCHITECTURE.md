@@ -1,22 +1,151 @@
 # Architecture
 
-```text
-OpenF1 recording -> normalization -> event history -> replay clock -> RaceState
-                                                                    |-> terminal
-                                                                    |-> API v1
-                                                                    `-> browser
+Slipstream is a historical replay application with an experimental raw live recorder. Historical replay is integrated end to end; public live messages are recorded for research but do not yet feed the application state.
 
-F1 public SignalR -> versioned raw recording -> live normalization (next)
+## System shape
+
+```text
+Historical timing path
+
+OpenF1 HTTP responses
+        |
+        v
+versioned raw recording ---> OpenF1 adapter ---> normalized events
+                                                    |
+                                                    v
+                                               RaceState reducer
+                                                    |
+                                  +-----------------+-----------------+
+                                  |                 |                 |
+                           replay controller    terminal          API v1
+                                                                      |
+                                                               browser pit wall
+
+Metadata path
+
+OpenF1 sessions/meetings ---> lightweight catalog ---> session library
+                                      |                      |
+                               dates + circuits       local recordings overlay
+
+Experimental live path
+
+public F1 SignalR ---> versioned raw JSONL recording ---> future live normalizer
 ```
 
-`RaceState` is an immutable snapshot. The reducer creates a new state for every event. Its canonical children include session, circuit, driver, weather, and race-control state. `ReplayController` owns cursor, source clock, pause/resume, batched advance, and time seek; seeking reconstructs state from the event history. `ReplayLibrary` merges a lightweight recent-season catalog with local recordings, then normalizes only the selected recording. The catalog supplies dates and preloaded historical circuit paths; local recordings overlay timing and replay capabilities. Raw OpenF1 responses and linked geometry remain versioned inputs; provider fields are translated only by the adapter.
+The live recorder is deliberately disconnected from `RaceState` until its payloads have been captured and validated during a real session. A session can be schedule-active and marked `LIVE` without a live timing adapter being connected.
 
-Adapters own source specifics and the instance's one upstream connection. Normalization owns canonical fields and provenance. State owns no transport logic. Presentations read state, never upstream data.
+## Core invariants
 
-The historical and live implementations expose capabilities: `historical_replay`, `live_timing`, `positions`, `intervals`, `location_xy`, `circuit_shape`, `race_control`, `weather`, `local_time`, and `authenticated`. Consumers use declared capabilities rather than source names. The common source interface is still deferred until the public live collector has been exercised during a session.
+1. `RaceState` is the only canonical presentation state.
+2. Provider payloads are translated by adapters before reaching state or transports.
+3. State reduction is deterministic and independent of HTTP, WebSocket, and UI concerns.
+4. Each replay viewer owns an independent cursor and clock.
+5. One instance owns no more than one upstream live connection.
+6. Capabilities describe available data; consumers do not branch on provider names.
+7. Public and authenticated capabilities remain separate.
+8. Recordings are inputs and operational evidence, not the public API contract.
 
-The API and browser are replay-backed. The circuit outline uses ordered historical coordinates linked by the OpenF1 meeting record. Normal recordings interpolate driver placement between lap boundaries; optional high-volume historical location captures carry exact per-car X/Y in the same canonical driver state. The browser selects the rendering path from `positionMode`, not the provider name. The public live collector keeps provider frames raw so its normalizer can be developed against our own real recording rather than copied or inferred payloads. One collector owns one concurrent upstream connection; reconnects may replace it but must never multiply it.
+## Components
 
-Race-control flags retain source scope. Only whole-track green, yellow, red, chequered, safety-car, and virtual-safety-car events may update `session.track_status`; driver and sector flags remain messages only.
+| Component | Responsibility |
+| --- | --- |
+| `adapters/openf1.py` | Acquire historical endpoint data and translate supported recordings into normalized events |
+| `catalog.py` | Cache recent session metadata and circuit geometry without timing data |
+| `library.py` | Merge catalog entries with local recordings and lazily load the selected session |
+| `events.py` | Define normalized event envelopes and timestamp parsing |
+| `state.py` | Apply events to immutable `RaceState` snapshots |
+| `replay.py` | Load supported recordings and reconstruct state deterministically |
+| `playback.py` | Own replay cursor, source clock, seek, delay, pause, and play behavior |
+| `api.py` | Expose API v1, per-client WebSocket playback, downloads, and compiled browser files |
+| `live.py` | Record unauthenticated public SignalR messages without normalizing them |
+| `terminal.py` | Render canonical state for command-line inspection |
+| `web/` | Render API/WebSocket state; never read a provider directly |
 
-Production deployment is one application container and one process. The browser compiles to static files during the image build; FastAPI serves those files at `/`, REST at `/api/v1/*`, and the replay WebSocket at `/api/v1/stream`. Reverse proxies are external deployment choices, not application services.
+## Canonical state
+
+`RaceState` is an immutable snapshot with schema version 1. Its main children are:
+
+- `session`: identity, official time window, lap, total race laps, local time, status, and whole-track state
+- `circuit`: exact ordered outline, display rotation, provenance, and availability
+- `weather`: observation time, temperatures, humidity, pressure, rain detection, and wind
+- `drivers`: identity, classification, timing, tyre/stint state, sectors, estimated progress, optional source X/Y, and field availability
+- `race_control`: ordered messages with track, sector, driver, and lap scope where provided
+
+Every event produces a new snapshot. Seeking resets the reducer and reapplies all events through the inclusive target time or cursor. This is intentionally simple and deterministic; checkpointing can be added later without changing the state contract.
+
+## Catalog and replay library
+
+The catalog and recordings solve different problems:
+
+- `catalog.json` supplies season/weekend/session discovery, dates, local offsets, and circuit outlines.
+- Recording JSON supplies timing and replay events for one session.
+
+`ReplayLibrary` overlays local recordings on catalog descriptors. It normalizes only the selected recording and caches only that selected resource. A catalog-only session produces a small placeholder state so the UI can show its date, circuit, download status, and live schedule window without inventing timing.
+
+The default session is the currently active scheduled session when one exists. Otherwise it is the newest locally available recording, falling back to the newest catalog entry.
+
+## Track and car position
+
+Circuit shape and car position are separate capabilities:
+
+- `circuit_shape` means an exact ordered historical outline is available.
+- `positions` means timing supports an approximate lap-progress value.
+- `location_xy` means source X/Y samples are present for drivers.
+
+A normal historical recording maps timing-derived progress onto the circuit outline. A recording fetched with `--include-location` can instead display source X/Y samples. These coordinates are still source observations and should not be described as precise lateral racing-line telemetry.
+
+If neither timing progress nor X/Y is available, the circuit remains visible and the UI explains why cars cannot be placed.
+
+## Replay transports
+
+REST endpoints expose catalog metadata, final normalized state, capabilities, replay bounds, and historical download operations. The WebSocket owns interactive replay:
+
+```text
+browser connection
+    |
+    +-- private ReplayController
+    +-- private cursor/playhead
+    +-- private speed and delay
+    `-- shared immutable recording/event history
+```
+
+One viewer seeking or applying a broadcast delay does not move another viewer. Playback advances in source-clock batches rather than sending a snapshot for every upstream event.
+
+Routes and message compatibility are defined in [docs/protocol.md](docs/protocol.md).
+
+## Live-source boundary
+
+`PublicLiveRecorder` currently negotiates one unauthenticated SignalR connection and stores selected public topics in a versioned JSONL file. It does not:
+
+- update `RaceState`
+- feed the browser or API
+- provide a resilient reconnecting service
+- request protected GPS, car-data, or team-radio topics
+- prove that every advertised public topic is available throughout a race weekend
+
+The next live milestone starts with a real-session capture. Only after the raw messages are validated will the project add live normalization and extract a shared source abstraction from the historical and live implementations.
+
+## Deployment
+
+The production image has a Node build stage and a Python runtime stage. Vite produces static browser assets; the runtime contains Python, the Slipstream package, and those assets. FastAPI serves:
+
+```text
+/                 static browser application
+/api/v1/*         REST API
+/api/v1/stream    WebSocket
+```
+
+There is one runtime process, one container, and one internal port (`3444`). A reverse proxy is an external deployment choice. `api-only` mode omits browser routes but keeps REST and WebSocket behavior.
+
+## Adding another source
+
+A new source should:
+
+1. preserve its raw input in a versioned recording format when practical;
+2. translate provider fields into normalized events inside its adapter;
+3. declare capabilities explicitly;
+4. keep authentication and secrets outside recordings and source control;
+5. reuse `RaceState`, replay, API, and presentation layers unchanged;
+6. include focused reducer/adapter tests and capability fallback tests.
+
+Do not introduce a generic source interface merely for symmetry. Extract it when a second validated implementation demonstrates the common operations.
