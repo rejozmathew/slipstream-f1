@@ -3,6 +3,7 @@ name: Test and publish Docker image
 on:
   push:
     branches: ["main"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -38,6 +39,7 @@ jobs:
       - run: npm test
 
   publish:
+    if: github.event_name != 'pull_request'
     needs: [test-python, test-web]
     runs-on: ubuntu-latest
     permissions:
