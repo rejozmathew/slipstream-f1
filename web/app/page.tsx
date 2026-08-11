@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Driver = {
@@ -345,10 +343,7 @@ export default function Home() {
   const [libraryRevision, setLibraryRevision] = useState(0);
   const [transport, setTransport] = useState<"stream" | "rest" | "preview">("preview");
   const socketRef = useRef<WebSocket | null>(null);
-  const apiBase = (
-    process.env.NEXT_PUBLIC_SLIPSTREAM_API
-    ?? (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "")
-  ).replace(/\/$/, "");
+  const apiBase = (import.meta.env.VITE_SLIPSTREAM_API ?? "").replace(/\/$/, "");
   const selectedCatalogEntry = catalog?.sessions.find(
     (item) => item.sessionKey === selectedSessionKey,
   );

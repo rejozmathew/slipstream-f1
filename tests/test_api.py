@@ -67,6 +67,37 @@ def test_recording_directory_can_switch_between_library_sessions() -> None:
     assert selected["data"]["session"]["key"] == "100"
 
 
+def test_web_build_is_served_without_shadowing_api(tmp_path: Path) -> None:
+    web_dir = tmp_path / "web"
+    (web_dir / "assets").mkdir(parents=True)
+    (web_dir / "index.html").write_text(
+        "<!doctype html><title>Slipstream F1</title><div id='root'></div>",
+        encoding="utf-8",
+    )
+    (web_dir / "assets" / "app.js").write_text("// built asset", encoding="utf-8")
+
+    with TestClient(create_app(RECORDING, web_dir=web_dir)) as client:
+        index = client.get("/")
+        browser_route = client.get("/replay/9165")
+        asset = client.get("/assets/app.js")
+        state = client.get("/api/v1/state")
+        missing_api = client.get("/api/v1/missing")
+
+    assert index.status_code == 200
+    assert "Slipstream F1" in index.text
+    assert browser_route.status_code == 200
+    assert browser_route.text == index.text
+    assert asset.text == "// built asset"
+    assert state.status_code == 200
+    assert missing_api.status_code == 404
+
+
+def test_api_only_mode_has_no_browser_routes() -> None:
+    with TestClient(create_app(RECORDING)) as client:
+        assert client.get("/").status_code == 404
+        assert client.get("/api/v1/state").status_code == 200
+
+
 def test_websocket_uses_per_client_seek_cursor() -> None:
     with (
         TestClient(create_app(RECORDING)) as client,
