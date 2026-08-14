@@ -9,6 +9,25 @@ from .events import NormalizedEvent, parse_timestamp
 
 
 @dataclass(frozen=True)
+class LapObservation:
+    """One factual completed-lap observation; analytics are derived elsewhere."""
+
+    lap: int
+    started_at: str
+    duration: float | None = None
+    sector_1: float | None = None
+    sector_2: float | None = None
+    sector_3: float | None = None
+    compound: str | None = None
+    stint_number: int | None = None
+    tyre_age: int | None = None
+    pit_in: bool | None = None
+    pit_out: bool | None = None
+    quality: str = "unknown"
+    contamination_reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class DriverState:
     number: str
     code: str | None = None
@@ -32,6 +51,7 @@ class DriverState:
     sector_1: float | None = None
     sector_2: float | None = None
     sector_3: float | None = None
+    lap_history: tuple[LapObservation, ...] = ()
     availability: dict[str, str] = field(default_factory=dict)
     status: str = "UNKNOWN"
 
@@ -144,13 +164,23 @@ class RaceState:
             number = str(event.payload["number"])
             current = self.drivers.get(number, DriverState(number=number))
             updates = {k: v for k, v in event.payload.items() if k != "number"}
+            observation_payload = updates.pop("lap_observation", None)
             explicit_availability = updates.pop("availability", {})
             availability = {
                 **current.availability,
                 **{key: "available" for key in updates},
                 **explicit_availability,
             }
-            updates["availability"] = availability
+            item = replace(current, **updates)
+            if isinstance(observation_payload, dict):
+                observation_data = dict(observation_payload)
+                observation_data["contamination_reasons"] = tuple(
+                    observation_data.get("contamination_reasons", ())
+                )
+                observation = LapObservation(**observation_data)
+                item = replace(item, lap_history=(*item.lap_history, observation))
+                availability["lap_history"] = "available"
+            item = replace(item, availability=availability)
             session = self.session
             event_lap = updates.get("lap")
             if isinstance(event_lap, int) and (
@@ -161,7 +191,7 @@ class RaceState:
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(session, event.occurred_at),
-                drivers={**self.drivers, number: replace(current, **updates)},
+                drivers={**self.drivers, number: item},
             )
         if event.kind == "weather":
             updates = dict(event.payload)

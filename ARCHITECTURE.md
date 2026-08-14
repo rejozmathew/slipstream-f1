@@ -59,7 +59,7 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 | `api.py` | Expose API v1, per-client WebSocket playback, downloads, and compiled browser files |
 | `live.py` | Record unauthenticated public SignalR messages without normalizing them |
 | `terminal.py` | Render canonical state for command-line inspection |
-| `web/` | Render API/WebSocket state; never read a provider directly |
+| `web/` | Typed API/WebSocket clients, session context, shared factual panels, and Race/Qualifying/Practice views; never read a provider directly |
 
 ## Canonical state
 
@@ -68,10 +68,18 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 - `session`: identity, official time window, lap, total race laps, local time, status, and whole-track state
 - `circuit`: exact ordered outline, display rotation, provenance, and availability
 - `weather`: observation time, temperatures, humidity, pressure, rain detection, and wind
-- `drivers`: identity, classification, timing, tyre/stint state, sectors, estimated progress, optional source X/Y, and field availability
+- `drivers`: identity, classification, timing, tyre/stint state, sectors, estimated progress, optional source X/Y, field availability, and append-only factual lap observations
 - `race_control`: ordered messages with track, sector, driver, and lap scope where provided
 
 Every event produces a new snapshot. Seeking resets the reducer and reapplies all events through the inclusive target time or cursor. This is intentionally simple and deterministic; checkpointing can be added later without changing the state contract.
+
+Lap history records evidence, not analytics. Each observation can retain duration, sectors, compound/stint context, tyre age, pit-in/out evidence, and quality reasons. Strategy and representative-pace calculations must consume these observations in tested backend logic later; they do not belong in `RaceState` or a parallel frontend truth model.
+
+## Browser architecture
+
+The Vite application has a thin entry page. `web/api` owns versioned HTTP and WebSocket transport, `web/domain` owns canonical TypeScript contracts and session classification, and `web/hooks` coordinates one selected replay resource. Shared timing/analysis components are composed by separate Race, Qualifying, and Practice views.
+
+The Race view alone owns the draggable Timing-to-Analysis split and its Balanced, Timing Focus, and Strategy Focus presets. Qualifying and Practice have authored layouts rather than inheriting that divider. Missing capabilities render `UNKNOWN`, `UNSUPPORTED`, or unavailable states; production code never substitutes plausible sample race data.
 
 ## Catalog and replay library
 

@@ -30,3 +30,30 @@ Verification:
 - Add capability/fallback coverage when a field can be available, unavailable, unsupported, or stale.
 - Keep public routes and event envelopes versioned as documented in `docs/protocol.md`.
 - Run Python lint/tests and web lint/build tests for changes that cross the container boundary.
+
+## Local subagent delegation
+
+The primary Codex agent owns architecture, implementation decisions, substantial
+source-code changes, difficult cross-system debugging, and final acceptance.
+
+Use local subagents proactively for bounded work when delegation is cheaper than
+doing the intermediate work in the primary context.
+
+- `local_explorer`: use for read-heavy repository exploration, locating code,
+  tracing execution/data flow, mapping configuration, and gathering evidence.
+- `local_validator`: use for tests, lint, type checks, builds, reproduction,
+  logs, and bounded external verification needed to validate a change.
+- `local_reviewer`: use after implementation for an independent read-only review
+  focused on correctness, regressions, security, edge cases, and missing tests.
+- `local_researcher`: use for bounded current web research, official documentation,
+  release/version checks, APIs, compatibility research, and source gathering.
+
+Prefer local agents for noisy intermediate work that can be summarized back to
+the primary agent.
+
+Do not delegate architecture, ambiguous product decisions, major code changes,
+or final acceptance to a local agent.
+
+Avoid spawning multiple local agents concurrently unless the tasks are genuinely
+independent; they share the same local model/GPU.
+

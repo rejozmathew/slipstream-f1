@@ -85,6 +85,22 @@ def test_stint_and_pit_state_changes_at_replay_boundaries() -> None:
         1,
     )
     assert hard.availability["interval_to_ahead"] == "unsupported"
+    assert [
+        (
+            observation.lap,
+            observation.compound,
+            observation.stint_number,
+            observation.pit_in,
+            observation.pit_out,
+            observation.quality,
+            observation.contamination_reasons,
+        )
+        for observation in hard.lap_history
+    ] == [
+        (18, "MEDIUM", 1, False, False, "representative", ()),
+        (19, "MEDIUM", 1, True, False, "contaminated", ("pit_in",)),
+        (20, "HARD", 2, False, True, "contaminated", ("pit_out",)),
+    ]
     checkpoints = {
         "lap_19": {
             "compound": medium.compound,

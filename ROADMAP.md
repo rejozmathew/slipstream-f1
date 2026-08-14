@@ -1,76 +1,60 @@
 # Roadmap
 
-Slipstream has completed its historical-replay foundation. The roadmap now focuses on turning the experimental public live recorder into a reliable normalized live source without weakening replay behavior or requiring authenticated data.
+Slipstream has a working historical-replay foundation. Product work proceeds against that foundation without replacing canonical `RaceState`, replay controls, API v1, or the single-container deployment.
 
-## Current baseline
+## Milestone 1 - frontend and contract foundation
 
-The following is implemented and tested:
+- typed HTTP, state, and WebSocket clients
+- modular desktop application shell
+- canonical Race, Qualifying, Practice session classifier
+- replay-driven Race, Qualifying, and Practice layouts
+- Race-only draggable Timing-to-Analysis divider and presets
+- explicit disconnected, unavailable, `UNKNOWN`, and `UNSUPPORTED` states
+- no production sample-data fallback
+- factual lap-observation history with quality, pit, compound, and stint extension points
+- preserved replay catalog, download, play, pause, seek, speed, terminal, and API v1 behavior
 
-- historical OpenF1 session, weekend, and season acquisition
-- versioned raw recording and lightweight catalog formats
-- deterministic normalization into immutable `RaceState` snapshots
-- race, qualifying, sprint, and practice replay
-- session discovery for the current and two preceding seasons
-- browser downloads for finished catalog sessions
-- exact historical circuit outlines loaded independently of timing recordings
-- timing-derived car placement and optional historical source X/Y
-- weather, rain sensor, track status, race control, and circuit-local time
-- per-viewer WebSocket play, pause, seek, speed, and delay
-- terminal, REST API v1, WebSocket, and browser outputs
-- one-container deployment for Docker, Unraid, and other container hosts
-- golden-file and focused regression coverage
+Strategy analytics, Recommended Battle, authentication, Sync Groups, devices, mobile/landscape, TV Mode, normalized live timing, and hardware are deliberately outside this milestone.
 
-## Next milestone: normalized public live timing
+## Milestone 2 - responsive layouts and focused views
 
-The next release line should prove the live path during a real session before generalizing it.
+- mobile portrait and mobile landscape states; no `/mobile` or `/landscape` routes
+- authored TV Mode
+- layout preferences and ownership mechanics
+- Driver Focus and factual Battle
+- desktop layout editing beyond the Race divider
 
-1. Capture at least one complete real-session public SignalR recording.
-2. Document which topics and fields are actually available without authentication.
-3. Normalize the validated public messages into the existing event model and `RaceState`.
-4. Feed live state through the same API and browser presentation used by replay.
-5. Add reconnect behavior while preserving one upstream connection per instance.
-6. Add a bounded in-memory event buffer for per-viewer broadcast delay.
-7. Make live/stale/unavailable states explicit in the UI and API.
-8. Add golden replay tests derived from the project’s own public capture.
-9. Extract a common source lifecycle only after historical and live implementations demonstrate it.
+## Milestone 3 - persistent control plane and access
 
-The live source must degrade by capability. Missing protected GPS or telemetry must never prevent public timing from operating.
+- SQLite migrations under `/data`
+- first-run Admin creation, including existing installs with recordings but no database
+- Viewer Profiles with reusable password/passphrase credentials
+- remembered sessions, access policy, preferences, and Administration
+- anonymous access restricted to normalized viewer catalog/capability/state/replay metadata and viewer stream endpoints
+- no anonymous downloads, management, diagnostics, sources, groups/devices, or hardware control
 
-## Enhanced-source integration
+Existing recordings and catalog data must be preserved. There is no anonymous migration grace period.
 
-After public live timing is stable:
+## Milestone 4 - Sync Groups and devices
 
-- define an adapter boundary for authenticated or paid sources;
-- keep credentials in runtime configuration only;
-- expose authenticated status and per-field capabilities explicitly;
-- add live source X/Y without changing browser logic that consumes `positionMode`;
-- test fallback from source X/Y to timing estimates to unavailable placement;
-- ensure one selected upstream source owns the instance connection.
+- server-owned shared replay/live controller per group
+- server-serialized last-write-wins updates
+- authoritative monotonically increasing group revision/sequence
+- temporary Independent View without changing group state
+- expiring short codes only for device and hardware pairing
 
-No authenticated capture, token, cookie, or protected payload belongs in the repository.
+V1 does not use controller leases or locks.
 
-## Product work
+## Milestone 5 - normalized public live timing
 
-Potential product features after live timing is dependable:
+- validate a complete public real-session capture
+- normalize the proven public topics through the existing adapter/event/`RaceState` path
+- one upstream connection per instance with reconnect and bounded delay behavior
+- same normalized viewer presentation for replay and live
+- explicit stale/unavailable capability states
 
-- configurable battle groups, including two-on-two comparisons;
-- gap and position progression over a selected time window;
-- replay bookmarks and shareable session/time links;
-- recording retention and storage visibility;
-- hardware and LED clients using API v1;
-- API conformance fixtures for third-party clients.
+Authenticated sources remain optional adapters configured only at runtime. Credentials and protected captures never belong in the repository.
 
-## Release quality
+## Later analytics and hardware
 
-Before declaring a stable 1.0 contract:
-
-- validate the live source across multiple session types and race weekends;
-- publish explicit recording migration rules;
-- define API deprecation and compatibility windows;
-- add backup/restore documentation for `/data`;
-- add observability for upstream state, reconnects, and recording health;
-- test upgrades and rollbacks using immutable container tags.
-
-## Non-goals for the current milestone
-
-Slipstream is not currently a strategy simulator, fantasy platform, news product, predictive analytics system, or full authenticated telemetry archive. Those areas should not complicate the historical replay and public live timing core.
+Strategy and pace analytics must be provider-independent, tested production logic with provenance and robust clean-lap selection. Insufficient evidence produces `UNKNOWN`; the UI never invents a fallback. Hardware clients consume versioned normalized contracts and remain independent of provider payloads.

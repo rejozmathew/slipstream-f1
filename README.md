@@ -10,11 +10,11 @@ The usable product today is historical replay. A public live-feed recorder also 
 | --- | --- |
 | Recent-season session catalog | Loads the current season and two preceding seasons by default |
 | Historical session download | Finished practice, qualifying, sprint, and race sessions can be downloaded from the browser or CLI |
-| Replay timing | Timing tower, gaps, intervals, laps, tyres, stints, sectors, pits, and race-control messages |
+| Replay timing | Race, Qualifying, and Practice layouts driven by canonical timing, lap, tyre, stint, sector, pit, and race-control facts |
 | Track display | Preloaded historical circuit outline, independent of timing downloads |
 | Car placement | Timing-derived estimate by default; optional historical source X/Y when downloaded |
 | Conditions | Weather observations, rain sensor state, whole-track status, and circuit-local time |
-| Playback | Per-browser play, pause, speed, timeline seek, relative seek, and delay cursor |
+| Playback | Per-browser play, pause, speed, timeline seek, and relative seek |
 | Outputs | Browser, API v1, WebSocket snapshots, and terminal output |
 | Deployment | One container, one process, and one internal port |
 
@@ -97,6 +97,7 @@ Run the checks with:
 python -m ruff check src tests
 python -m pytest
 cd web
+npm run typecheck
 npm run lint
 npm test
 ```

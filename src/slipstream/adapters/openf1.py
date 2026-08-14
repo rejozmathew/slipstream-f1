@@ -356,6 +356,19 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             )
         )
     best_laps: dict[str, float] = {}
+    pit_data_available = "pit" in endpoints
+    pit_laps = {
+        (str(item["driver_number"]), int(item["lap_number"]))
+        for item in endpoints.get("pit", [])
+        if item.get("driver_number") is not None
+        and isinstance(item.get("lap_number"), int)
+    }
+    neutralized_laps = {
+        int(item["lap_number"])
+        for item in endpoints.get("race_control", [])
+        if isinstance(item.get("lap_number"), int)
+        and _is_neutralized_message(item)
+    }
     for lap in endpoints.get("laps", []):
         if not lap.get("date_start"):
             continue
@@ -376,6 +389,54 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             stint_laps = lap_number - int(stint["lap_start"]) + 1
             tyre_age = int(stint.get("tyre_age_at_start") or 0) + stint_laps
             compound = stint.get("compound")
+        pit_in = None
+        pit_out = None
+        if pit_data_available and isinstance(lap_number, int):
+            pit_in = (number, lap_number) in pit_laps
+            pit_out = bool(lap.get("is_pit_out_lap")) or (
+                (number, lap_number - 1) in pit_laps
+            )
+        contamination_reasons = []
+        if pit_in:
+            contamination_reasons.append("pit_in")
+        if pit_out:
+            contamination_reasons.append("pit_out")
+        if isinstance(lap_number, int) and lap_number in neutralized_laps:
+            contamination_reasons.append("neutralized_track")
+        duration_value = (
+            float(duration) if isinstance(duration, (int, float)) and duration > 0 else None
+        )
+        if duration_value is None:
+            contamination_reasons.append("missing_duration")
+        quality = (
+            "unknown"
+            if duration_value is None
+            else "contaminated"
+            if contamination_reasons
+            else "representative"
+        )
+        observation = None
+        if isinstance(lap_number, int):
+            observation = {
+                "lap": lap_number,
+                "started_at": lap["date_start"],
+                "duration": duration_value,
+                "sector_1": lap.get("duration_sector_1"),
+                "sector_2": lap.get("duration_sector_2"),
+                "sector_3": lap.get("duration_sector_3"),
+                "compound": compound,
+                "stint_number": (
+                    int(stint["stint_number"])
+                    if stint is not None
+                    and isinstance(stint.get("stint_number"), int)
+                    else None
+                ),
+                "tyre_age": tyre_age,
+                "pit_in": pit_in,
+                "pit_out": pit_out,
+                "quality": quality,
+                "contamination_reasons": contamination_reasons,
+            }
         events.append(
             _timing_event(
                 lap["date_start"],
@@ -389,6 +450,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 sector_1=lap.get("duration_sector_1"),
                 sector_2=lap.get("duration_sector_2"),
                 sector_3=lap.get("duration_sector_3"),
+                lap_observation=observation,
             )
         )
     for position in endpoints.get("position", []):
@@ -584,6 +646,13 @@ def _format_duration(seconds: object) -> str | None:
     minutes, remainder = divmod(float(seconds), 60)
     return f"{int(minutes)}:{remainder:06.3f}"
 
+
+def _is_neutralized_message(message: dict[str, Any]) -> bool:
+    flag = str(message.get("flag") or "").upper()
+    text = str(message.get("message") or "").upper()
+    return flag in {"YELLOW", "DOUBLE YELLOW", "RED"} or any(
+        token in text for token in ("SAFETY CAR", "VIRTUAL SAFETY CAR", "RED FLAG")
+    )
 
 def _format_gap(value: object) -> str | None:
     if value is None:

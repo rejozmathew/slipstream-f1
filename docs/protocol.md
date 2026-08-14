@@ -131,6 +131,12 @@ Driver and weather fields carry an `availability` map separate from their values
 
 `null` alone must not mean all four cases.
 
+### Normalized lap observations
+
+Each driver has an append-only `lap_history` of factual completed-lap observations. An observation records lap number and start time, duration and sectors when supplied, compound, stint number, tyre age, pit-in/pit-out evidence, and provenance-friendly quality fields.
+
+`quality` is `representative`, `contaminated`, or `unknown`. `contamination_reasons` names only observed conditions such as `pit_in`, `pit_out`, `neutralized_track`, or `missing_duration`; it is not a strategy verdict. A missing or ambiguous fact stays `null`/`unknown`. Future analytics may consume this history, but calculated pace or strategy does not become part of canonical `RaceState`.
+
 ## Circuit, position, and conditions
 
 `RaceState.circuit.path` is an ordered array of `[x, y]` points. `rotation` is the source display rotation and `source` preserves geometry provenance.
