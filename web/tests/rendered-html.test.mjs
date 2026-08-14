@@ -28,7 +28,7 @@ test("builds the replay-driven desktop shell as static files", async () => {
   assert.match(bundle, /No sample race has been substituted/);
   assert.match(bundle, /PHASE - UNKNOWN/);
   assert.match(bundle, /ANALYTICS - NOT ENABLED/);
-  assert.match(bundle, /TV SYNC/);
+  assert.match(bundle, /SYNC DELAY/);
   assert.doesNotMatch(bundle, /Carlos Sainz|Singapore Grand Prix/);
   assert.doesNotMatch(index + bundle, /codex-preview|react-loading-skeleton|Building your site/);
 });

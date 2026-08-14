@@ -7,13 +7,19 @@ type DataValueProps = {
   value: ReactNode | null | undefined;
   availability?: AvailabilityStatus;
   className?: string;
+  compact?: boolean;
 };
 
-export function DataValue({ value, availability, className = "" }: DataValueProps) {
+export function DataValue({ value, availability, className = "", compact = false }: DataValueProps) {
   const missing = value === null || value === undefined || value === "";
+  const label = missingLabel(availability);
   return (
-    <span className={`${className} ${missing ? "data-missing" : ""}`.trim()}>
-      {missing ? missingLabel(availability) : value}
+    <span
+      className={`${className} ${missing ? "data-missing" : ""} ${availability === "stale" ? "data-stale" : ""}`.trim()}
+      title={missing && compact ? label : undefined}
+      aria-label={missing && compact ? label : undefined}
+    >
+      {missing ? compact ? "\u2014" : label : value}
     </span>
   );
 }

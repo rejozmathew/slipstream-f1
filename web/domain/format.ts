@@ -23,8 +23,9 @@ export function formatSector(value: number | null) {
 
 export function utcOffsetLabel(offset: string | null) {
   if (!offset) return "";
-  const sign = offset.startsWith("-") || offset.startsWith("+") ? "" : "+";
-  return `UTC${sign}${offset.slice(0, 6)}`;
+  const parts = offset.match(/^([+-]?)(\d{2}):(\d{2})/);
+  if (!parts) return `UTC${offset}`;
+  return `UTC${parts[1] || "+"}${parts[2]}:${parts[3]}`;
 }
 
 export function missingLabel(status?: AvailabilityStatus) {
