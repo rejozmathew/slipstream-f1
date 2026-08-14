@@ -12,6 +12,7 @@ type TimingTowerProps = {
   variant: TimingVariant;
   replayAvailable: boolean;
   toolbar?: ReactNode;
+  onSelectDriver?: (driverNumber: string) => void;
 };
 
 function compoundClass(compound: string | null) {
@@ -28,9 +29,9 @@ function DriverIdentity({ driver }: { driver: Driver }) {
   );
 }
 
-function RaceRow({ driver }: { driver: Driver }) {
+function RaceRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
   return (
-    <div className="timing-row timing-race" role="row">
+    <button type="button" className="timing-row timing-race" role="row" onClick={() => onSelect?.(driver.number)}>
       <strong>{driver.position ?? "-"}</strong><DriverIdentity driver={driver} />
       <DataValue compact value={driver.position === 1 ? "-" : driver.interval_to_ahead} availability={driver.availability.interval_to_ahead} />
       <DataValue compact value={driver.position === 1 ? "LEADER" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} />
@@ -38,13 +39,13 @@ function RaceRow({ driver }: { driver: Driver }) {
       <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
       <DataValue compact value={driver.last_lap ?? driver.best_lap} availability={driver.availability.last_lap} />
       <span>{driver.pit_count}</span>
-    </div>
+    </button>
   );
 }
 
-function QualifyingRow({ driver }: { driver: Driver }) {
+function QualifyingRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
   return (
-    <div className="timing-row timing-qualifying" role="row">
+    <button type="button" className="timing-row timing-qualifying" role="row" onClick={() => onSelect?.(driver.number)}>
       <strong>{driver.position ?? "-"}</strong><DriverIdentity driver={driver} />
       <DataValue compact value={driver.status} />
       <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} />
@@ -52,13 +53,13 @@ function QualifyingRow({ driver }: { driver: Driver }) {
       <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} />
       <DataValue compact value={driver.best_lap ?? driver.last_lap} availability={driver.availability.best_lap} />
       <i className={compoundClass(driver.compound)}>{driver.compound?.[0] ?? "?"}</i>
-    </div>
+    </button>
   );
 }
 
-function PracticeRow({ driver }: { driver: Driver }) {
+function PracticeRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
   return (
-    <div className="timing-row timing-practice" role="row">
+    <button type="button" className="timing-row timing-practice" role="row" onClick={() => onSelect?.(driver.number)}>
       <strong>{driver.position ?? "-"}</strong><DriverIdentity driver={driver} />
       <i className={compoundClass(driver.compound)}>{driver.compound?.[0] ?? "?"}</i>
       <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
@@ -66,7 +67,7 @@ function PracticeRow({ driver }: { driver: Driver }) {
       <DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} />
       <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
       <span>{driver.pit_count}</span>
-    </div>
+    </button>
   );
 }
 
@@ -76,7 +77,7 @@ const headers = {
   practice: ["P", "DRIVER", "TYRE", "AGE", "LAST", "BEST", "STINT", "PIT"],
 };
 
-export function TimingTower({ drivers, variant, replayAvailable, toolbar }: TimingTowerProps) {
+export function TimingTower({ drivers, variant, replayAvailable, toolbar, onSelectDriver }: TimingTowerProps) {
   const Row = variant === "race" ? RaceRow : variant === "qualifying" ? QualifyingRow : PracticeRow;
   return (
     <Panel eyebrow={variant === "race" ? "CLASSIFICATION" : variant === "qualifying" ? "SESSION CLASSIFICATION" : "RUN CLASSIFICATION"} title="Timing tower" action={<div className="panel-actions"><span className="panel-badge">{drivers.length} DRIVERS</span>{toolbar}</div>} className="timing-panel">
@@ -86,7 +87,7 @@ export function TimingTower({ drivers, variant, replayAvailable, toolbar }: Timi
         <div className={`timing-header timing-${variant}`} role="row">
           {headers[variant].map((header) => <span key={header}>{header}</span>)}
         </div>
-        {drivers.map((driver) => <Row driver={driver} key={driver.number} />)}
+        {drivers.map((driver) => <Row driver={driver} onSelect={onSelectDriver} key={driver.number} />)}
       </div>
     </Panel>
   );

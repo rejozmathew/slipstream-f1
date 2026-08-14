@@ -56,12 +56,15 @@ REST state responses and WebSocket snapshots use:
 | `GET /api/v1/state` | Return the final normalized state for a selected session resource |
 | `GET /api/v1/capabilities` | Describe the selected source/session data capabilities |
 | `GET /api/v1/replay` | Return event count, time bounds, availability, live schedule status, and position mode |
+| `GET /api/v1/driver-history` | Return one driver's normalized lap evidence on demand, outside high-frequency state snapshots |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
 | `WS /api/v1/stream` | Create an independent interactive replay controller for one client |
 
 Pass `session_key` as a query parameter where a session can be selected. Omitting it uses the library default.
 
 `POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past. Downloads are serialized per application instance. After a successful write, the library is refreshed and the session becomes available without restarting the process.
+
+`GET /api/v1/driver-history?session_key=...&driver_number=...` returns source-neutral completed-lap observations for Driver Focus and future analytics. It is an on-demand viewer endpoint rather than part of `RaceState`; consumers filter the returned evidence against the current replay time or cursor. An unavailable recording returns an empty evidence list with `available: false`.
 
 ## Catalog semantics
 

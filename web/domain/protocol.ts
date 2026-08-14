@@ -113,6 +113,32 @@ export type ReplayMetadata = {
   positionMode: PositionMode;
 };
 
+export type LapObservation = {
+  sequence: number;
+  occurredAt: string;
+  lap: number;
+  started_at: string;
+  duration: number | null;
+  sector_1: number | null;
+  sector_2: number | null;
+  sector_3: number | null;
+  compound: string | null;
+  stint_number: number | null;
+  tyre_age: number | null;
+  pit_in: boolean | null;
+  pit_out: boolean | null;
+  quality: "representative" | "contaminated" | "unknown";
+  contamination_reasons: string[];
+};
+
+export type DriverHistory = {
+  v: 1;
+  sessionKey: string;
+  driverNumber: string;
+  available: boolean;
+  observations: LapObservation[];
+};
+
 export type CatalogSession = {
   sessionKey: string;
   year: number;

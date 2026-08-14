@@ -15,7 +15,7 @@ export function SessionStrip({ session, selected }: { session: RaceState["sessio
       <div className="session-stat"><span>DATE</span><DataValue compact value={date ? formatSessionDate(date) : null} /></div>
       <div className="session-stat"><span>LOCAL</span><DataValue compact value={session.local_time ? `${session.local_time.slice(11, 19)} ${utcOffsetLabel(session.gmt_offset)}` : null} /></div>
       <div className="session-stat lap-stat"><span>LAP</span><strong><DataValue compact value={session.lap} /> <i>/</i> <DataValue compact value={session.total_laps} /></strong></div>
-      <div className="session-stat track-stat"><span>TRACK</span><DataValue compact value={trackStatus} /></div>
+      <div className="session-stat track-stat" data-track-status={trackStatus?.toLowerCase().replaceAll(" ", "-")}><span>TRACK</span><DataValue compact value={trackStatus} /></div>
     </section>
   );
 }

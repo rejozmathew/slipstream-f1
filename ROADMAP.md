@@ -18,11 +18,14 @@ Strategy calculations, Recommended Battle, authentication, Sync Groups, devices,
 
 ## Milestone 2 - responsive layouts and focused views
 
+- final Session, Battle, TV Mode, and Settings product navigation
 - mobile portrait and mobile landscape states; no `/mobile` or `/landscape` routes
 - authored TV Mode
-- layout preferences and ownership mechanics
-- Driver Focus and factual Battle
-- desktop layout editing beyond the Race divider
+- layout schema/editor using Instance default -> User preference -> Device override ownership
+- contextual Driver Focus using on-demand normalized lap evidence
+- factual Battle with Recommended, Leader, and Pinned pair selection
+- independent background and accent settings with locked semantic state colors
+- truthful production Strategy shells without calculations
 
 ## Milestone 3 - persistent control plane and access
 
@@ -51,7 +54,7 @@ Historical replay is the development and regression harness for provider-indepen
 
 - clean-lap selection from source-neutral session evidence with provenance
 - representative pace and strategy calculations with truthful `UNKNOWN` results when evidence is insufficient
-- factual Battle and Recommended Battle backed by tested production logic
+- strategy-aware battle scoring and recommendations backed by tested production logic
 - no frontend strategy calculations or parallel dashboard truth model
 
 ## Milestone 6 - normalized public live timing

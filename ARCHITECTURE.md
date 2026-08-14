@@ -78,9 +78,11 @@ Full lap history is not part of `RaceState`. `SessionEvidence` reconstructs appe
 
 ## Browser architecture
 
-The Vite application has a thin entry page. `web/api` owns versioned HTTP and WebSocket transport, `web/domain` owns canonical TypeScript contracts and session classification, and `web/hooks` coordinates one selected replay resource. Shared timing/analysis components are composed by separate Race, Qualifying, and Practice views.
+The Vite application has a thin entry page. `web/api` owns versioned HTTP and WebSocket transport, `web/domain` owns canonical TypeScript contracts, session classification, appearance, and layout resolution, and `web/hooks` coordinates one selected replay resource plus device-local presentation preferences. The global product shell exposes Session, Battle, TV Mode, and My Settings. Race, Qualifying, and Practice remain automatic session layouts; Driver Focus opens contextually from a timing row.
 
-The Race view alone owns the draggable Timing-to-Analysis split and its Balanced, Timing Focus, and Strategy Focus presets. Qualifying and Practice have authored layouts rather than inheriting that divider. Missing capabilities render `UNKNOWN`, `UNSUPPORTED`, or unavailable states; production code never substitutes plausible sample race data.
+The Race view alone owns the draggable Timing-to-Analysis split and its Balanced, Timing Focus, and Strategy Focus presets. Its analysis modules resolve through the `Instance default -> User preference -> Device override` layout model and can be reordered, resized, or hidden. Qualifying and Practice have authored layouts rather than inheriting that divider. Responsive session layouts are re-authored for portrait and landscape instead of scaling desktop columns. Missing capabilities render `UNKNOWN`, `UNSUPPORTED`, or unavailable states; production code never substitutes plausible sample race data.
+
+Driver Focus requests normalized lap evidence on demand from `/api/v1/driver-history`; full history never returns to the high-frequency state snapshot. Factual Battle derives only values supported by the current canonical state and observed replay samples. Strategy shells remain present but disabled until tested provider-independent analytics exist. Appearance and device layout changes work locally today; user and instance persistence wait for the authenticated control plane.
 
 ## Catalog and replay library
 

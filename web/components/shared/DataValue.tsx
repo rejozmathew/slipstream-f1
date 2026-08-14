@@ -15,7 +15,7 @@ export function DataValue({ value, availability, className = "", compact = false
   const label = missingLabel(availability);
   return (
     <span
-      className={`${className} ${missing ? "data-missing" : ""} ${availability === "stale" ? "data-stale" : ""}`.trim()}
+      className={`data-value ${className} ${missing ? "data-missing" : ""} ${availability === "stale" ? "data-stale" : ""}`.trim()}
       title={missing && compact ? label : undefined}
       aria-label={missing && compact ? label : undefined}
     >

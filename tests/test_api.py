@@ -32,6 +32,24 @@ def test_versioned_state_and_capabilities_endpoints() -> None:
     assert replay.json()["durationSeconds"] > 0
 
 
+def test_driver_history_is_on_demand_and_outside_race_state() -> None:
+    with TestClient(create_app(RECORDING)) as client:
+        state = client.get("/api/v1/state").json()
+        history = client.get(
+            "/api/v1/driver-history?session_key=9165&driver_number=55"
+        )
+
+    assert history.status_code == 200
+    payload = history.json()
+    assert payload["v"] == 1
+    assert payload["driverNumber"] == "55"
+    assert payload["available"] is True
+    assert payload["observations"][0]["lap"] == 62
+    assert payload["observations"][0]["occurredAt"]
+    assert "quality" in payload["observations"][0]
+    assert "lap_history" not in state["data"]["drivers"]["55"]
+
+
 def test_catalog_exposes_season_weekend_and_session_metadata() -> None:
     with TestClient(create_app(RECORDING)) as client:
         catalog = client.get("/api/v1/catalog").json()

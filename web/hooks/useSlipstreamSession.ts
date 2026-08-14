@@ -16,6 +16,7 @@ export type TransportState = "connecting" | "stream" | "rest" | "disconnected";
 
 export function useSlipstreamSession() {
   const [state, setState] = useState<RaceState>(EMPTY_RACE_STATE);
+  const [stateHistory, setStateHistory] = useState<RaceState[]>([]);
   const [sequence, setSequence] = useState(0);
   const [metadata, setMetadata] = useState<ReplayMetadata | null>(null);
   const [capabilities, setCapabilities] = useState<SourceCapabilities | null>(null);
@@ -62,6 +63,7 @@ export function useSlipstreamSession() {
     const applyEnvelope = (envelope: StateEnvelope) => {
       if (!active) return;
       setState(envelope.data);
+      setStateHistory((current) => current.at(-1)?.updated_at === envelope.data.updated_at ? current : [...current, envelope.data].slice(-90));
       setSequence(envelope.seq);
       setPlayhead(envelope.sessionTime ?? envelope.data.updated_at);
       setIsPlaying(envelope.playback?.playing ?? false);
@@ -144,6 +146,7 @@ export function useSlipstreamSession() {
     setMetadata(null);
     setCapabilities(null);
     setState(EMPTY_RACE_STATE);
+    setStateHistory([]);
     setSequence(0);
     setPlayhead(null);
     setIsPlaying(false);
@@ -164,6 +167,7 @@ export function useSlipstreamSession() {
       setMetadata(null);
       setCapabilities(null);
       setState(EMPTY_RACE_STATE);
+      setStateHistory([]);
       setSequence(0);
       setPlayhead(null);
       setIsPlaying(false);
@@ -179,6 +183,7 @@ export function useSlipstreamSession() {
 
   return {
     state,
+    stateHistory,
     sequence,
     metadata,
     capabilities,
