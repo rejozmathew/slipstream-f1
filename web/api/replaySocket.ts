@@ -21,8 +21,11 @@ export function connectReplaySocket(url: string, handlers: ReplaySocketHandlers)
   socket.onclose = handlers.onClose;
   return {
     close: () => socket.close(),
+    isOpen: () => socket.readyState === WebSocket.OPEN,
     send(command: ReplayCommand) {
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
+      if (socket.readyState !== WebSocket.OPEN) return false;
+      socket.send(JSON.stringify(command));
+      return true;
     },
   };
 }

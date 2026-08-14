@@ -8,14 +8,14 @@ export function SessionStrip({ session, selected }: { session: RaceState["sessio
   return (
     <section className="session-strip">
       <div className="session-title">
-        <span>{selected?.isLive ? "LIVE SESSION" : "REPLAY SESSION"}</span>
+        <span className={`session-mode ${selected?.isLive ? "live" : ""}`}>{selected?.isLive ? "LIVE" : "REPLAY"}</span>
         <h1>{session.meeting_name ?? selected?.meetingName ?? "Session unavailable"}</h1>
         <p>{session.name ?? selected?.sessionName ?? "Select a session from the replay library"}</p>
       </div>
-      <div className="session-stat"><span>DATE</span><DataValue value={date ? formatSessionDate(date) : null} /></div>
-      <div className="session-stat"><span>TRACK LOCAL</span><DataValue value={session.local_time ? `${session.local_time.slice(11, 19)} ${utcOffsetLabel(session.gmt_offset)}` : null} /></div>
-      <div className="session-stat lap-stat"><span>LAP</span><strong><DataValue value={session.lap} /> <i>/</i> <DataValue value={session.total_laps} /></strong></div>
-      <div className="session-stat"><span>TRACK</span><DataValue value={trackStatus} /></div>
+      <div className="session-stat"><span>DATE</span><DataValue compact value={date ? formatSessionDate(date) : null} /></div>
+      <div className="session-stat"><span>LOCAL</span><DataValue compact value={session.local_time ? `${session.local_time.slice(11, 19)} ${utcOffsetLabel(session.gmt_offset)}` : null} /></div>
+      <div className="session-stat lap-stat"><span>LAP</span><strong><DataValue compact value={session.lap} /> <i>/</i> <DataValue compact value={session.total_laps} /></strong></div>
+      <div className="session-stat track-stat" data-track-status={trackStatus?.toLowerCase().replaceAll(" ", "-")}><span>TRACK</span><DataValue compact value={trackStatus} /></div>
     </section>
   );
 }

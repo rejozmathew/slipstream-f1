@@ -11,6 +11,9 @@ The usable product today is historical replay. A public live-feed recorder also 
 | Recent-season session catalog | Loads the current season and two preceding seasons by default |
 | Historical session download | Finished practice, qualifying, sprint, and race sessions can be downloaded from the browser or CLI |
 | Replay timing | Race, Qualifying, and Practice layouts driven by canonical timing, lap, tyre, stint, sector, pit, and race-control facts |
+| Focused views | Contextual Driver Focus with on-demand normalized lap evidence, plus factual any-two-driver Battle |
+| Display modes | Responsive portrait/landscape session layouts and an authored browser TV Mode |
+| Presentation settings | Device-local dark background, accent, Race split, module visibility/order/size, and named presets |
 | Track display | Preloaded historical circuit outline, independent of timing downloads |
 | Car placement | Timing-derived estimate by default; optional historical source X/Y when downloaded |
 | Conditions | Weather observations, rain sensor state, whole-track status, and circuit-local time |
@@ -18,7 +21,7 @@ The usable product today is historical replay. A public live-feed recorder also 
 | Outputs | Browser, API v1, WebSocket snapshots, and terminal output |
 | Deployment | One container, one process, and one internal port |
 
-Not yet implemented: normalized live timing in the browser/API, authenticated live sources, live per-car X/Y, battle groups, or hardware clients. A schedule entry may be labelled `LIVE` because its official time window is active; that does not mean a live timing source is connected.
+Not yet implemented: production strategy analytics, authentication/SQLite, Sync Groups and device pairing, normalized live timing in the browser/API, authenticated live sources, live per-car X/Y, or hardware clients. A schedule entry may be labelled `LIVE` because its official time window is active; that does not mean a live timing source is connected.
 
 ## Run it with Docker
 

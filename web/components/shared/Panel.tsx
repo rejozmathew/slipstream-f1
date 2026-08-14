@@ -12,7 +12,7 @@ export function Panel({ eyebrow, title, action, className = "", children }: Pane
   return (
     <section className={`panel ${className}`.trim()}>
       <header className="panel-heading">
-        <div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div>
+        <div className="panel-title"><h2>{title}</h2><span className="eyebrow">{eyebrow}</span></div>
         {action}
       </header>
       {children}

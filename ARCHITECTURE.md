@@ -53,7 +53,8 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 | `catalog.py` | Cache recent session metadata and circuit geometry without timing data |
 | `library.py` | Merge catalog entries with local recordings and lazily load the selected session |
 | `events.py` | Define normalized event envelopes and timestamp parsing |
-| `state.py` | Apply events to immutable `RaceState` snapshots |
+| `state.py` | Apply current factual events to immutable, lightweight `RaceState` snapshots |
+| `evidence.py` | Reconstruct queryable source-neutral session/lap evidence by replay time or cursor |
 | `replay.py` | Load supported recordings and reconstruct state deterministically |
 | `playback.py` | Own replay cursor, source clock, seek, delay, pause, and play behavior |
 | `api.py` | Expose API v1, per-client WebSocket playback, downloads, and compiled browser files |
@@ -68,18 +69,20 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 - `session`: identity, official time window, lap, total race laps, local time, status, and whole-track state
 - `circuit`: exact ordered outline, display rotation, provenance, and availability
 - `weather`: observation time, temperatures, humidity, pressure, rain detection, and wind
-- `drivers`: identity, classification, timing, tyre/stint state, sectors, estimated progress, optional source X/Y, field availability, and append-only factual lap observations
+- `drivers`: identity, classification, timing, tyre/stint state, sectors, estimated progress, optional source X/Y, field availability, and current factual values
 - `race_control`: ordered messages with track, sector, driver, and lap scope where provided
 
 Every event produces a new snapshot. Seeking resets the reducer and reapplies all events through the inclusive target time or cursor. This is intentionally simple and deterministic; checkpointing can be added later without changing the state contract.
 
-Lap history records evidence, not analytics. Each observation can retain duration, sectors, compound/stint context, tyre age, pit-in/out evidence, and quality reasons. Strategy and representative-pace calculations must consume these observations in tested backend logic later; they do not belong in `RaceState` or a parallel frontend truth model.
+Full lap history is not part of `RaceState`. `SessionEvidence` reconstructs append-only normalized lap observations from the same deterministic event stream and supports queries by replay timestamp or event cursor. Observations retain duration, sectors, compound/stint context, tyre age, pit-in/out evidence, and quality reasons without being retransmitted in every state snapshot. Strategy and representative-pace calculations will consume this sidecar in tested backend logic; they do not belong in `RaceState` or a parallel frontend truth model.
 
 ## Browser architecture
 
-The Vite application has a thin entry page. `web/api` owns versioned HTTP and WebSocket transport, `web/domain` owns canonical TypeScript contracts and session classification, and `web/hooks` coordinates one selected replay resource. Shared timing/analysis components are composed by separate Race, Qualifying, and Practice views.
+The Vite application has a thin entry page. `web/api` owns versioned HTTP and WebSocket transport, `web/domain` owns canonical TypeScript contracts, session classification, appearance, and layout resolution, and `web/hooks` coordinates one selected replay resource plus device-local presentation preferences. The global product shell exposes Session, Battle, TV Mode, and My Settings. Race, Qualifying, and Practice remain automatic session layouts; Driver Focus opens contextually from a timing row.
 
-The Race view alone owns the draggable Timing-to-Analysis split and its Balanced, Timing Focus, and Strategy Focus presets. Qualifying and Practice have authored layouts rather than inheriting that divider. Missing capabilities render `UNKNOWN`, `UNSUPPORTED`, or unavailable states; production code never substitutes plausible sample race data.
+The Race view alone owns the draggable Timing-to-Analysis split and its Balanced, Timing Focus, and Strategy Focus presets. Its analysis modules resolve through the `Instance default -> User preference -> Device override` layout model and can be reordered, resized, or hidden. Qualifying and Practice have authored layouts rather than inheriting that divider. Responsive session layouts are re-authored for portrait and landscape instead of scaling desktop columns. Missing capabilities render `UNKNOWN`, `UNSUPPORTED`, or unavailable states; production code never substitutes plausible sample race data.
+
+Driver Focus requests normalized lap evidence on demand from `/api/v1/driver-history`; full history never returns to the high-frequency state snapshot. Factual Battle derives only values supported by the current canonical state and observed replay samples. Strategy shells remain present but disabled until tested provider-independent analytics exist. Appearance and device layout changes work locally today; user and instance persistence wait for the authenticated control plane.
 
 ## Catalog and replay library
 

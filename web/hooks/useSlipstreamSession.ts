@@ -16,6 +16,7 @@ export type TransportState = "connecting" | "stream" | "rest" | "disconnected";
 
 export function useSlipstreamSession() {
   const [state, setState] = useState<RaceState>(EMPTY_RACE_STATE);
+  const [stateHistory, setStateHistory] = useState<RaceState[]>([]);
   const [sequence, setSequence] = useState(0);
   const [metadata, setMetadata] = useState<ReplayMetadata | null>(null);
   const [capabilities, setCapabilities] = useState<SourceCapabilities | null>(null);
@@ -24,6 +25,7 @@ export function useSlipstreamSession() {
   const [playhead, setPlayhead] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [transport, setTransport] = useState<TransportState>("connecting");
+  const [commandAvailable, setCommandAvailable] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "error">("idle");
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -61,6 +63,7 @@ export function useSlipstreamSession() {
     const applyEnvelope = (envelope: StateEnvelope) => {
       if (!active) return;
       setState(envelope.data);
+      setStateHistory((current) => current.at(-1)?.updated_at === envelope.data.updated_at ? current : [...current, envelope.data].slice(-90));
       setSequence(envelope.seq);
       setPlayhead(envelope.sessionTime ?? envelope.data.updated_at);
       setIsPlaying(envelope.playback?.playing ?? false);
@@ -104,6 +107,7 @@ export function useSlipstreamSession() {
         onOpen: () => {
           if (!active) return;
           setTransport("stream");
+          setCommandAvailable(true);
           setConnectionError(null);
           if (pollTimer !== undefined) {
             window.clearInterval(pollTimer);
@@ -114,6 +118,7 @@ export function useSlipstreamSession() {
         onClose: () => {
           if (!active) return;
           setIsPlaying(false);
+          setCommandAvailable(false);
           startPolling();
         },
       });
@@ -136,10 +141,12 @@ export function useSlipstreamSession() {
     setDownloadState("idle");
     setDownloadError(null);
     setTransport("connecting");
+    setCommandAvailable(false);
     setConnectionError(null);
     setMetadata(null);
     setCapabilities(null);
     setState(EMPTY_RACE_STATE);
+    setStateHistory([]);
     setSequence(0);
     setPlayhead(null);
     setIsPlaying(false);
@@ -155,10 +162,12 @@ export function useSlipstreamSession() {
       setCatalog(result.catalog);
       setDownloadState("idle");
       setTransport("connecting");
+      setCommandAvailable(false);
       setConnectionError(null);
       setMetadata(null);
       setCapabilities(null);
       setState(EMPTY_RACE_STATE);
+      setStateHistory([]);
       setSequence(0);
       setPlayhead(null);
       setIsPlaying(false);
@@ -169,10 +178,12 @@ export function useSlipstreamSession() {
     }
   };
 
-  const sendReplayCommand = (command: ReplayCommand) => socketRef.current?.send(command);
+  const sendReplayCommand = (command: ReplayCommand) =>
+    commandAvailable && socketRef.current?.send(command) === true;
 
   return {
     state,
+    stateHistory,
     sequence,
     metadata,
     capabilities,
@@ -187,6 +198,7 @@ export function useSlipstreamSession() {
     downloadError,
     chooseSession,
     downloadReplay,
+    commandAvailable,
     sendReplayCommand,
   };
 }

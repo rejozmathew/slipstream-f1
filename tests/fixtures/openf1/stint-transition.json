@@ -17,8 +17,8 @@
     "position":[],
     "intervals":[],
     "race_control":[
-      {"category":"Flag","date":"2025-01-01T12:18:30Z","flag":"YELLOW","message":"YELLOW FLAG"},
-      {"category":"Flag","date":"2025-01-01T12:19:45Z","flag":"GREEN","message":"GREEN FLAG"}
+      {"category":"Flag","date":"2025-01-01T12:18:30Z","flag":"YELLOW","message":"YELLOW FLAG","scope":"Track"},
+      {"category":"Flag","date":"2025-01-01T12:19:45Z","flag":"GREEN","message":"GREEN FLAG","scope":"Track"}
     ],
     "session_result":[],
     "stints":[

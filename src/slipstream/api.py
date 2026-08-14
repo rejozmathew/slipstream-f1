@@ -6,6 +6,7 @@ import asyncio
 import os
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,31 @@ def create_app(
             "available": selected.replay_available,
             "isLive": selected.is_live,
             "positionMode": selected.descriptor.position_mode,
+        }
+
+    @app.get("/api/v1/driver-history")
+    def get_driver_history(
+        driver_number: str,
+        session_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Return normalized evidence on demand, never inside RaceState snapshots."""
+
+        selected = resource(session_key)
+        observations = [
+            {
+                "sequence": item.sequence,
+                "occurredAt": item.occurred_at,
+                **asdict(item.observation),
+            }
+            for item in selected.evidence.lap_observations
+            if item.driver_number == str(driver_number)
+        ]
+        return {
+            "v": 1,
+            "sessionKey": selected.descriptor.key,
+            "driverNumber": str(driver_number),
+            "available": selected.replay_available,
+            "observations": observations,
         }
 
     @app.websocket("/api/v1/stream")

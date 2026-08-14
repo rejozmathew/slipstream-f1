@@ -6,7 +6,7 @@ export function RaceControl({ messages }: { messages: RaceState["race_control"] 
   return (
     <Panel eyebrow="LATEST" title="Race control" action={<span className="panel-badge">{messages.length}</span>} className="race-control-panel">
       {recent.length === 0 ? <div className="panel-empty">NO MESSAGES AT THIS SESSION TIME</div> : <div className="message-list">
-        {recent.map((message, index) => <article key={`${message.occurred_at}-${index}`}>
+        {recent.map((message, index) => <article key={`${message.occurred_at}-${index}`} data-flag={(message.flag ?? message.category).toLowerCase().replaceAll(" ", "-")}>
           <time>{message.occurred_at.slice(11, 19) || message.occurred_at}</time>
           <div><span>{message.flag ?? message.category}</span><p>{message.message}</p></div>
         </article>)}

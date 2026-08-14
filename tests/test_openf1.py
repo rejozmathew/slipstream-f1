@@ -6,8 +6,14 @@ from urllib.error import HTTPError
 
 import pytest
 
-from slipstream.adapters.openf1 import OpenF1Client, is_openf1_recording
+from slipstream.adapters.openf1 import (
+    OpenF1Client,
+    is_openf1_recording,
+    recording_to_events,
+)
+from slipstream.evidence import SessionEvidence
 from slipstream.replay import load_events, replay
+from slipstream.serialization import state_envelope
 from slipstream.terminal import render
 
 ROOT = Path(__file__).parent
@@ -85,6 +91,14 @@ def test_stint_and_pit_state_changes_at_replay_boundaries() -> None:
         1,
     )
     assert hard.availability["interval_to_ahead"] == "unsupported"
+    history = SessionEvidence.from_events(tuple(events)).laps_for_driver(
+        "4", at="2025-01-01T12:21:01Z"
+    )
+    assert not hasattr(hard, "lap_history")
+    assert (
+        "lap_history"
+        not in state_envelope(hard_state, sequence=len(events))["data"]["drivers"]["4"]
+    )
     assert [
         (
             observation.lap,
@@ -95,10 +109,10 @@ def test_stint_and_pit_state_changes_at_replay_boundaries() -> None:
             observation.quality,
             observation.contamination_reasons,
         )
-        for observation in hard.lap_history
+        for observation in history
     ] == [
-        (18, "MEDIUM", 1, False, False, "representative", ()),
-        (19, "MEDIUM", 1, True, False, "contaminated", ("pit_in",)),
+        (18, "MEDIUM", 1, False, False, "contaminated", ("neutralized_track",)),
+        (19, "MEDIUM", 1, True, False, "contaminated", ("pit_in", "neutralized_track")),
         (20, "HARD", 2, False, True, "contaminated", ("pit_out",)),
     ]
     checkpoints = {
@@ -161,6 +175,25 @@ def test_driver_scoped_black_and_white_flag_does_not_become_track_status() -> No
     assert state.race_control[-1].scope == "Driver"
 
 
+def test_safety_car_infringement_does_not_create_whole_track_status() -> None:
+    from slipstream.events import NormalizedEvent
+    from slipstream.state import RaceState
+
+    state = RaceState().apply(
+        NormalizedEvent(
+            kind="race_control",
+            occurred_at="2025-01-01T12:00:00Z",
+            source="openf1",
+            payload={
+                "category": "Other",
+                "message": "CAR 4 UNDER INVESTIGATION - SAFETY CAR INFRINGEMENT",
+            },
+        )
+    )
+
+    assert state.session.track_status is None
+
+
 def test_optional_openf1_endpoint_accepts_not_found() -> None:
     def not_found(*args: object, **kwargs: object) -> None:
         raise HTTPError("https://example.test", 404, "Not Found", Message(), None)
@@ -185,9 +218,10 @@ def test_optional_linked_circuit_accepts_empty_list() -> None:
         opener=lambda *args, **kwargs: EmptyResponse(), minimum_interval=0
     )
 
-    assert client.get_object_url(
-        "https://example.test/circuit", allow_not_found=True
-    ) is None
+    assert (
+        client.get_object_url("https://example.test/circuit", allow_not_found=True)
+        is None
+    )
 
 
 def test_optional_historical_location_normalizes_precise_car_coordinates(
@@ -214,3 +248,79 @@ def test_optional_historical_location_normalizes_precise_car_coordinates(
     assert (state.drivers["55"].x, state.drivers["55"].y) == (1113.0, -663.0)
     assert state.drivers["55"].z == 188.0
     assert state.drivers["55"].availability["location_xy"] == "available"
+
+
+def _neutralization_recording(*, close_interval: bool) -> dict[str, object]:
+    raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
+    endpoints = raw["endpoints"]
+    endpoints["laps"] = [
+        {
+            "date_start": f"2025-01-01T12:0{index}:00Z",
+            "driver_number": 4,
+            "lap_duration": 60.0,
+            "lap_number": index + 1,
+        }
+        for index in range(4)
+    ]
+    endpoints["pit"] = []
+    endpoints["race_control"] = [
+        {
+            "category": "Flag",
+            "date": "2025-01-01T12:00:15Z",
+            "flag": "YELLOW",
+            "scope": "Sector",
+            "sector": 3,
+            "message": "YELLOW IN TRACK SECTOR 3",
+        },
+        {
+            "category": "SafetyCar",
+            "date": "2025-01-01T12:01:20Z",
+            "lap_number": 2,
+            "message": "SAFETY CAR DEPLOYED",
+        },
+    ]
+    if close_interval:
+        endpoints["race_control"].append(
+            {
+                "category": "Flag",
+                "date": "2025-01-01T12:03:10Z",
+                "lap_number": 4,
+                "flag": "CLEAR",
+                "scope": "Track",
+                "message": "TRACK CLEAR",
+            }
+        )
+    return raw
+
+
+def test_lap_evidence_uses_scope_aware_neutralization_intervals() -> None:
+    events = tuple(recording_to_events(_neutralization_recording(close_interval=True)))
+    evidence = SessionEvidence.from_events(events)
+    laps = evidence.laps_for_driver("4")
+
+    assert [lap.quality for lap in laps] == [
+        "representative",
+        "contaminated",
+        "contaminated",
+        "contaminated",
+    ]
+    assert "neutralized_track" not in laps[0].contamination_reasons
+    assert all("neutralized_track" in lap.contamination_reasons for lap in laps[1:])
+    assert (
+        len(
+            evidence.laps_for_driver(
+                "4", event_limit=evidence.lap_observations[1].sequence
+            )
+        )
+        == 2
+    )
+    assert len(evidence.laps_for_driver("4", at="2025-01-01T12:01:59Z")) == 2
+
+
+def test_unclosed_neutralization_keeps_unproven_laps_unknown() -> None:
+    events = tuple(recording_to_events(_neutralization_recording(close_interval=False)))
+    laps = SessionEvidence.from_events(events).laps_for_driver("4")
+
+    assert laps[1].quality == "contaminated"
+    assert laps[2].quality == "unknown"
+    assert "neutralization_end_unknown" in laps[2].contamination_reasons
