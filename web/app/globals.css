@@ -40,7 +40,8 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .connection-disconnected i { background: var(--accent); }
 
 .replay-library { min-height: 62px; padding: 10px 26px; display: flex; gap: 12px; align-items: end; border-bottom: 1px solid var(--line-soft); background: #0a0e13; }
-.replay-library label { flex: 1; max-width: 720px; display: grid; gap: 6px; }
+.replay-library-fields { flex: 1; max-width: 980px; display: grid; grid-template-columns: 120px minmax(260px, 1fr) minmax(210px, .7fr); gap: 10px; }
+.replay-library label { display: grid; gap: 6px; }
 .replay-library label > span, .speed-select span { color: var(--muted); font: 650 8px var(--mono); letter-spacing: .14em; }
 .replay-library select, .speed-select select { height: 31px; padding: 0 34px 0 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); font: 600 10px var(--mono); }
 .button { min-height: 31px; padding: 0 14px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-raised); font: 700 9px var(--mono); letter-spacing: .1em; }
@@ -139,12 +140,18 @@ main { padding: 14px 18px 25px; }
 .service-unavailable p { margin: 14px 0 5px; color: var(--ink); }
 .service-unavailable span { color: var(--muted); font-size: 11px; }
 
-.replay-controls { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; min-height: 68px; padding: 10px 20px; display: grid; grid-template-columns: 42px 55px 76px 55px minmax(320px, 1fr) 76px; align-items: center; gap: 7px; border-top: 1px solid #344150; background: rgba(8,12,17,.96); box-shadow: 0 -14px 35px rgba(0,0,0,.35); backdrop-filter: blur(18px); }
+.replay-controls { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; min-height: 68px; padding: 10px 20px; display: grid; grid-template-columns: 42px 55px 76px 55px minmax(280px, 1fr) 76px 210px; align-items: center; gap: 7px; border-top: 1px solid #344150; background: rgba(8,12,17,.96); box-shadow: 0 -14px 35px rgba(0,0,0,.35); backdrop-filter: blur(18px); }
 .replay-controls button { height: 35px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-raised); font: 700 9px var(--mono); }
 .replay-controls .play-button { border-color: #7a3333; background: var(--accent); color: white; }
 .timeline input { width: 100%; accent-color: var(--accent); }
 .timeline div { display: flex; justify-content: space-between; margin-top: 1px; color: var(--muted); font: 600 8px var(--mono); }
 .speed-select { display: grid; gap: 4px; }
 .speed-select select { height: 32px; }
+.delay-control { display: grid; grid-template-columns: 62px 1fr 52px; align-items: end; gap: 5px; }
+.delay-control label { display: grid; gap: 4px; }
+.delay-control label span, .delay-control > span { color: var(--muted); font: 650 8px var(--mono); letter-spacing: .08em; }
+.delay-control input { width: 62px; height: 32px; padding: 0 7px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--ink); font: 650 10px var(--mono); }
+.delay-control > span { align-self: center; margin-top: 12px; white-space: nowrap; }
+.delay-control button { height: 32px; }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }

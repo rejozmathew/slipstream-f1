@@ -1,23 +1,5 @@
 export type AvailabilityStatus = "available" | "unavailable" | "unsupported" | "stale";
 
-export type LapQuality = "representative" | "contaminated" | "unknown";
-
-export type LapObservation = {
-  lap: number;
-  started_at: string;
-  duration: number | null;
-  sector_1: number | null;
-  sector_2: number | null;
-  sector_3: number | null;
-  compound: string | null;
-  stint_number: number | null;
-  tyre_age: number | null;
-  pit_in: boolean | null;
-  pit_out: boolean | null;
-  quality: LapQuality;
-  contamination_reasons: string[];
-};
-
 export type Driver = {
   number: string;
   code: string | null;
@@ -41,7 +23,6 @@ export type Driver = {
   sector_1: number | null;
   sector_2: number | null;
   sector_3: number | null;
-  lap_history: LapObservation[];
   availability: Record<string, AvailabilityStatus>;
   status: string;
 };

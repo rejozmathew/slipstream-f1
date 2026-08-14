@@ -10,7 +10,7 @@ export function PracticeView({ state, replayAvailable, positionMode }: { state: 
   return <div className="session-layout practice-layout">
     <TimingTower drivers={drivers} variant="practice" replayAvailable={replayAvailable} />
     <div className="analysis-stack">
-      <Panel eyebrow="ANALYTICS CAPABILITY" title="Run analysis"><div className="metric-placeholders"><div><span>REPRESENTATIVE PACE</span><strong>UNKNOWN</strong></div><div><span>QUALIFYING SIMULATION</span><strong>UNSUPPORTED</strong></div><p>Lap observations are retained with quality and stint context. Production analytics are outside this milestone.</p></div></Panel>
+      <Panel eyebrow="ANALYTICS" title="Run analysis"><div className="unknown-block"><strong>ANALYTICS - NOT ENABLED</strong><p>Normalized lap evidence is retained for the later tested analytics milestone. No calculated metric is shown yet.</p></div></Panel>
       <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} />
       <Conditions weather={state.weather} session={state.session} />
       <RaceControl messages={state.race_control} />

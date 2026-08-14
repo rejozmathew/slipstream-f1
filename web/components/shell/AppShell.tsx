@@ -26,8 +26,8 @@ export function AppShell() {
       {!session.connectionError && layout === "race" && <RaceView state={session.state} replayAvailable={replayAvailable} positionMode={positionMode} />}
       {!session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} replayAvailable={replayAvailable} positionMode={positionMode} />}
       {!session.connectionError && layout === "practice" && <PracticeView state={session.state} replayAvailable={replayAvailable} positionMode={positionMode} />}
-      {!session.connectionError && layout === "unsupported" && <Panel eyebrow="SESSION LAYOUT" title="Unsupported session"><div className="unknown-block"><strong>LAYOUT - UNSUPPORTED</strong><p>This session is present in the catalog but does not classify as Race, Qualifying, or Practice.</p></div></Panel>}
+      {!session.connectionError && layout === "unsupported" && <Panel eyebrow="SESSION LAYOUT" title="Session layout unavailable"><div className="unknown-block"><strong>LAYOUT - NOT AVAILABLE</strong><p>This session is present in the catalog but does not classify as Race, Qualifying, or Practice.</p></div></Panel>}
     </main>
-    <ReplayControls metadata={session.metadata} playhead={session.playhead} isPlaying={session.isPlaying} sequence={session.sequence} onCommand={session.sendReplayCommand} />
+    <ReplayControls metadata={session.metadata} playhead={session.playhead} isPlaying={session.isPlaying} sequence={session.sequence} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />
   </div>;
 }

@@ -17,13 +17,13 @@ Adding optional fields is compatible within version 1. Removing a field, changin
 
 ```text
 RaceState
-├── schema_version
-├── updated_at
-├── session
-├── circuit
-├── weather
-├── drivers[number]
-└── race_control[]
+â”œâ”€â”€ schema_version
+â”œâ”€â”€ updated_at
+â”œâ”€â”€ session
+â”œâ”€â”€ circuit
+â”œâ”€â”€ weather
+â”œâ”€â”€ drivers[number]
+â””â”€â”€ race_control[]
 ```
 
 Normalized events preserve `source`, `occurred_at`, and optional `received_at`. Event ordering is determined by parsed timestamps, not JSON array order or textual timestamp formatting. Replay seeks and CLI `--at` snapshots include events occurring exactly at the target timestamp.
@@ -46,7 +46,7 @@ REST state responses and WebSocket snapshots use:
 }
 ```
 
-`seq` is the number of normalized events applied to the snapshot. `sessionTime` is the viewer’s replay playhead. `sourceTime` currently follows the same clock and is reserved for distinguishing source receipt time later.
+`seq` is the number of normalized events applied to the snapshot. `sessionTime` is the viewerâ€™s replay playhead. `sourceTime` currently follows the same clock and is reserved for distinguishing source receipt time later.
 
 ## HTTP API
 
@@ -95,7 +95,7 @@ Each WebSocket connection receives an initial snapshot and owns its own `ReplayC
 | `delay` | `seconds` | Seek to a non-negative number of seconds behind the newest event |
 | `reset` | none | Reconstruct state at the official session-start boundary |
 
-Commands that move the cursor pause current playback first. The browser exposes delay as live TV synchronization, but the protocol operation is defined for any replay. A delay of zero means the newest event.
+Commands that move the cursor pause current playback first. The browser exposes delay as TV synchronization, and the protocol operation is defined for any replay. A delay of zero means the newest event.
 
 Invalid input produces a versioned error frame:
 
@@ -131,11 +131,13 @@ Driver and weather fields carry an `availability` map separate from their values
 
 `null` alone must not mean all four cases.
 
-### Normalized lap observations
+### Normalized lap evidence
 
-Each driver has an append-only `lap_history` of factual completed-lap observations. An observation records lap number and start time, duration and sectors when supplied, compound, stint number, tyre age, pit-in/pit-out evidence, and provenance-friendly quality fields.
+Full accumulated lap history is deliberately excluded from `RaceState` and therefore from high-frequency REST/WebSocket state snapshots. Completed-lap observations remain source-neutral facts in the normalized event stream. The internal `SessionEvidence` sidecar reconstructs them deterministically and can query the evidence available at an inclusive replay timestamp or event-count cursor.
 
-`quality` is `representative`, `contaminated`, or `unknown`. `contamination_reasons` names only observed conditions such as `pit_in`, `pit_out`, `neutralized_track`, or `missing_duration`; it is not a strategy verdict. A missing or ambiguous fact stays `null`/`unknown`. Future analytics may consume this history, but calculated pace or strategy does not become part of canonical `RaceState`.
+An observation records lap number and start time, duration and sectors when supplied, compound, stint number, tyre age, pit-in/pit-out evidence, and provenance-friendly quality fields. `quality` is `representative`, `contaminated`, or `unknown`. `contamination_reasons` names only observed conditions such as `pit_in`, `pit_out`, `neutralized_track`, `neutralization_end_unknown`, or `missing_duration`; it is not a strategy verdict.
+
+Whole-track contamination is derived from timestamped intervals opened only by genuine track-scoped yellow/red or explicit SC/VSC deployment evidence and closed by a whole-track clear/green transition. Sector- and driver-scoped flags do not neutralize the whole lap. An unclosed interval remains unknown where overlap cannot be proven. Future analytics may consume this evidence, but calculated pace or strategy does not become part of canonical `RaceState`.
 
 ## Circuit, position, and conditions
 

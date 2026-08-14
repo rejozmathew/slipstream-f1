@@ -12,6 +12,7 @@ from typing import Any
 from .adapters.openf1 import is_openf1_recording
 from .catalog import CATALOG_FORMAT, read_catalog
 from .events import NormalizedEvent, parse_timestamp
+from .evidence import SessionEvidence
 from .replay import load_events, replay
 from .state import RaceState
 
@@ -55,7 +56,9 @@ class SessionDescriptor:
 
     def is_live(self, now: datetime) -> bool:
         try:
-            return parse_timestamp(self.date_start) <= now < parse_timestamp(self.date_end)
+            return (
+                parse_timestamp(self.date_start) <= now < parse_timestamp(self.date_end)
+            )
         except (TypeError, ValueError):
             return False
 
@@ -90,6 +93,7 @@ class ReplayResource:
     descriptor: SessionDescriptor
     events: tuple[NormalizedEvent, ...]
     final_state: RaceState
+    evidence: SessionEvidence
     replay_available: bool
     is_live: bool
 
@@ -164,6 +168,7 @@ class ReplayLibrary:
             descriptor=descriptor,
             events=events,
             final_state=replay(list(events)),
+            evidence=SessionEvidence.from_events(events),
             replay_available=descriptor.available,
             is_live=live,
         )

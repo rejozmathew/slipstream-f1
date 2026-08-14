@@ -39,8 +39,8 @@ export function RaceView({ state, replayAvailable, positionMode }: RaceViewProps
         <TimingTower drivers={drivers} variant="race" replayAvailable={replayAvailable} />
         <button className="split-handle" onPointerDown={startDrag} aria-label="Resize timing and analysis panels"><span /></button>
         <div className="analysis-stack">
-          <Panel eyebrow="ANALYTICS CAPABILITY" title="Strategy outlook" action={<span className="status-unknown">UNSUPPORTED</span>}>
-            <div className="unknown-block"><strong>STRATEGY - UNKNOWN</strong><p>No production strategy model is enabled. Slipstream will not infer a recommendation from incomplete evidence.</p></div>
+          <Panel eyebrow="ANALYTICS" title="Strategy outlook" action={<span className="status-unknown">NOT ENABLED</span>}>
+            <div className="unknown-block"><strong>STRATEGY - NOT AVAILABLE</strong><p>Production strategy analytics are not enabled in this milestone.</p></div>
           </Panel>
           <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} />
           <Conditions weather={state.weather} session={state.session} />

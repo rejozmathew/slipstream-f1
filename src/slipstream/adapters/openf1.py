@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
@@ -174,9 +174,7 @@ class OpenF1Client:
             "schema_version": 1,
             "source": "openf1",
             "source_capabilities": session_capabilities,
-            "captured_at": datetime.now(UTC)
-            .isoformat()
-            .replace("+00:00", "Z"),
+            "captured_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "session_key": session_key,
             "circuit_info": {
                 "source_url": circuit_info_url,
@@ -336,8 +334,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                         else "unsupported",
                         "track_position": (
                             "available"
-                            if has_intervals
-                            and lap_windows.get(number)
+                            if has_intervals and lap_windows.get(number)
                             else "unsupported"
                         ),
                         "compound": "available" if has_stints else "unavailable",
@@ -363,12 +360,9 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
         if item.get("driver_number") is not None
         and isinstance(item.get("lap_number"), int)
     }
-    neutralized_laps = {
-        int(item["lap_number"])
-        for item in endpoints.get("race_control", [])
-        if isinstance(item.get("lap_number"), int)
-        and _is_neutralized_message(item)
-    }
+    neutralization_intervals = _track_neutralization_intervals(
+        endpoints.get("race_control", [])
+    )
     for lap in endpoints.get("laps", []):
         if not lap.get("date_start"):
             continue
@@ -401,16 +395,23 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             contamination_reasons.append("pit_in")
         if pit_out:
             contamination_reasons.append("pit_out")
-        if isinstance(lap_number, int) and lap_number in neutralized_laps:
-            contamination_reasons.append("neutralized_track")
         duration_value = (
-            float(duration) if isinstance(duration, (int, float)) and duration > 0 else None
+            float(duration)
+            if isinstance(duration, (int, float)) and duration > 0
+            else None
         )
+        neutralization = _lap_neutralization_quality(
+            str(lap["date_start"]), duration_value, neutralization_intervals
+        )
+        if neutralization == "contaminated":
+            contamination_reasons.append("neutralized_track")
+        elif neutralization == "unknown":
+            contamination_reasons.append("neutralization_end_unknown")
         if duration_value is None:
             contamination_reasons.append("missing_duration")
         quality = (
             "unknown"
-            if duration_value is None
+            if duration_value is None or neutralization == "unknown"
             else "contaminated"
             if contamination_reasons
             else "representative"
@@ -427,8 +428,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 "compound": compound,
                 "stint_number": (
                     int(stint["stint_number"])
-                    if stint is not None
-                    and isinstance(stint.get("stint_number"), int)
+                    if stint is not None and isinstance(stint.get("stint_number"), int)
                     else None
                 ),
                 "tyre_age": tyre_age,
@@ -477,7 +477,11 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 )
             )
     for location in endpoints.get("location", []):
-        if location.get("date") and location.get("x") is not None and location.get("y") is not None:
+        if (
+            location.get("date")
+            and location.get("x") is not None
+            and location.get("y") is not None
+        ):
             events.append(
                 _timing_event(
                     location["date"],
@@ -647,12 +651,74 @@ def _format_duration(seconds: object) -> str | None:
     return f"{int(minutes)}:{remainder:06.3f}"
 
 
-def _is_neutralized_message(message: dict[str, Any]) -> bool:
+def _neutralization_transition(message: dict[str, Any]) -> tuple[str, str] | None:
+    """Classify only genuine whole-track neutralization transitions."""
+
+    scope = str(message.get("scope") or "").upper()
     flag = str(message.get("flag") or "").upper()
-    text = str(message.get("message") or "").upper()
-    return flag in {"YELLOW", "DOUBLE YELLOW", "RED"} or any(
-        token in text for token in ("SAFETY CAR", "VIRTUAL SAFETY CAR", "RED FLAG")
-    )
+    category = str(message.get("category") or "").upper()
+    text = str(message.get("message") or "").upper().strip()
+    if message.get("driver_number") is not None or scope in {"DRIVER", "SECTOR"}:
+        return None
+    if category == "SAFETYCAR" and text in {
+        "SAFETY CAR DEPLOYED",
+        "VIRTUAL SAFETY CAR DEPLOYED",
+    }:
+        return ("start", "vsc" if text.startswith("VIRTUAL") else "safety_car")
+    if scope == "TRACK" and flag in {"YELLOW", "DOUBLE YELLOW", "RED"}:
+        return ("start", flag.lower().replace(" ", "_"))
+    if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
+        return ("start", "red")
+    if scope == "TRACK" and flag in {"CLEAR", "GREEN"}:
+        return ("end", "clear")
+    return None
+
+
+def _track_neutralization_intervals(
+    messages: list[dict[str, Any]],
+) -> list[tuple[datetime, datetime | None, str]]:
+    intervals: list[tuple[datetime, datetime | None, str]] = []
+    active: tuple[datetime, str] | None = None
+    ordered = sorted(messages, key=lambda item: str(item.get("date") or ""))
+    for message in ordered:
+        occurred_at = message.get("date")
+        transition = _neutralization_transition(message)
+        if not isinstance(occurred_at, str) or transition is None:
+            continue
+        action, kind = transition
+        timestamp = _as_datetime(occurred_at)
+        if action == "start":
+            if active is None:
+                active = (timestamp, kind)
+            continue
+        if active is not None:
+            intervals.append((active[0], timestamp, active[1]))
+            active = None
+    if active is not None:
+        intervals.append((active[0], None, active[1]))
+    return intervals
+
+
+def _lap_neutralization_quality(
+    started_at: str,
+    duration: float | None,
+    intervals: list[tuple[datetime, datetime | None, str]],
+) -> str | None:
+    if duration is None:
+        return None
+    lap_start = _as_datetime(started_at)
+    lap_end = lap_start + timedelta(seconds=duration)
+    for interval_start, interval_end, _kind in intervals:
+        if interval_end is not None:
+            if lap_start < interval_end and lap_end > interval_start:
+                return "contaminated"
+            continue
+        if lap_start <= interval_start < lap_end:
+            return "contaminated"
+        if lap_start >= interval_start:
+            return "unknown"
+    return None
+
 
 def _format_gap(value: object) -> str | None:
     if value is None:

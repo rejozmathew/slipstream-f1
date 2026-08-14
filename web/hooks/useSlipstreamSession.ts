@@ -24,6 +24,7 @@ export function useSlipstreamSession() {
   const [playhead, setPlayhead] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [transport, setTransport] = useState<TransportState>("connecting");
+  const [commandAvailable, setCommandAvailable] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "error">("idle");
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -104,6 +105,7 @@ export function useSlipstreamSession() {
         onOpen: () => {
           if (!active) return;
           setTransport("stream");
+          setCommandAvailable(true);
           setConnectionError(null);
           if (pollTimer !== undefined) {
             window.clearInterval(pollTimer);
@@ -114,6 +116,7 @@ export function useSlipstreamSession() {
         onClose: () => {
           if (!active) return;
           setIsPlaying(false);
+          setCommandAvailable(false);
           startPolling();
         },
       });
@@ -136,6 +139,7 @@ export function useSlipstreamSession() {
     setDownloadState("idle");
     setDownloadError(null);
     setTransport("connecting");
+    setCommandAvailable(false);
     setConnectionError(null);
     setMetadata(null);
     setCapabilities(null);
@@ -155,6 +159,7 @@ export function useSlipstreamSession() {
       setCatalog(result.catalog);
       setDownloadState("idle");
       setTransport("connecting");
+      setCommandAvailable(false);
       setConnectionError(null);
       setMetadata(null);
       setCapabilities(null);
@@ -169,7 +174,8 @@ export function useSlipstreamSession() {
     }
   };
 
-  const sendReplayCommand = (command: ReplayCommand) => socketRef.current?.send(command);
+  const sendReplayCommand = (command: ReplayCommand) =>
+    commandAvailable && socketRef.current?.send(command) === true;
 
   return {
     state,
@@ -187,6 +193,7 @@ export function useSlipstreamSession() {
     downloadError,
     chooseSession,
     downloadReplay,
+    commandAvailable,
     sendReplayCommand,
   };
 }

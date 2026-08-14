@@ -9,25 +9,6 @@ from .events import NormalizedEvent, parse_timestamp
 
 
 @dataclass(frozen=True)
-class LapObservation:
-    """One factual completed-lap observation; analytics are derived elsewhere."""
-
-    lap: int
-    started_at: str
-    duration: float | None = None
-    sector_1: float | None = None
-    sector_2: float | None = None
-    sector_3: float | None = None
-    compound: str | None = None
-    stint_number: int | None = None
-    tyre_age: int | None = None
-    pit_in: bool | None = None
-    pit_out: bool | None = None
-    quality: str = "unknown"
-    contamination_reasons: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
 class DriverState:
     number: str
     code: str | None = None
@@ -51,7 +32,6 @@ class DriverState:
     sector_1: float | None = None
     sector_2: float | None = None
     sector_3: float | None = None
-    lap_history: tuple[LapObservation, ...] = ()
     availability: dict[str, str] = field(default_factory=dict)
     status: str = "UNKNOWN"
 
@@ -164,7 +144,9 @@ class RaceState:
             number = str(event.payload["number"])
             current = self.drivers.get(number, DriverState(number=number))
             updates = {k: v for k, v in event.payload.items() if k != "number"}
-            observation_payload = updates.pop("lap_observation", None)
+            # Completed-lap evidence is retained by SessionEvidence, not repeated in
+            # every high-frequency RaceState snapshot.
+            updates.pop("lap_observation", None)
             explicit_availability = updates.pop("availability", {})
             availability = {
                 **current.availability,
@@ -172,14 +154,6 @@ class RaceState:
                 **explicit_availability,
             }
             item = replace(current, **updates)
-            if isinstance(observation_payload, dict):
-                observation_data = dict(observation_payload)
-                observation_data["contamination_reasons"] = tuple(
-                    observation_data.get("contamination_reasons", ())
-                )
-                observation = LapObservation(**observation_data)
-                item = replace(item, lap_history=(*item.lap_history, observation))
-                availability["lap_history"] = "available"
             item = replace(item, availability=availability)
             session = self.session
             event_lap = updates.get("lap")
@@ -245,16 +219,28 @@ def _with_local_time(session: SessionState, occurred_at: str) -> SessionState:
 
 
 def _track_status_from(message: RaceControlMessage) -> str | None:
-    """Return only whole-track states, never driver- or sector-scoped flags."""
+    """Return only observed whole-track transitions."""
+
     scope = message.scope.upper() if message.scope else None
     if scope not in (None, "TRACK") or message.driver_number is not None:
         return None
     flag = message.flag.upper() if message.flag else None
-    if flag in {"GREEN", "YELLOW", "DOUBLE YELLOW", "RED", "CHEQUERED"}:
+    if scope == "TRACK" and flag in {
+        "GREEN",
+        "YELLOW",
+        "DOUBLE YELLOW",
+        "RED",
+        "CHEQUERED",
+    }:
         return flag
-    text = message.message.upper()
-    if "VIRTUAL SAFETY CAR" in text:
+    if scope == "TRACK" and flag == "CLEAR":
+        return "GREEN"
+    category = message.category.upper()
+    text = message.message.upper().strip()
+    if category == "SAFETYCAR" and text == "VIRTUAL SAFETY CAR DEPLOYED":
         return "VSC"
-    if "SAFETY CAR" in text:
+    if category == "SAFETYCAR" and text == "SAFETY CAR DEPLOYED":
         return "SAFETY CAR"
+    if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
+        return "RED"
     return None

@@ -53,7 +53,8 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 | `catalog.py` | Cache recent session metadata and circuit geometry without timing data |
 | `library.py` | Merge catalog entries with local recordings and lazily load the selected session |
 | `events.py` | Define normalized event envelopes and timestamp parsing |
-| `state.py` | Apply events to immutable `RaceState` snapshots |
+| `state.py` | Apply current factual events to immutable, lightweight `RaceState` snapshots |
+| `evidence.py` | Reconstruct queryable source-neutral session/lap evidence by replay time or cursor |
 | `replay.py` | Load supported recordings and reconstruct state deterministically |
 | `playback.py` | Own replay cursor, source clock, seek, delay, pause, and play behavior |
 | `api.py` | Expose API v1, per-client WebSocket playback, downloads, and compiled browser files |
@@ -68,12 +69,12 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 - `session`: identity, official time window, lap, total race laps, local time, status, and whole-track state
 - `circuit`: exact ordered outline, display rotation, provenance, and availability
 - `weather`: observation time, temperatures, humidity, pressure, rain detection, and wind
-- `drivers`: identity, classification, timing, tyre/stint state, sectors, estimated progress, optional source X/Y, field availability, and append-only factual lap observations
+- `drivers`: identity, classification, timing, tyre/stint state, sectors, estimated progress, optional source X/Y, field availability, and current factual values
 - `race_control`: ordered messages with track, sector, driver, and lap scope where provided
 
 Every event produces a new snapshot. Seeking resets the reducer and reapplies all events through the inclusive target time or cursor. This is intentionally simple and deterministic; checkpointing can be added later without changing the state contract.
 
-Lap history records evidence, not analytics. Each observation can retain duration, sectors, compound/stint context, tyre age, pit-in/out evidence, and quality reasons. Strategy and representative-pace calculations must consume these observations in tested backend logic later; they do not belong in `RaceState` or a parallel frontend truth model.
+Full lap history is not part of `RaceState`. `SessionEvidence` reconstructs append-only normalized lap observations from the same deterministic event stream and supports queries by replay timestamp or event cursor. Observations retain duration, sectors, compound/stint context, tyre age, pit-in/out evidence, and quality reasons without being retransmitted in every state snapshot. Strategy and representative-pace calculations will consume this sidecar in tested backend logic; they do not belong in `RaceState` or a parallel frontend truth model.
 
 ## Browser architecture
 
