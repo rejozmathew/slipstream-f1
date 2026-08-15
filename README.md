@@ -83,7 +83,7 @@ Python 3.11+ and Node 22+ are required outside Docker.
 ```powershell
 python -m pip install -e ".[dev]"
 slipstream sync-catalog --years 3 --output recordings/catalog.json
-slipstream serve recordings --catalog-years 3
+slipstream serve recordings --catalog-years 3 --host 127.0.0.1 --port 8000
 ```
 
 In another terminal:
@@ -94,7 +94,11 @@ npm install
 npm run dev
 ```
 
-The Vite development server proxies API and WebSocket requests to `http://127.0.0.1:8000`.
+Open `http://localhost:3344`. The Vite development server is fixed to port
+`3344` and proxies API and WebSocket requests to the Slipstream backend at
+`http://127.0.0.1:8000`. Keep both terminals running. Do not run
+`slipstream serve` on port `3344`; that port belongs to the Vite UI during
+local development.
 
 Run the checks with:
 

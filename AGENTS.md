@@ -17,6 +17,16 @@ Architecture rules:
 - Keep replay cursors, speed, seek, and delay per viewer.
 - Preserve the one-process, one-container production model. Do not add a runtime Node or Nginx service without an explicit architectural reason.
 
+Local application preview:
+
+- Run the Python backend on `127.0.0.1:8000`.
+- Run the Vite UI with `cd web` then `npm run dev`; the repository fixes it to
+  `127.0.0.1:3344` and proxies `/api/v1` to the backend.
+- Open `http://localhost:3344`. Do not run `slipstream serve` on port `3344`
+  and do not accept Vite's default `5173` port.
+- These two development processes do not change the one-process production
+  architecture; Docker serves the built UI and API together on one port.
+
 Safety and licensing:
 
 - Never commit recordings, `.env` files, tokens, cookies, credentials, or authenticated captures.
