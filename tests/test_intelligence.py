@@ -4,9 +4,14 @@ from pathlib import Path
 from threading import Event
 
 from slipstream.adapters.openf1 import OpenF1Client, recording_to_events
-from slipstream.analytics import build_analytics_snapshot, pace_model
+from slipstream.analytics import (
+    _driver_transition_outlook,
+    _pit_loss_metric,
+    build_analytics_snapshot,
+    pace_model,
+)
 from slipstream.events import NormalizedEvent
-from slipstream.evidence import LapObservation, SessionEvidence
+from slipstream.evidence import LapObservation, PitEvent, SessionEvidence
 from slipstream.library import ReplayResource, SessionDescriptor
 from slipstream.replay import replay
 from slipstream.session import LayoutFamily, SessionKind, classify_session
@@ -183,6 +188,9 @@ def test_pre_race_and_live_outlook_keep_unknown_values_truthful(tmp_path: Path) 
     assert pre_race["stage"] == "BASELINE_AVAILABLE"
     assert pre_race["context"]["meetingKey"] == "30"
     assert pre_race["drivers"]["1"]["strategy"]["primaryStrategy"]["status"] == "UNKNOWN"
+    assert pre_race["raceStrategy"]["scope"] == "RACE"
+    assert pre_race["drivers"]["1"]["strategy"]["scope"] == "DRIVER"
+    assert pre_race["raceStrategy"] is not pre_race["drivers"]["1"]["strategy"]
     assert live["stage"] == "LIVE_OUTLOOK"
     assert live["drivers"]["1"]["strategy"]["degradation"]["status"] == "UNKNOWN"
 
@@ -301,3 +309,83 @@ def test_pit_event_keeps_compound_transition_and_distinct_durations() -> None:
     assert event.new_compound == "HARD"
     assert event.stop_duration == 2.4
     assert event.pit_lane_duration == 22.1
+
+
+def test_pit_event_resolves_compounds_when_pit_lap_is_between_stints() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "openf1" / "stint-transition.json"
+    raw = json.loads(fixture.read_text(encoding="utf-8"))
+    raw["endpoints"]["stints"][1]["lap_end"] = 18
+    raw["endpoints"]["stints"][2]["lap_start"] = 20
+    raw["endpoints"]["pit"][0]["lap_number"] = 19
+
+    event = SessionEvidence.from_events(
+        tuple(recording_to_events(raw))
+    ).pit_events_for_driver("4")[0]
+
+    assert event.previous_compound == "MEDIUM"
+    assert event.new_compound == "HARD"
+
+
+def test_practice_and_qualifying_durations_do_not_contaminate_race_pit_loss() -> None:
+    context = {
+        "meeting_key": "30",
+        "sessions": [
+            {
+                "meeting_key": "30",
+                "session_kind": "practice_2",
+                "lap_observations": [
+                    {"pit_lane_duration": 219.0},
+                    {"pit_lane_duration": 180.0},
+                ],
+            },
+            {
+                "meeting_key": "30",
+                "session_kind": "qualifying",
+                "lap_observations": [{"pit_lane_duration": 95.0}],
+            },
+        ],
+    }
+
+    unsupported = _pit_loss_metric((), context, session_kind="race")
+    observed = _pit_loss_metric(
+        (
+            PitEvent(1, "2026-08-01T14:00:00Z", "1", 20, pit_lane_duration=21.0),
+            PitEvent(2, "2026-08-01T14:01:00Z", "2", 21, pit_lane_duration=22.0),
+        ),
+        context,
+        session_kind="race",
+    )
+
+    assert unsupported["status"] == "UNKNOWN"
+    assert observed["value"] == 21.5
+    assert all("219" not in item for item in observed["evidenceBasis"])
+
+
+def test_projected_pit_window_cannot_be_wholly_in_the_past() -> None:
+    driver = DriverState(number="1", compound="MEDIUM", tyre_age=20, lap=60)
+    evidence = {
+        number: (
+            LapObservation(
+                lap=lap,
+                started_at=f"2026-08-01T15:{number}:00Z",
+                compound="MEDIUM",
+                tyre_age=age,
+                pit_in=True,
+                previous_compound="MEDIUM",
+                new_compound="HARD",
+                quality="contaminated",
+            ),
+        )
+        for number, lap, age in (("2", 22, 22), ("3", 24, 24), ("4", 26, 26))
+    }
+    state = RaceState(
+        session=SessionState(lap=60, total_laps=70, session_kind="race"),
+        drivers={"1": driver},
+    )
+
+    next_compound, window, _ = _driver_transition_outlook(driver, evidence, state)
+
+    assert next_compound["value"] == "HARD"
+    assert window["status"] == "ESTIMATE"
+    assert window["value"][0] >= 60
+    assert window["value"][1] >= 60

@@ -53,7 +53,7 @@ export function AppShell() {
     setView("settings");
   };
 
-  if (view === "tv") return <div {...rootProps}><TVModeView state={session.state} analytics={session.analytics} recommendedBattle={recommendedBattle} sessionLayout={layout} sessionKind={classification.kind} replayAvailable={replayAvailable} positionMode={positionMode} preferences={preferences.tv} onPreferencesChange={preferences.setTV} onSelectDriver={openDriver} onExit={() => setView("session")} /></div>;
+  if (view === "tv") return <div {...rootProps}><TVModeView state={session.state} analytics={session.analytics} recommendedBattle={recommendedBattle} sessionLayout={layout} sessionKind={classification.kind} replayAvailable={replayAvailable} positionMode={positionMode} preferences={preferences.tv} onPreferencesChange={preferences.setTV} onExit={() => setView("session")} /></div>;
 
   return <div {...rootProps}>
     <header className="app-header">

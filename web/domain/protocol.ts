@@ -182,6 +182,26 @@ export type PaceSample = {
   contaminationReasons: string[];
 };
 
+export type StrategyAnalytics = {
+  scope: "RACE" | "DRIVER";
+  driverNumber?: string;
+  stage: AnalyticsStage;
+  changes: string[];
+  likelyStopCount: AnalyticsMetric<number>;
+  primaryStrategy: AnalyticsMetric<string>;
+  alternateStrategy: AnalyticsMetric<string>;
+  likelyNextCompound: AnalyticsMetric<string>;
+  pitWindow: AnalyticsMetric<[number, number]>;
+  tyreStress: AnalyticsMetric<string>;
+  degradation: AnalyticsMetric<number>;
+  pitLoss: AnalyticsMetric<number>;
+  undercutStrength: AnalyticsMetric<string>;
+  projectedRejoinPosition: AnalyticsMetric<number>;
+  freeStopMargin: AnalyticsMetric<number>;
+  weatherRisk: AnalyticsMetric<string>;
+  rulesNote: string;
+};
+
 export type DriverAnalytics = {
   driverNumber: string;
   ahead: DriverBattleContext | null;
@@ -194,23 +214,7 @@ export type DriverAnalytics = {
     degradation: AnalyticsMetric<number>;
   };
   pitEvents: PitEvent[];
-  strategy: {
-    stage: AnalyticsStage;
-    changes: string[];
-    likelyStopCount: AnalyticsMetric<number>;
-    primaryStrategy: AnalyticsMetric<string>;
-    alternateStrategy: AnalyticsMetric<string>;
-    likelyNextCompound: AnalyticsMetric<string>;
-    pitWindow: AnalyticsMetric<[number, number]>;
-    tyreStress: AnalyticsMetric<string>;
-    degradation: AnalyticsMetric<number>;
-    pitLoss: AnalyticsMetric<number>;
-    undercutStrength: AnalyticsMetric<string>;
-    projectedRejoinPosition: AnalyticsMetric<number>;
-    freeStopMargin: AnalyticsMetric<number>;
-    weatherRisk: AnalyticsMetric<string>;
-    rulesNote: string;
-  };
+  strategy: StrategyAnalytics;
   weekendEvidence: {
     lapCount: number;
     representativeLapCount: number;
@@ -267,6 +271,7 @@ export type AnalyticsSnapshot = {
     error: string | null;
   };
   pitLoss: AnalyticsMetric<number>;
+  raceStrategy: StrategyAnalytics;
   drivers: Record<string, DriverAnalytics>;
   battle: {
     recommended: BattleCandidate | null;

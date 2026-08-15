@@ -97,7 +97,11 @@ def build_analytics_snapshot(
     )
     context_payload = context.context if context.status == "ready" else None
     context_laps = _context_laps(context_payload)
-    pit_loss = _pit_loss_metric(pit_events, context_payload)
+    pit_loss = _pit_loss_metric(
+        pit_events,
+        context_payload,
+        session_kind=resource.descriptor.session_kind,
+    )
     stage = _analytics_stage(state, context.status, evidence_by_driver)
     ordered = sorted(
         state.drivers.values(), key=lambda item: item.position or 999
@@ -126,6 +130,7 @@ def build_analytics_snapshot(
                 driver,
                 ordered,
                 laps,
+                evidence_by_driver,
                 pit_events,
                 pit_loss,
                 pace,
@@ -140,6 +145,9 @@ def build_analytics_snapshot(
     battle = battle_recommendation(ordered, driver_models)
     rules = strategy_rule_profile(
         resource.descriptor.year, resource.descriptor.session_kind
+    )
+    race_strategy = _race_strategy(
+        driver_models, evidence_by_driver, context_payload, pit_loss, state, stage
     )
     return {
         "v": 1,
@@ -179,6 +187,7 @@ def build_analytics_snapshot(
             "error": context.error,
         },
         "pitLoss": pit_loss,
+        "raceStrategy": race_strategy,
         "drivers": driver_models,
         "battle": battle,
     }
@@ -342,10 +351,110 @@ def battle_recommendation(
     }
 
 
+
+def _transition_samples(
+    evidence_by_driver: dict[str, tuple[LapObservation, ...]],
+) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for driver_number, observations in evidence_by_driver.items():
+        for observation in observations:
+            if (
+                observation.pit_in is not True
+                or not observation.previous_compound
+                or not observation.new_compound
+                or observation.previous_compound == observation.new_compound
+                or observation.tyre_age is None
+            ):
+                continue
+            samples.append(
+                {
+                    "driverNumber": driver_number,
+                    "previousCompound": observation.previous_compound,
+                    "newCompound": observation.new_compound,
+                    "stintLife": observation.tyre_age,
+                    "lap": observation.lap,
+                }
+            )
+    return samples
+
+
+def _driver_transition_outlook(
+    driver: DriverState,
+    evidence_by_driver: dict[str, tuple[LapObservation, ...]],
+    state: RaceState,
+) -> tuple[dict[str, Any], dict[str, Any], list[tuple[str, int]]]:
+    current_lap = driver.lap or state.session.lap
+    current_age = driver.tyre_age
+    if not driver.compound or current_lap is None or current_age is None:
+        reason = "current compound, lap, and tyre age are required"
+        return unknown(reason), unknown(reason), []
+    comparable = [
+        item
+        for item in _transition_samples(evidence_by_driver)
+        if item["previousCompound"] == driver.compound
+        and item["stintLife"] >= max(2, current_age - 2)
+    ]
+    counts = Counter(str(item["newCompound"]) for item in comparable)
+    common = counts.most_common()
+    supported = bool(
+        len(comparable) >= 3
+        and common
+        and common[0][1] >= 2
+        and common[0][1] / len(comparable) >= 0.6
+    )
+    next_compound = (
+        metric(
+            common[0][0],
+            status="ESTIMATE",
+            evidence=[
+                f"field consensus from {common[0][1]} of {len(comparable)} current-Race transitions",
+                "only transitions at comparable or later tyre life are included",
+            ],
+            quality="medium" if len(comparable) >= 5 else "low",
+        )
+        if supported
+        else unknown("no clear same-compound consensus at comparable tyre life")
+    )
+    lives = sorted(
+        int(item["stintLife"])
+        for item in comparable
+        if supported and item["newCompound"] == next_compound["value"]
+    )
+    if len(lives) < 3:
+        return next_compound, unknown("insufficient comparable stint-life evidence"), common
+    lower_life = lives[len(lives) // 4]
+    upper_life = lives[(len(lives) * 3) // 4]
+    if upper_life <= current_age:
+        return (
+            next_compound,
+            unknown("comparable transition life has already been exceeded"),
+            common,
+        )
+    stint_start = current_lap - current_age + 1
+    projected = [
+        max(current_lap, stint_start + lower_life - 1),
+        stint_start + upper_life - 1,
+    ]
+    if projected[1] < current_lap:
+        return next_compound, unknown("no defensible future pit window remains"), common
+    pit_window = metric(
+        projected,
+        status="ESTIMATE",
+        evidence=[
+            f"central stint-life range from {len(lives)} comparable current-Race transitions",
+            f"projected from this driver's current stint start at lap {stint_start}",
+        ],
+        unit="lap",
+        quality="medium" if len(lives) >= 5 else "low",
+    )
+    return next_compound, pit_window, common
+
+
 def _driver_strategy(
     driver: DriverState,
     ordered: list[DriverState],
     laps: tuple[LapObservation, ...],
+    evidence_by_driver: dict[str, tuple[LapObservation, ...]],
     pit_events: tuple[PitEvent, ...],
     pit_loss: dict[str, Any],
     pace: dict[str, Any],
@@ -353,43 +462,8 @@ def _driver_strategy(
     state: RaceState,
     stage: str,
 ) -> dict[str, Any]:
-    transitions = [
-        item
-        for item in pit_events
-        if item.previous_compound == driver.compound
-        and item.new_compound
-        and item.new_compound != item.previous_compound
-    ]
-    counts = Counter(item.new_compound for item in transitions if item.new_compound)
-    common = counts.most_common()
-    next_compound = (
-        metric(
-            common[0][0],
-            status="ESTIMATE",
-            evidence=[
-                f"{common[0][1]} observed same-compound transitions in this session"
-            ],
-            quality="medium" if common[0][1] >= 4 else "low",
-        )
-        if common and common[0][1] >= 2
-        else unknown("fewer than two comparable observed compound transitions")
-    )
-    transition_laps = sorted(item.lap for item in transitions)
-    pit_window = (
-        metric(
-            [
-                transition_laps[len(transition_laps) // 4],
-                transition_laps[(len(transition_laps) * 3) // 4],
-            ],
-            status="ESTIMATE",
-            evidence=[
-                f"central range of {len(transition_laps)} comparable pit laps"
-            ],
-            unit="lap",
-            quality="medium" if len(transition_laps) >= 5 else "low",
-        )
-        if len(transition_laps) >= 3
-        else unknown("insufficient comparable pit-lap evidence")
+    next_compound, pit_window, common = _driver_transition_outlook(
+        driver, evidence_by_driver, state
     )
     in_session_degradation = pace["degradation"]
     degradation = (
@@ -430,7 +504,7 @@ def _driver_strategy(
             evidence=[f"{common[1][1]} observed alternate transitions"],
             quality="low",
         )
-        if driver.compound and len(common) > 1 and common[1][1] >= 2
+        if driver.compound and next_compound["value"] is not None and len(common) > 1 and common[1][1] >= 2
         else unknown("no supported alternate compound consensus")
     )
     free_stop, projected_rejoin = _rejoin_metrics(driver, ordered, pit_loss)
@@ -459,6 +533,8 @@ def _driver_strategy(
         elif in_session_value <= weekend_value - 0.05:
             changes.append("DEGRADATION BELOW WEEKEND REFERENCE")
     return {
+        "scope": "DRIVER",
+        "driverNumber": driver.number,
         "stage": stage,
         "changes": changes,
         "likelyStopCount": stop_count,
@@ -486,6 +562,241 @@ def _driver_strategy(
             "Sprint has no Grand Prix mandatory-stop assumption"
             if state.session.session_kind == "sprint"
             else "Tyre legality is not inferred without event-specific allocation evidence"
+        ),
+    }
+
+
+
+def _context_race_like_transitions(
+    context: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not context:
+        return []
+    samples: list[dict[str, Any]] = []
+    for session in _same_meeting_context_sessions(context):
+        if session.get("session_kind") != "sprint":
+            continue
+        for observation in session.get("lap_observations", []):
+            previous = observation.get("previous_compound")
+            new = observation.get("new_compound")
+            life = observation.get("tyre_age")
+            if (
+                not previous
+                or not new
+                or previous == new
+                or not isinstance(life, (int, float))
+            ):
+                continue
+            samples.append(
+                {
+                    "driverNumber": str(observation.get("driver_number") or ""),
+                    "previousCompound": str(previous),
+                    "newCompound": str(new),
+                    "stintLife": int(life),
+                    "lap": observation.get("lap"),
+                    "source": "same-meeting Sprint",
+                }
+            )
+    return samples
+
+
+def _race_strategy(
+    driver_models: dict[str, dict[str, Any]],
+    evidence_by_driver: dict[str, tuple[LapObservation, ...]],
+    context: dict[str, Any] | None,
+    pit_loss: dict[str, Any],
+    state: RaceState,
+    stage: str,
+) -> dict[str, Any]:
+    current_samples = [
+        {**item, "source": "current Race"}
+        for item in _transition_samples(evidence_by_driver)
+    ]
+    sprint_samples = _context_race_like_transitions(context)
+    samples = current_samples + sprint_samples
+    pairs = Counter(
+        (str(item["previousCompound"]), str(item["newCompound"]))
+        for item in samples
+    ).most_common()
+    supported = bool(
+        len(samples) >= 3
+        and pairs
+        and pairs[0][1] >= 2
+        and pairs[0][1] / len(samples) >= 0.5
+    )
+    evidence_scope = [
+        f"{len(current_samples)} current-Race field transitions",
+        f"{len(sprint_samples)} explicitly comparable same-meeting Sprint transitions",
+        "Practice and Qualifying pit/garage activity is excluded",
+    ]
+    primary_pair = pairs[0][0] if supported else None
+    primary = (
+        metric(
+            f"{primary_pair[0]} → {primary_pair[1]}",
+            status="ESTIMATE",
+            evidence=[
+                f"field consensus from {pairs[0][1]} of {len(samples)} race-like transitions",
+                *evidence_scope,
+            ],
+            quality="medium" if len(samples) >= 6 else "low",
+        )
+        if primary_pair
+        else unknown("no race-wide compound-transition consensus in current-meeting evidence")
+    )
+    alternate = (
+        metric(
+            f"{pairs[1][0][0]} → {pairs[1][0][1]}",
+            status="ESTIMATE",
+            evidence=[
+                f"secondary field pattern in {pairs[1][1]} comparable race-like transitions",
+                *evidence_scope,
+            ],
+            quality="low",
+        )
+        if supported and len(pairs) > 1 and pairs[1][1] >= 2
+        else unknown("no supported race-wide alternate compound consensus")
+    )
+    likely_next = (
+        metric(
+            primary_pair[1],
+            status="ESTIMATE",
+            evidence=primary["evidenceBasis"],
+            quality=primary["quality"],
+        )
+        if primary_pair
+        else unknown("race-wide next compound is not established")
+    )
+    lives = sorted(
+        int(item["stintLife"])
+        for item in samples
+        if primary_pair
+        and item["previousCompound"] == primary_pair[0]
+        and item["newCompound"] == primary_pair[1]
+    )
+    race_window = unknown("insufficient race-like stint-life evidence")
+    if len(lives) >= 3:
+        lower_life = lives[len(lives) // 4]
+        upper_life = lives[(len(lives) * 3) // 4]
+        current_lap = state.session.lap or 1
+        projected_windows = []
+        for driver in state.drivers.values():
+            if (
+                driver.compound == primary_pair[0]
+                and driver.tyre_age is not None
+                and upper_life > driver.tyre_age
+            ):
+                driver_lap = driver.lap or current_lap
+                start = driver_lap - driver.tyre_age + 1
+                projected_windows.append(
+                    (max(current_lap, start + lower_life - 1), start + upper_life - 1)
+                )
+        if projected_windows:
+            starts = sorted(item[0] for item in projected_windows)
+            ends = sorted(item[1] for item in projected_windows)
+            projected = [round(median(starts)), round(median(ends))]
+        elif current_lap <= 1:
+            projected = [lower_life, upper_life]
+        else:
+            projected = []
+        if projected and projected[1] >= current_lap:
+            race_window = metric(
+                [max(current_lap, projected[0]), projected[1]],
+                status="ESTIMATE",
+                evidence=[
+                    f"race-wide projection from central stint-life range of {len(lives)} race-like transitions",
+                    *evidence_scope,
+                ],
+                unit="lap",
+                quality="medium" if len(lives) >= 6 else "low",
+            )
+    degradation_values = [
+        float(model["strategy"]["degradation"]["value"])
+        for model in driver_models.values()
+        if isinstance(model["strategy"]["degradation"].get("value"), (int, float))
+    ]
+    degradation = (
+        metric(
+            round(median(degradation_values), 3),
+            status="ESTIMATE",
+            evidence=[
+                f"field median of {len(degradation_values)} source-neutral driver degradation models",
+                "current-session evidence takes precedence over same-meeting weekend context per driver",
+            ],
+            unit="s/lap",
+            quality="medium" if len(degradation_values) >= 6 else "low",
+        )
+        if len(degradation_values) >= 3
+        else unknown("fewer than three comparable driver degradation models")
+    )
+    degradation_value = _metric_number(degradation)
+    tyre_stress = (
+        metric(
+            "HIGH" if degradation_value >= 0.15 else "MEDIUM" if degradation_value >= 0.06 else "LOW",
+            status="ESTIMATE",
+            evidence=degradation["evidenceBasis"],
+            quality=degradation["quality"],
+        )
+        if degradation_value is not None
+        else unknown("race-wide clean-lap degradation is unavailable")
+    )
+    stop_count = unknown("race-wide stop pattern is not yet established")
+    if state.session.total_laps and state.session.lap:
+        progress = state.session.lap / state.session.total_laps
+        observed = [driver.pit_count for driver in state.drivers.values() if driver.position is not None]
+        if progress >= 0.65 and len(observed) >= 5:
+            stop_count = metric(
+                round(median(observed)),
+                status="ESTIMATE",
+                evidence=[f"field pit-count median after {progress:.0%} race distance"],
+                unit="stops",
+                quality="low",
+            )
+    undercut = (
+        metric(
+            "STRONG" if degradation_value >= 0.15 else "MODERATE" if degradation_value >= 0.08 else "LIMITED",
+            status="ESTIMATE",
+            evidence=["race-wide clean-lap degradation plus comparable race-like pit loss"],
+            quality=degradation["quality"],
+        )
+        if degradation_value is not None and pit_loss.get("value") is not None
+        else unknown("race-wide degradation and comparable pit loss are both required")
+    )
+    changes = sorted(
+        {
+            change
+            for model in driver_models.values()
+            for change in model["strategy"].get("changes", [])
+        }
+    )
+    return {
+        "scope": "RACE",
+        "stage": stage,
+        "changes": changes,
+        "likelyStopCount": stop_count,
+        "primaryStrategy": primary,
+        "alternateStrategy": alternate,
+        "likelyNextCompound": likely_next,
+        "pitWindow": race_window,
+        "tyreStress": tyre_stress,
+        "degradation": degradation,
+        "pitLoss": pit_loss,
+        "undercutStrength": undercut,
+        "projectedRejoinPosition": unknown("rejoin position is driver-specific"),
+        "freeStopMargin": unknown("free-stop margin is driver-specific"),
+        "weatherRisk": (
+            metric(
+                "RAIN DETECTED",
+                status="OBSERVED",
+                evidence=["current normalized rainfall sensor observation"],
+                quality="observed",
+            )
+            if state.weather.rainfall is True
+            else unknown("no forecast-capable weather evidence")
+        ),
+        "rulesNote": (
+            "Sprint has no Grand Prix mandatory-stop assumption"
+            if state.session.session_kind == "sprint"
+            else "Race-wide legality remains UNKNOWN without event tyre-allocation evidence"
         ),
     }
 
@@ -636,27 +947,57 @@ def _degradation(laps: list[LapObservation]) -> dict[str, Any]:
 
 
 def _pit_loss_metric(
-    events: tuple[PitEvent, ...], context: dict[str, Any] | None
+    events: tuple[PitEvent, ...],
+    context: dict[str, Any] | None,
+    *,
+    session_kind: str,
 ) -> dict[str, Any]:
-    values = [item.pit_lane_duration for item in events if item.pit_lane_duration]
-    if context:
-        values.extend(
+    current_values = [
+        float(item.pit_lane_duration)
+        for item in events
+        if isinstance(item.pit_lane_duration, (int, float))
+    ]
+    sprint_values: list[float] = []
+    if session_kind == "race" and context:
+        sprint_values = [
             float(lap["pit_lane_duration"])
-            for session in context.get("sessions", [])
+            for session in _same_meeting_context_sessions(context)
+            if session.get("session_kind") == "sprint"
             for lap in session.get("lap_observations", [])
             if isinstance(lap.get("pit_lane_duration"), (int, float))
+        ]
+    candidates = current_values + sprint_values
+    plausible = [value for value in candidates if 8.0 <= value <= 80.0]
+    if len(plausible) < 2:
+        return unknown(
+            "at least two comparable current-Race or validated Sprint pit-lane durations are required"
         )
-    if len(values) < 2:
-        return unknown("at least two observed pit-lane durations are required")
+    center = median(plausible)
+    mad = median(abs(value - center) for value in plausible)
+    retained = [
+        value
+        for value in plausible
+        if abs(value - center) <= max(5.0, 3.0 * mad)
+    ]
+    if len(retained) < 2:
+        return unknown("pit-lane duration observations are not mutually comparable")
+    evidence = [
+        f"robust median of {len(retained)} comparable race-like pit-lane durations",
+        f"{len(current_values)} current-session Race/Sprint observations",
+    ]
+    if sprint_values:
+        evidence.append(
+            f"{len(sprint_values)} same-meeting Sprint observations explicitly treated as race-like context"
+        )
+    if len(retained) != len(candidates):
+        evidence.append("non-comparable or outlying durations were excluded, not clamped")
     return metric(
-        round(median(values), 3),
+        round(median(retained), 3),
         status="DERIVED",
-        evidence=[f"median of {len(values)} observed pit-lane durations"],
+        evidence=evidence,
         unit="s",
-        quality="high" if len(values) >= 8 else "medium" if len(values) >= 4 else "low",
+        quality="high" if len(retained) >= 8 else "medium" if len(retained) >= 4 else "low",
     )
-
-
 def _context_laps(context: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not context:
         return []

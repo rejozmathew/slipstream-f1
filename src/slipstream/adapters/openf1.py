@@ -595,6 +595,11 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             if isinstance(lap_number, int) and pit_record is not None
             else None
         )
+        previous_stint = (
+            _previous_stint_at_or_before_lap(stints_by_driver.get(number, []), lap_number)
+            if isinstance(lap_number, int) and pit_record is not None
+            else stint
+        )
         contamination_reasons = []
         if pit_in:
             contamination_reasons.append("pit_in")
@@ -640,7 +645,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 "pit_in": pit_in,
                 "pit_out": pit_out,
                 "pit_occurred_at": pit_record.get("date") if pit_record else None,
-                "previous_compound": compound if pit_record else None,
+                "previous_compound": previous_stint.get("compound") if pit_record and previous_stint is not None else None,
                 "new_compound": next_stint.get("compound") if next_stint else None,
                 "stop_duration": _positive_float(
                     pit_record.get("stop_duration") if pit_record else None
@@ -982,6 +987,20 @@ def _next_stint_after_lap(
         and int(stint["lap_start"]) > lap_number
     ]
     return min(candidates, key=lambda item: int(item["lap_start"])) if candidates else None
+
+
+def _previous_stint_at_or_before_lap(
+    stints: list[dict[str, Any]], lap_number: int
+) -> dict[str, Any] | None:
+    """Resolve the tyre set before a pit even when the pit lap is between stints."""
+
+    candidates = [
+        stint
+        for stint in stints
+        if isinstance(stint.get("lap_end"), (int, float))
+        and int(stint["lap_end"]) <= lap_number
+    ]
+    return max(candidates, key=lambda item: int(item["lap_end"])) if candidates else None
 
 
 def _as_datetime(value: str) -> datetime:

@@ -54,7 +54,7 @@ Every calculated metric has the same shape:
 | Stage | Current trigger | Meaning |
 | --- | --- | --- |
 | `BASELINE_AVAILABLE` | No current-session lap evidence and Weekend Context is not ready. | Only versioned rules and static factual context are available. V1 does not invent a generic circuit strategy. |
-| `WEEKEND_MODEL_READY` | Same-meeting Weekend Context is ready and the selected session has not produced lap evidence. | Eligible earlier sessions can inform pit loss and a contextual degradation reference. |
+| `WEEKEND_MODEL_READY` | Same-meeting Weekend Context is ready and the selected session has not produced lap evidence. | Eligible earlier sessions can inform contextual degradation. Only an explicitly race-like Sprint may contribute comparable pit/transition evidence; Practice and Qualifying cannot. |
 | `LIVE_OUTLOOK` | At least one selected-session lap observation exists, or the session is beyond lap 1. | Current-session evidence progressively replaces contextual estimates when its quality threshold is met. |
 
 For historical replay, “live” means live at that replay cursor—not knowledge from the completed race.
@@ -102,7 +102,7 @@ If both weekend and current-session degradation exist, the UI reports `DEGRADATI
 
 A viewer pit event preserves pit lap/time, previous/new compound, source-supported stationary stop duration, and source-supported complete pit-lane duration as independent facts. Stationary duration is never fabricated from pit-lane duration.
 
-Pit loss is the median of observed pit-lane durations available from the selected session up to the replay cursor plus eligible same-meeting context. At least two values are required.
+Pit loss uses only current-session Race/Sprint pit-lane durations plus explicitly comparable same-meeting Sprint observations when the target is the Grand Prix. Practice and Qualifying pit/garage durations are never comparable inputs. Values outside the defensible `8â€“80s` race-like range are rejected, then median/MAD filtering excludes non-comparable outliers without clamping. At least two retained values are required; otherwise pit loss is `UNKNOWN`.
 
 | Sample count | Quality |
 | --- | --- |
@@ -114,15 +114,21 @@ V1 does not separately calculate SC/VSC pit loss; that remains `UNKNOWN` until d
 
 ## Strategy metrics
 
+`AnalyticsSnapshot.raceStrategy` is an explicit field/session model. Race and TV Strategy consume it. It aggregates current-field evidence and, before/during a Grand Prix, only explicitly race-like same-meeting Sprint evidence. It never defaults to Driver 1 or the first classified car.
+
+`AnalyticsSnapshot.drivers[number].strategy` remains driver-specific and is used by Driver Focus, Driver TV, Battle comparison, and Strategy Timing Tower rows. Both shapes carry `scope` (`RACE` or `DRIVER`); driver models also carry `driverNumber`. Race-wide rejoin position and free-stop margin are `UNKNOWN` because those questions require a selected car.
+
+Race-wide compound sequences require a field consensus: at least three race-like transitions, at least two supporting the leading pair, and at least 50% agreement. Same-meeting Practice/Qualifying data may support clean-lap degradation context but cannot silently become a Race compound plan.
+
 ### Likely next compound
 
-Slipstream examines current-session field pit transitions whose previous compound matches the selected driver's current compound. The most common observed next compound requires at least two comparable transitions. It is an `ESTIMATE`; fewer observations remain `UNKNOWN`.
+For Driver strategy, Slipstream examines current-Race field transitions whose previous compound matches the driver's current compound and whose observed stint life is comparable to or later than the driver's current tyre age. A next compound requires at least three comparable transitions, at least two supporting the leader, and at least 60% agreement. This prevents an old transition from another race phase being presented as a current optimum.
 
 This is not a claim about complete remaining tyre inventory. Set identity, new/used condition, and availability remain capability-gated.
 
 ### Pit window
 
-At least three comparable current-session transition laps are required. V1 reports the central observed range using the indexed first and third quartile transition laps. It is an `ESTIMATE`, not an optimization result. Practice lap numbers are not converted into a Grand Prix pit window.
+At least three comparable stint-life observations are required. V1 takes the central first/third-quartile tyre-life range and projects it from the selected driver's current stint start. A window is never returned wholly before the current lap; if the comparable upper stint life has already been exceeded, the result is `UNKNOWN`. Absolute historical transition lap numbers are not reused as future windows.
 
 ### Primary and alternate strategy
 

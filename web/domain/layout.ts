@@ -36,9 +36,9 @@ export const INSTANCE_RACE_LAYOUT: RaceLayoutConfig = {
   analysisOrder: ["strategy", "map", "conditions", "raceControl"],
   hiddenModules: [],
   moduleSizes: {
-    strategy: "compact",
-    map: "tall",
-    conditions: "standard",
+    strategy: "standard",
+    map: "standard",
+    conditions: "compact",
     raceControl: "standard",
   },
 };

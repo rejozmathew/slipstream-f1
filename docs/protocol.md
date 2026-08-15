@@ -76,7 +76,7 @@ The driver-history response also contains viewer-oriented `pitEvents`. A pit eve
 
 ## Weekend context and analytics
 
-`GET /api/v1/analytics` returns `analytics.snapshot` schema version 1. Its top-level fields include `modelVersion`, `sessionKind`, `layoutFamily`, `sequence`, `asOf`, stage, context status/provenance, per-driver models, pit loss, and the shared Battle recommendation. `context.meetingKey` declares the only meeting whose evidence may contribute to the Weekend model. Metric values use:
+`GET /api/v1/analytics` returns `analytics.snapshot` schema version 1. Its top-level fields include `modelVersion`, `sessionKind`, `layoutFamily`, `sequence`, `asOf`, stage, context status/provenance, explicit race-wide `raceStrategy`, per-driver models, pit loss, and the shared Battle recommendation. `raceStrategy.scope` is `RACE`; `drivers[number].strategy.scope` is `DRIVER` and includes `driverNumber`. Race/TV Strategy must not substitute the first driver model. `context.meetingKey` declares the only meeting whose evidence may contribute to the Weekend model. Metric values use:
 
 - `OBSERVED`: a normalized source fact;
 - `DERIVED`: a deterministic calculation from observed facts;
