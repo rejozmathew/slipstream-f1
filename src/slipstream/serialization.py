@@ -14,9 +14,10 @@ def state_envelope(
     sequence: int,
     session_time: str | None = None,
     playing: bool = False,
+    analytics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     clock = session_time or state.updated_at
-    return {
+    envelope = {
         "v": 1,
         "seq": sequence,
         "type": "state.snapshot",
@@ -25,3 +26,6 @@ def state_envelope(
         "playback": {"playing": playing},
         "data": asdict(state),
     }
+    if analytics is not None:
+        envelope["analytics"] = analytics
+    return envelope

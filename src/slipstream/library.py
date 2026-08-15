@@ -14,6 +14,7 @@ from .catalog import CATALOG_FORMAT, read_catalog
 from .events import NormalizedEvent, parse_timestamp
 from .evidence import SessionEvidence
 from .replay import load_events, replay
+from .session import classify_session
 from .state import RaceState
 
 
@@ -34,6 +35,14 @@ class SessionDescriptor:
     source: str
     capabilities: dict[str, bool]
     circuit_data: dict[str, Any] | None = None
+
+    @property
+    def session_kind(self) -> str:
+        return classify_session(self.session_type, self.session_name).kind.value
+
+    @property
+    def layout_family(self) -> str:
+        return classify_session(self.session_type, self.session_name).layout_family.value
 
     @property
     def available(self) -> bool:
@@ -76,6 +85,8 @@ class SessionDescriptor:
             "meetingName": self.meeting_name,
             "sessionName": self.session_name,
             "sessionType": self.session_type,
+            "sessionKind": self.session_kind,
+            "layoutFamily": self.layout_family,
             "circuit": self.circuit,
             "location": self.location,
             "dateStart": self.date_start,
@@ -86,6 +97,34 @@ class SessionDescriptor:
             "circuitShapeAvailable": self.circuit_shape_available,
             "positionMode": self.position_mode,
         }
+
+    def serialize_now_independent(self) -> dict[str, Any]:
+        """Stable meeting inventory fields for a persisted context pack."""
+
+        return {
+            "session_key": self.key,
+            "meeting_key": self.meeting_key,
+            "session_name": self.session_name,
+            "session_type": self.session_type,
+            "session_kind": self.session_kind,
+            "layout_family": self.layout_family,
+            "date_start": self.date_start,
+            "date_end": self.date_end,
+        }
+
+    def meeting_inventory(
+        self, descriptors: dict[str, SessionDescriptor]
+    ) -> tuple[SessionDescriptor, ...]:
+        return tuple(
+            sorted(
+                (
+                    item
+                    for item in descriptors.values()
+                    if item.meeting_key == self.meeting_key
+                ),
+                key=lambda item: item.date_start,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -255,6 +294,8 @@ def _preview_events(
                 "name": descriptor.session_name,
                 "meeting_name": descriptor.meeting_name,
                 "session_type": descriptor.session_type,
+                "session_kind": descriptor.session_kind,
+                "layout_family": descriptor.layout_family,
                 "circuit": descriptor.circuit,
                 "location": descriptor.location,
                 "started_at": descriptor.date_start,

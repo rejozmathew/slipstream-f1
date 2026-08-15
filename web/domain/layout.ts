@@ -1,7 +1,8 @@
 export type LayoutOwner = "instance" | "user" | "device";
 export type AnalysisModuleId = "strategy" | "map" | "conditions" | "raceControl";
 export type ModuleSize = "compact" | "standard" | "tall";
-export type RacePresetId = "balanced" | "timing" | "strategy" | "custom";
+export type RacePresetId = "balanced" | "towerWide" | "analysisWide" | "custom";
+export type TowerView = "standard" | "timing" | "strategy";
 
 export type RaceLayoutConfig = {
   timingWidth: number;
@@ -25,8 +26,8 @@ export const ANALYSIS_MODULES: Array<{ id: AnalysisModuleId; label: string; desc
 
 export const RACE_PRESETS: Record<Exclude<RacePresetId, "custom">, number> = {
   balanced: 66,
-  timing: 76,
-  strategy: 56,
+  towerWide: 76,
+  analysisWide: 56,
 };
 
 export const INSTANCE_RACE_LAYOUT: RaceLayoutConfig = {

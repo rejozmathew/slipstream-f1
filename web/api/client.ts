@@ -1,4 +1,4 @@
-import type { DriverHistory, ReplayCatalog, ReplayMetadata, SourceCapabilities, StateEnvelope } from "../domain/protocol";
+import type { AnalyticsSnapshot, DriverHistory, ReplayCatalog, ReplayMetadata, SourceCapabilities, StateEnvelope } from "../domain/protocol";
 
 const configuredBase = (import.meta.env.VITE_SLIPSTREAM_API ?? "").replace(/\/$/, "");
 
@@ -27,6 +27,7 @@ export const slipstreamApi = {
   replay: (sessionKey?: string | null) => fetch(url("/api/v1/replay", sessionKey), { cache: "no-store" }).then(readJson<ReplayMetadata>),
   capabilities: (sessionKey?: string | null) => fetch(url("/api/v1/capabilities", sessionKey), { cache: "no-store" }).then(readJson<SourceCapabilities>),
   driverHistory: (sessionKey: string, driverNumber: string) => fetch(`${configuredBase}/api/v1/driver-history?session_key=${encodeURIComponent(sessionKey)}&driver_number=${encodeURIComponent(driverNumber)}`, { cache: "no-store" }).then(readJson<DriverHistory>),
+  analytics: (sessionKey: string, sequence?: number) => fetch(`${configuredBase}/api/v1/analytics?session_key=${encodeURIComponent(sessionKey)}${sequence == null ? "" : `&seq=${sequence}`}`, { cache: "no-store" }).then(readJson<AnalyticsSnapshot>),
   download: (sessionKey: string) => fetch(url("/api/v1/download", sessionKey), { method: "POST" }).then(readJson<{ v: 1; status: "available"; catalog: ReplayCatalog }>),
   streamUrl(sessionKey?: string | null) {
     const base = configuredBase

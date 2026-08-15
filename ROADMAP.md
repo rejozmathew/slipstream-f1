@@ -27,7 +27,21 @@ Strategy calculations, Recommended Battle, authentication, Sync Groups, devices,
 - independent background and accent settings with locked semantic state colors
 - truthful production Strategy shells without calculations
 
-## Milestone 3 - persistent control plane and access
+## Milestone 3 - Race Intelligence and Weekend Context
+
+- source-neutral `SessionKind` distinct from shared Race/Qualifying/Practice layout families
+- versioned, non-blocking Weekend Context packs restricted to the same `meeting_key`, with explicit evidence cutoffs and no prior-weekend/circuit-edition inputs
+- cached analytics sidecar synchronized to deterministic replay time/cursor
+- clean-lap pace delta, degradation, pit events, and provenance-aware Strategy
+- shared Recommended Battle score with hysteresis
+- first-class Driver navigation, factual ahead/behind, and pace visualization
+- separate Race split-width presets and Timing Tower Standard/Timing/Strategy modes
+- Driver TV state, persistent race-status treatment, short critical alerts, and device-local rotation preferences
+- optional External Strategy Intelligence boundary, disabled by default
+
+Historical replay remains the development and regression harness for analytics. Unsupported or insufficient evidence remains `UNKNOWN`; no frontend strategy calculations or parallel factual model are introduced.
+
+## Milestone 4 - persistent control plane and access
 
 - SQLite migrations under `/data`
 - first-run Admin creation, including existing installs with recordings but no database
@@ -38,7 +52,7 @@ Strategy calculations, Recommended Battle, authentication, Sync Groups, devices,
 
 Existing recordings and catalog data must be preserved. There is no anonymous migration grace period.
 
-## Milestone 4 - Sync Groups and devices
+## Milestone 5 - Sync Groups and devices
 
 - server-owned shared replay/live controller per group
 - server-serialized last-write-wins updates
@@ -47,15 +61,6 @@ Existing recordings and catalog data must be preserved. There is no anonymous mi
 - expiring short codes only for device and hardware pairing
 
 V1 does not use controller leases or locks.
-
-## Milestone 5 - deterministic replay analytics
-
-Historical replay is the development and regression harness for provider-independent analytics before live timing is normalized.
-
-- clean-lap selection from source-neutral session evidence with provenance
-- representative pace and strategy calculations with truthful `UNKNOWN` results when evidence is insufficient
-- strategy-aware battle scoring and recommendations backed by tested production logic
-- no frontend strategy calculations or parallel dashboard truth model
 
 ## Milestone 6 - normalized public live timing
 

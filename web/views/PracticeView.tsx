@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Conditions } from "../components/analysis/Conditions";
 import { RaceControl } from "../components/analysis/RaceControl";
 import { TrackMap } from "../components/analysis/TrackMap";
@@ -19,4 +21,3 @@ export function PracticeView({ state, replayAvailable, positionMode, onSelectDri
     </div>
   </div><div className="mobile-session mobile-practice-session"><nav className="mobile-priority-tabs">{(["timing", "runs", "pace", "stints"] as const).map((tab) => <button className={mobileTab === tab ? "active" : ""} key={tab} onClick={() => setMobileTab(tab)}>{tab.toUpperCase()}</button>)}</nav><div className="mobile-session-content">{mobileTab === "timing" ? <TimingTower drivers={drivers} variant="practice" replayAvailable={replayAvailable} onSelectDriver={onSelectDriver} /> : <Panel eyebrow={mobileTab === "runs" ? "RUNS" : mobileTab === "pace" ? "PACE" : "STINTS"} title={mobileTab === "runs" ? "Run context" : mobileTab === "pace" ? "Pace context" : "Stint history"}><div className="unknown-block"><strong>ANALYTICS - NOT ENABLED</strong><p>Factual timing remains available. No derived practice model is invented.</p></div></Panel>}</div></div></>;
 }
-import { useState } from "react";

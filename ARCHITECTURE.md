@@ -1,6 +1,6 @@
 # Architecture
 
-Slipstream is a historical replay application with an experimental raw live recorder. Historical replay is integrated end to end; public live messages are recorded for research but do not yet feed the application state.
+Slipstream is a historical replay and deterministic race-intelligence application with an experimental raw live recorder. Historical replay is integrated end to end; public live messages are recorded for research but do not yet feed the application state.
 
 ## System shape
 
@@ -27,6 +27,16 @@ OpenF1 sessions/meetings ---> lightweight catalog ---> session library
                                       |                      |
                                dates + circuits       local recordings overlay
 
+Race-intelligence path
+
+Static/circuit facts + RaceState + SessionEvidence
+                    + same-meeting WeekendContext v1
+                    + optional, separately labelled External Intelligence
+                                      |
+                                      v
+                          cached AnalyticsSnapshot v1
+                     /api/v1/analytics + replay stream
+
 Experimental live path
 
 public F1 SignalR ---> versioned raw JSONL recording ---> future live normalizer
@@ -36,7 +46,7 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 
 ## Core invariants
 
-1. `RaceState` is the only canonical presentation state.
+1. `RaceState` is the canonical current factual state; calculated analytics remain a separate versioned sidecar.
 2. Provider payloads are translated by adapters before reaching state or transports.
 3. State reduction is deterministic and independent of HTTP, WebSocket, and UI concerns.
 4. Each replay viewer owns an independent cursor and clock.
@@ -55,6 +65,11 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 | `events.py` | Define normalized event envelopes and timestamp parsing |
 | `state.py` | Apply current factual events to immutable, lightweight `RaceState` snapshots |
 | `evidence.py` | Reconstruct queryable source-neutral session/lap evidence by replay time or cursor |
+| `session.py` | Normalize discovered session labels into `SessionKind` and `LayoutFamily` |
+| `weekend.py` | Prepare and cache compact meeting context asynchronously under `/data/.slipstream` |
+| `analytics.py` | Produce cached, as-of-time strategy, pace, pit, driver, and Battle analytics with provenance |
+| `strategy_rules.py` | Hold narrow season/session rule profiles without applying current rules to unverified historical events |
+| `external.py` | Define the optional external-intelligence boundary, disabled by default |
 | `replay.py` | Load supported recordings and reconstruct state deterministically |
 | `playback.py` | Own replay cursor, source clock, seek, delay, pause, and play behavior |
 | `api.py` | Expose API v1, per-client WebSocket playback, downloads, and compiled browser files |
@@ -76,13 +91,23 @@ Every event produces a new snapshot. Seeking resets the reducer and reapplies al
 
 Full lap history is not part of `RaceState`. `SessionEvidence` reconstructs append-only normalized lap observations from the same deterministic event stream and supports queries by replay timestamp or event cursor. Observations retain duration, sectors, compound/stint context, tyre age, pit-in/out evidence, and quality reasons without being retransmitted in every state snapshot. Strategy and representative-pace calculations will consume this sidecar in tested backend logic; they do not belong in `RaceState` or a parallel frontend truth model.
 
+`WeekendContext` is a separate artifact strictly scoped to the selected session's `meeting_key`. It contains only compact normalized evidence from earlier sessions in that same meeting ending at or before the explicit `evidence_cutoff`; it never contains another race weekend, a prior edition at the circuit, or the selected Race's later laps/results. Static circuit facts and optional External Intelligence remain separately labelled inputs. Full replay recordings remain session-scoped. Missing context is prepared in a serialized background task, while replay starts immediately and Strategy progresses from baseline to weekend model to in-session outlook.
+
+Eligible sessions are discovered rather than assumed. A standard weekend may progressively contribute FP1, FP2, FP3, and Qualifying evidence before the Grand Prix; a Sprint weekend may contribute FP1, Sprint Qualifying, Sprint, and Qualifying evidence. Only sessions actually present, completed before the cutoff, and carrying the same `meeting_key` are admitted.
+
+`AnalyticsSnapshot` is synchronized to the replay cursor/time and cached by meaningful factual and context revisions. Each metric is `OBSERVED`, `DERIVED`, `ESTIMATE`, or `UNKNOWN` and carries its evidence basis, model version, and quality where useful. The clean-lap pace baseline is the median of at least three representative laps in a stint after median-absolute-deviation filtering; contaminated, pit, and neutralized laps remain visible but do not move that baseline.
+
+The normative derivation reference is [docs/analytics.md](docs/analytics.md). It records the current formulas, evidence thresholds, quality rules, replay-time behavior, Battle Score weights, and limitations that require `UNKNOWN`.
+
+Sporting-rule facts are versioned by season and session kind. The 2026 profile follows the [FIA 2026 Formula 1 Sporting Regulations, Section B, Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf). Sprint never inherits Grand Prix stop assumptions, and historical/event-specific obligations remain unknown until a matching profile exists.
+
 ## Browser architecture
 
-The Vite application has a thin entry page. `web/api` owns versioned HTTP and WebSocket transport, `web/domain` owns canonical TypeScript contracts, session classification, appearance, and layout resolution, and `web/hooks` coordinates one selected replay resource plus device-local presentation preferences. The global product shell exposes Session, Battle, TV Mode, and My Settings. Race, Qualifying, and Practice remain automatic session layouts; Driver Focus opens contextually from a timing row.
+The Vite application has a thin entry page. `web/api` owns versioned HTTP and WebSocket transport, `web/domain` owns canonical TypeScript contracts, session classification, appearance, and layout resolution, and `web/hooks` coordinates one selected replay resource plus device-local presentation preferences. The global product shell exposes Session, Driver, Battle, TV Mode, and My Settings. Race, Qualifying, and Practice remain shared layout families; Driver Focus opens from navigation, a driver picker, or a timing row. Practice 1/2/3, Qualifying, Sprint Qualifying, Sprint, and Grand Prix remain distinct session kinds without becoming separate applications.
 
-The Race view alone owns the draggable Timing-to-Analysis split and its Balanced, Timing Focus, and Strategy Focus presets. Its analysis modules resolve through the `Instance default -> User preference -> Device override` layout model and can be reordered, resized, or hidden. Qualifying and Practice have authored layouts rather than inheriting that divider. Responsive session layouts are re-authored for portrait and landscape instead of scaling desktop columns. Missing capabilities render `UNKNOWN`, `UNSUPPORTED`, or unavailable states; production code never substitutes plausible sample race data.
+The Race view alone owns the draggable Timing-to-Analysis split and its Balanced, Tower Wide, and Analysis Wide presets. Separate Standard, Timing, and Strategy Timing Tower modes change content rather than width. Analysis modules resolve through the `Instance default -> User preference -> Device override` layout model and can be reordered, resized, or hidden. Qualifying and Practice have authored layouts rather than inheriting that divider. Responsive session layouts are re-authored for portrait and landscape instead of scaling desktop columns. Missing capabilities render `UNKNOWN`, `UNSUPPORTED`, or unavailable states; production code never substitutes plausible sample race data.
 
-Driver Focus requests normalized lap evidence on demand from `/api/v1/driver-history`; full history never returns to the high-frequency state snapshot. Factual Battle derives only values supported by the current canonical state and observed replay samples. Strategy shells remain present but disabled until tested provider-independent analytics exist. Appearance and device layout changes work locally today; user and instance persistence wait for the authenticated control plane.
+Driver Focus requests normalized lap evidence on demand from `/api/v1/driver-history`; full history never returns to the high-frequency state snapshot. Driver, Battle, Race Strategy, and TV consume the same backend analytics sidecar. Device-local TV rotation, Driver target, Battle mode, appearance, and layout settings use browser storage; user and instance persistence wait for the authenticated control plane.
 
 ## Catalog and replay library
 

@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import { formatSector } from "../../domain/format";
 import type { Driver } from "../../domain/protocol";
 import { DataValue } from "../shared/DataValue";
@@ -16,5 +18,3 @@ export function BattleDriverCard({ driver, side }: { driver: Driver | null; side
     <div className="battle-sectors"><span>S1 <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} /></span><span>S2 <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} /></span><span>S3 <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} /></span></div>
   </section>;
 }
-import type { CSSProperties } from "react";
-

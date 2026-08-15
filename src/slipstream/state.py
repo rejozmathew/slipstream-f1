@@ -42,6 +42,8 @@ class SessionState:
     name: str | None = None
     meeting_name: str | None = None
     session_type: str | None = None
+    session_kind: str = "unknown"
+    layout_family: str = "unsupported"
     circuit: str | None = None
     location: str | None = None
     started_at: str | None = None

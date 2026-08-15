@@ -22,6 +22,11 @@ class LapObservation:
     tyre_age: int | None = None
     pit_in: bool | None = None
     pit_out: bool | None = None
+    pit_occurred_at: str | None = None
+    previous_compound: str | None = None
+    new_compound: str | None = None
+    stop_duration: float | None = None
+    pit_lane_duration: float | None = None
     quality: str = "unknown"
     contamination_reasons: tuple[str, ...] = ()
 
@@ -32,6 +37,20 @@ class LapEvidence:
     occurred_at: str
     driver_number: str
     observation: LapObservation
+
+
+@dataclass(frozen=True)
+class PitEvent:
+    """One viewer-oriented pit event backed only by observed source fields."""
+
+    sequence: int
+    occurred_at: str
+    driver_number: str
+    lap: int
+    previous_compound: str | None = None
+    new_compound: str | None = None
+    stop_duration: float | None = None
+    pit_lane_duration: float | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +99,36 @@ class SessionEvidence:
             item.observation
             for item in self.lap_observations
             if item.driver_number == str(driver_number)
+            and (event_limit is None or item.sequence <= event_limit)
+            and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
+        )
+
+    def pit_events_for_driver(
+        self,
+        driver_number: str,
+        *,
+        at: str | None = None,
+        event_limit: int | None = None,
+    ) -> tuple[PitEvent, ...]:
+        if at is not None and event_limit is not None:
+            raise ValueError("evidence accepts either at or event_limit, not both")
+        cutoff = parse_timestamp(at) if at is not None else None
+        return tuple(
+            PitEvent(
+                sequence=item.sequence,
+                occurred_at=(
+                    item.observation.pit_occurred_at or item.occurred_at
+                ),
+                driver_number=item.driver_number,
+                lap=item.observation.lap,
+                previous_compound=item.observation.previous_compound,
+                new_compound=item.observation.new_compound,
+                stop_duration=item.observation.stop_duration,
+                pit_lane_duration=item.observation.pit_lane_duration,
+            )
+            for item in self.lap_observations
+            if item.driver_number == str(driver_number)
+            and item.observation.pit_in is True
             and (event_limit is None or item.sequence <= event_limit)
             and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
         )

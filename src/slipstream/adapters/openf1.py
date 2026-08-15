@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,14 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from slipstream.events import NormalizedEvent
+from slipstream.evidence import SessionEvidence
+from slipstream.external import disabled_external_intelligence
+from slipstream.session import classify_session
+from slipstream.weekend import (
+    WEEKEND_CONTEXT_FORMAT,
+    WEEKEND_CONTEXT_MODEL_VERSION,
+    WEEKEND_CONTEXT_SCHEMA_VERSION,
+)
 
 RECORDING_FORMAT = "slipstream.openf1-recording.v1"
 CAPABILITIES = {
@@ -185,10 +194,185 @@ class OpenF1Client:
             "endpoints": endpoints,
         }
 
+    def capture_weekend_context(
+        self,
+        *,
+        meeting_key: str,
+        target_session_key: str,
+        evidence_cutoff: str,
+        meeting_name: str,
+        inventory: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Fetch compact prior-session evidence without creating replay assets."""
+
+        discovered = self.get(
+            "sessions", meeting_key=meeting_key, allow_not_found=True
+        )
+        session_rows = discovered or inventory
+        meeting_sessions = [
+            item
+            for item in session_rows
+            if str(item.get("meeting_key")) == str(meeting_key)
+        ]
+        normalized_inventory = [
+            _context_session_identity(item) for item in meeting_sessions
+        ]
+        prior_sessions = [
+            item
+            for item in meeting_sessions
+            if str(item.get("session_key")) != str(target_session_key)
+            and _session_ends_by(item, evidence_cutoff)
+        ]
+        context_sessions: list[dict[str, Any]] = []
+        for session in sorted(
+            prior_sessions, key=lambda item: str(item.get("date_start") or "")
+        ):
+            session_key = session.get("session_key")
+            if session_key is None:
+                continue
+            endpoints: dict[str, Any] = {
+                "sessions": [session],
+                "meetings": [
+                    {
+                        "meeting_key": meeting_key,
+                        "meeting_name": meeting_name,
+                    }
+                ],
+                "drivers": [],
+                "position": [],
+                "intervals": [],
+                "location": [],
+            }
+            for endpoint in (
+                "laps",
+                "stints",
+                "pit",
+                "race_control",
+                "weather",
+                "session_result",
+            ):
+                endpoints[endpoint] = self.get(
+                    endpoint, session_key=session_key, allow_not_found=True
+                )
+            recording = {
+                "format": RECORDING_FORMAT,
+                "schema_version": 1,
+                "source": "openf1",
+                "session_key": session_key,
+                "source_capabilities": {},
+                "endpoints": endpoints,
+            }
+            evidence = SessionEvidence.from_events(
+                tuple(recording_to_events(recording))
+            )
+            context_sessions.append(
+                {
+                    **_context_session_identity(session),
+                    "lap_observations": [
+                        {
+                            "sequence": item.sequence,
+                            "occurred_at": item.occurred_at,
+                            "driver_number": item.driver_number,
+                            **asdict(item.observation),
+                        }
+                        for item in evidence.lap_observations
+                    ],
+                    "weather": [
+                        _context_weather(item)
+                        for item in endpoints["weather"]
+                        if item.get("date")
+                    ],
+                    "results": [
+                        _context_result(item)
+                        for item in endpoints["session_result"]
+                        if item.get("driver_number") is not None
+                    ],
+                }
+            )
+        grid = self.get(
+            "starting_grid",
+            session_key=target_session_key,
+            allow_not_found=True,
+        )
+        return {
+            "format": WEEKEND_CONTEXT_FORMAT,
+            "schema_version": WEEKEND_CONTEXT_SCHEMA_VERSION,
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "evidence_cutoff": evidence_cutoff,
+            "model_version": WEEKEND_CONTEXT_MODEL_VERSION,
+            "source": "openf1",
+            "meeting_key": str(meeting_key),
+            "meeting_name": meeting_name,
+            "target_session_key": str(target_session_key),
+            "session_inventory": normalized_inventory,
+            "sessions": context_sessions,
+            "grid": [
+                {
+                    "driver_number": str(item["driver_number"]),
+                    "position": item.get("position"),
+                    "qualifying_lap_duration": item.get("lap_duration"),
+                }
+                for item in grid
+                if item.get("driver_number") is not None
+            ],
+            "tyre_inventory": {"status": "unsupported"},
+            "external_intelligence": disabled_external_intelligence(),
+        }
+
 
 def write_recording(path: Path, recording: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(recording, indent=2) + "\n", encoding="utf-8")
+
+
+def _context_session_identity(item: dict[str, Any]) -> dict[str, Any]:
+    classification = classify_session(
+        item.get("session_type"), item.get("session_name")
+    )
+    return {
+        "session_key": str(item.get("session_key") or ""),
+        "meeting_key": str(item.get("meeting_key") or ""),
+        "session_name": item.get("session_name"),
+        "session_type": item.get("session_type"),
+        "session_kind": classification.kind.value,
+        "layout_family": classification.layout_family.value,
+        "date_start": item.get("date_start"),
+        "date_end": item.get("date_end"),
+    }
+
+
+def _session_ends_by(item: dict[str, Any], evidence_cutoff: str) -> bool:
+    value = item.get("date_end") or item.get("date_start")
+    if not isinstance(value, str):
+        return False
+    try:
+        return _as_datetime(value) <= _as_datetime(evidence_cutoff)
+    except ValueError:
+        return False
+
+
+def _context_weather(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "occurred_at": item.get("date"),
+        "air_temperature": item.get("air_temperature"),
+        "track_temperature": item.get("track_temperature"),
+        "humidity": item.get("humidity"),
+        "pressure": item.get("pressure"),
+        "rainfall": _as_rainfall(item.get("rainfall")),
+        "wind_speed": item.get("wind_speed"),
+        "wind_direction": item.get("wind_direction"),
+    }
+
+
+def _context_result(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "driver_number": str(item["driver_number"]),
+        "position": item.get("position"),
+        "number_of_laps": item.get("number_of_laps"),
+        "dnf": item.get("dnf"),
+        "dns": item.get("dns"),
+        "dsq": item.get("dsq"),
+    }
 
 
 def is_openf1_recording(raw: object) -> bool:
@@ -206,6 +390,9 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
     started_at = session["date_start"]
     ended_at = session["date_end"]
     source = "openf1"
+    classification = classify_session(
+        session.get("session_type"), session.get("session_name")
+    )
     results = endpoints.get("session_result", [])
     completed_laps = [
         result.get("number_of_laps")
@@ -227,6 +414,8 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 "name": session.get("session_name"),
                 "meeting_name": meeting.get("meeting_name") or session.get("location"),
                 "session_type": session.get("session_type"),
+                "session_kind": classification.kind.value,
+                "layout_family": classification.layout_family.value,
                 "circuit": session.get("circuit_short_name"),
                 "location": session.get("location"),
                 "started_at": started_at,
@@ -360,6 +549,12 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
         if item.get("driver_number") is not None
         and isinstance(item.get("lap_number"), int)
     }
+    pit_by_driver_lap = {
+        (str(item["driver_number"]), int(item["lap_number"])): item
+        for item in endpoints.get("pit", [])
+        if item.get("driver_number") is not None
+        and isinstance(item.get("lap_number"), int)
+    }
     neutralization_intervals = _track_neutralization_intervals(
         endpoints.get("race_control", [])
     )
@@ -390,6 +585,16 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             pit_out = bool(lap.get("is_pit_out_lap")) or (
                 (number, lap_number - 1) in pit_laps
             )
+        pit_record = (
+            pit_by_driver_lap.get((number, lap_number))
+            if isinstance(lap_number, int)
+            else None
+        )
+        next_stint = (
+            _next_stint_after_lap(stints_by_driver.get(number, []), lap_number)
+            if isinstance(lap_number, int) and pit_record is not None
+            else None
+        )
         contamination_reasons = []
         if pit_in:
             contamination_reasons.append("pit_in")
@@ -434,6 +639,17 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 "tyre_age": tyre_age,
                 "pit_in": pit_in,
                 "pit_out": pit_out,
+                "pit_occurred_at": pit_record.get("date") if pit_record else None,
+                "previous_compound": compound if pit_record else None,
+                "new_compound": next_stint.get("compound") if next_stint else None,
+                "stop_duration": _positive_float(
+                    pit_record.get("stop_duration") if pit_record else None
+                ),
+                "pit_lane_duration": _positive_float(
+                    pit_record.get("lane_duration", pit_record.get("pit_duration"))
+                    if pit_record
+                    else None
+                ),
                 "quality": quality,
                 "contamination_reasons": contamination_reasons,
             }
@@ -651,6 +867,10 @@ def _format_duration(seconds: object) -> str | None:
     return f"{int(minutes)}:{remainder:06.3f}"
 
 
+def _positive_float(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and value >= 0 else None
+
+
 def _neutralization_transition(message: dict[str, Any]) -> tuple[str, str] | None:
     """Classify only genuine whole-track neutralization transitions."""
 
@@ -750,6 +970,18 @@ def _stint_for_lap(
         if int(lap_start) <= lap_number <= end:
             return stint
     return None
+
+
+def _next_stint_after_lap(
+    stints: list[dict[str, Any]], lap_number: int
+) -> dict[str, Any] | None:
+    candidates = [
+        stint
+        for stint in stints
+        if isinstance(stint.get("lap_start"), (int, float))
+        and int(stint["lap_start"]) > lap_number
+    ]
+    return min(candidates, key=lambda item: int(item["lap_start"])) if candidates else None
 
 
 def _as_datetime(value: str) -> datetime:

@@ -15,6 +15,8 @@ Adding optional fields is compatible within version 1. Removing a field, changin
 
 `RaceState` is the normalized contract used by the terminal, REST API, WebSocket, and browser. Provider response shapes must not appear in it.
 
+`session.session_kind` distinguishes `practice_1`, `practice_2`, `practice_3`, `qualifying`, `sprint_qualifying`, `sprint`, `race`, and `unknown`. `session.layout_family` maps those discovered kinds to the shared `practice`, `qualifying`, `race`, or `unsupported` presentation family. Catalog entries expose the same values as `sessionKind` and `layoutFamily`.
+
 ```text
 RaceState
 â”œâ”€â”€ schema_version
@@ -42,11 +44,14 @@ REST state responses and WebSocket snapshots use:
   "sessionTime": "2023-09-17T13:30:00+00:00",
   "sourceTime": "2023-09-17T13:30:00+00:00",
   "playback": { "playing": false },
-  "data": { "schema_version": 1 }
+  "data": { "schema_version": 1 },
+  "analytics": { "type": "analytics.snapshot", "schemaVersion": 1 }
 }
 ```
 
 `seq` is the number of normalized events applied to the snapshot. `sessionTime` is the viewerâ€™s replay playhead. `sourceTime` currently follows the same clock and is reserved for distinguishing source receipt time later.
+
+`analytics` is optional and additive. Replay WebSocket snapshots include it when the analytics service is available. It is synchronized to the same `seq` and `sessionTime` but is not part of canonical `RaceState`.
 
 ## HTTP API
 
@@ -57,6 +62,7 @@ REST state responses and WebSocket snapshots use:
 | `GET /api/v1/capabilities` | Describe the selected source/session data capabilities |
 | `GET /api/v1/replay` | Return event count, time bounds, availability, live schedule status, and position mode |
 | `GET /api/v1/driver-history` | Return one driver's normalized lap evidence on demand, outside high-frequency state snapshots |
+| `GET /api/v1/analytics` | Return the versioned analytics sidecar at an optional inclusive `at` or `seq` cutoff and start non-blocking Weekend Context preparation |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
 | `WS /api/v1/stream` | Create an independent interactive replay controller for one client |
 
@@ -65,6 +71,25 @@ Pass `session_key` as a query parameter where a session can be selected. Omittin
 `POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past. Downloads are serialized per application instance. After a successful write, the library is refreshed and the session becomes available without restarting the process.
 
 `GET /api/v1/driver-history?session_key=...&driver_number=...` returns source-neutral completed-lap observations for Driver Focus and future analytics. It is an on-demand viewer endpoint rather than part of `RaceState`; consumers filter the returned evidence against the current replay time or cursor. An unavailable recording returns an empty evidence list with `available: false`.
+
+The driver-history response also contains viewer-oriented `pitEvents`. A pit event keeps the observed pit lap, previous/new compound, stationary `stopDuration`, and complete `pitLaneDuration` independently. Missing values remain `null`; lane duration is never relabelled as stationary stop time.
+
+## Weekend context and analytics
+
+`GET /api/v1/analytics` returns `analytics.snapshot` schema version 1. Its top-level fields include `modelVersion`, `sessionKind`, `layoutFamily`, `sequence`, `asOf`, stage, context status/provenance, per-driver models, pit loss, and the shared Battle recommendation. `context.meetingKey` declares the only meeting whose evidence may contribute to the Weekend model. Metric values use:
+
+- `OBSERVED`: a normalized source fact;
+- `DERIVED`: a deterministic calculation from observed facts;
+- `ESTIMATE`: a modelled outlook whose assumptions are stated;
+- `UNKNOWN`: insufficient evidence; no fallback value is invented.
+
+The wire contract is defined here; the calculation meanings, thresholds, formulae, confidence rules, and limitations are specified in [analytics.md](analytics.md).
+
+Weekend stages are `BASELINE_AVAILABLE`, `WEEKEND_MODEL_READY`, and `LIVE_OUTLOOK`. Context status is `missing`, `preparing`, `ready`, or `unavailable`; playback never waits for it.
+
+Context packs use `slipstream.weekend-context.v1` and live under `/data/.slipstream/weekend-context/<meeting>/<target-session>.json`. They contain `generated_at`, the selected session's start as `evidence_cutoff`, `model_version`, `meeting_key`, discovered same-meeting session inventory, compact earlier-session evidence, capability-gated tyre inventory, and a separate optional external-intelligence envelope. Pack loading and analytics consumption reject session evidence whose `meeting_key` differs from the selected meeting. Sessions after the cutoff, previous race weekends, prior editions at the circuit, and the selected session's later evidence are excluded. External Intelligence is disabled by default and is never silently folded into the Slipstream model.
+
+The allowed sequence is discovered from the catalog: a normal meeting can contribute FP1 → FP2 → FP3 → Qualifying → Grand Prix evidence, while an Alternative Format meeting can contribute FP1 → Sprint Qualifying → Sprint → Qualifying → Grand Prix evidence. The arrows describe possible evidence progression, not a hardcoded session inventory.
 
 ## Catalog semantics
 
@@ -140,6 +165,8 @@ Full accumulated lap history is deliberately excluded from `RaceState` and there
 
 An observation records lap number and start time, duration and sectors when supplied, compound, stint number, tyre age, pit-in/pit-out evidence, and provenance-friendly quality fields. `quality` is `representative`, `contaminated`, or `unknown`. `contamination_reasons` names only observed conditions such as `pit_in`, `pit_out`, `neutralized_track`, `neutralization_end_unknown`, or `missing_duration`; it is not a strategy verdict.
 
+Pit observations may additionally carry `pit_occurred_at`, `previous_compound`, `new_compound`, `stop_duration`, and `pit_lane_duration`. These remain optional and source-capability dependent.
+
 Whole-track contamination is derived from timestamped intervals opened only by genuine track-scoped yellow/red or explicit SC/VSC deployment evidence and closed by a whole-track clear/green transition. Sector- and driver-scoped flags do not neutralize the whole lap. An unclosed interval remains unknown where overlap cannot be proven. Future analytics may consume this evidence, but calculated pace or strategy does not become part of canonical `RaceState`.
 
 ## Circuit, position, and conditions
@@ -159,6 +186,7 @@ Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` whe
 | `slipstream.openf1-recording.v1` | Historical OpenF1 session capture with unmodified endpoint arrays and declared source capabilities |
 | `slipstream.openf1-catalog.v1` | Lightweight session/meeting metadata and normalized circuit geometry; no timing events |
 | `slipstream.f1-signalr-recording.v1` | Raw public live SignalR JSONL evidence; not normalized state |
+| `slipstream.weekend-context.v1` | Compact operational meeting context for one target-session cutoff; not a replay asset |
 
 Historical recording envelopes include capture time, session key, source capabilities, and endpoint arrays. Raw live files begin with a header, followed by rows containing `received_at`, `stream`, optional `source_timestamp`, raw `payload`, and whether the row came from the initial subscription result.
 

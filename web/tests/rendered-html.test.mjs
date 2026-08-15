@@ -23,10 +23,14 @@ test("builds the replay-driven desktop shell as static files", async () => {
   assert.match(bundle, /WEEKEND/);
   assert.match(bundle, /SESSION/);
   assert.match(bundle, /BALANCED/);
-  assert.match(bundle, /TIMING FOCUS/);
-  assert.match(bundle, /STRATEGY FOCUS/);
+  assert.match(bundle, /TOWER WIDE/);
+  assert.match(bundle, /ANALYSIS WIDE/);
+  assert.match(bundle, /TOWER VIEW/);
+  assert.match(bundle, /WEEKEND CONTEXT/);
+  assert.match(bundle, /PACE DELTA/);
+  assert.match(bundle, /CHANGE DRIVER/);
   assert.match(bundle, /No sample race has been substituted/);
-  assert.match(bundle, /PHASE - UNKNOWN/);
+  assert.match(bundle, /SQ1\/SQ2\/SQ3/);
   assert.match(bundle, /ANALYTICS - NOT ENABLED/);
   assert.match(bundle, /SYNC DELAY/);
   assert.doesNotMatch(bundle, /Carlos Sainz|Singapore Grand Prix/);
@@ -34,7 +38,7 @@ test("builds the replay-driven desktop shell as static files", async () => {
 });
 
 test("keeps versioned API and WebSocket transport in typed clients", async () => {
-  const [apiClient, socketClient, page, packageJson, viteConfig, replayControls, replayLibrary, sessionHook] = await Promise.all([
+  const [apiClient, socketClient, page, packageJson, viteConfig, replayControls, replayLibrary, sessionHook, raceView, preferences] = await Promise.all([
     readFile(new URL("../api/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../api/replaySocket.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -43,12 +47,15 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
     readFile(new URL("../components/shell/ReplayControls.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/shell/ReplayLibrary.tsx", import.meta.url), "utf8"),
     readFile(new URL("../hooks/useSlipstreamSession.ts", import.meta.url), "utf8"),
+    readFile(new URL("../views/RaceView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../hooks/useProductPreferences.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(apiClient, /api\/v1\/state/);
   assert.match(apiClient, /api\/v1\/stream/);
   assert.match(apiClient, /api\/v1\/replay/);
   assert.match(apiClient, /api\/v1\/catalog/);
+  assert.match(apiClient, /api\/v1\/analytics/);
   assert.match(apiClient, /VITE_SLIPSTREAM_API/);
   assert.match(socketClient, /new WebSocket/);
   assert.match(page, /AppShell/);
@@ -63,5 +70,10 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(replayLibrary, /aria-label="Race weekend"/);
   assert.match(replayLibrary, /aria-label="Weekend session"/);
   assert.match(sessionHook, /commandAvailable && socketRef\.current\?\.send/);
+  assert.match(raceView, /\["standard", "timing", "strategy"\]/);
+  assert.match(preferences, /slipstream\.device-preferences\.v1/);
+  assert.match(preferences, /includedRaceStates/);
+  assert.match(preferences, /rotationIntervalSeconds/);
+  assert.match(preferences, /alertOnCriticalStatus/);
   assert.doesNotMatch(packageJson, /vinext|wrangler|cloudflare|next/);
 });

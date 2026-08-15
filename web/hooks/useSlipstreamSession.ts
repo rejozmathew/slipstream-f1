@@ -4,6 +4,7 @@ import { slipstreamApi } from "../api/client";
 import { connectReplaySocket, type ReplaySocket } from "../api/replaySocket";
 import {
   EMPTY_RACE_STATE,
+  type AnalyticsSnapshot,
   type RaceState,
   type ReplayCatalog,
   type ReplayCommand,
@@ -16,6 +17,7 @@ export type TransportState = "connecting" | "stream" | "rest" | "disconnected";
 
 export function useSlipstreamSession() {
   const [state, setState] = useState<RaceState>(EMPTY_RACE_STATE);
+  const [analytics, setAnalytics] = useState<AnalyticsSnapshot | null>(null);
   const [stateHistory, setStateHistory] = useState<RaceState[]>([]);
   const [sequence, setSequence] = useState(0);
   const [metadata, setMetadata] = useState<ReplayMetadata | null>(null);
@@ -67,6 +69,7 @@ export function useSlipstreamSession() {
       setSequence(envelope.seq);
       setPlayhead(envelope.sessionTime ?? envelope.data.updated_at);
       setIsPlaying(envelope.playback?.playing ?? false);
+      if (envelope.analytics) setAnalytics(envelope.analytics);
     };
 
     const refreshState = async () => {
@@ -99,6 +102,11 @@ export function useSlipstreamSession() {
       setMetadata(replay);
       setCapabilities(sourceCapabilities);
       applyEnvelope(envelope);
+      void slipstreamApi.analytics(selectedSessionKey, envelope.seq).then((result) => {
+        if (active) setAnalytics(result);
+      }).catch(() => {
+        // Factual replay remains usable when analytics are unavailable.
+      });
       if (!replay.available) {
         setTransport("rest");
         return;
@@ -146,6 +154,7 @@ export function useSlipstreamSession() {
     setMetadata(null);
     setCapabilities(null);
     setState(EMPTY_RACE_STATE);
+    setAnalytics(null);
     setStateHistory([]);
     setSequence(0);
     setPlayhead(null);
@@ -167,6 +176,7 @@ export function useSlipstreamSession() {
       setMetadata(null);
       setCapabilities(null);
       setState(EMPTY_RACE_STATE);
+      setAnalytics(null);
       setStateHistory([]);
       setSequence(0);
       setPlayhead(null);
@@ -181,8 +191,25 @@ export function useSlipstreamSession() {
   const sendReplayCommand = (command: ReplayCommand) =>
     commandAvailable && socketRef.current?.send(command) === true;
 
+  useEffect(() => {
+    if (!selectedSessionKey || analytics?.context.status !== "preparing") return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void slipstreamApi.analytics(selectedSessionKey, sequence).then((result) => {
+        if (active) setAnalytics(result);
+      }).catch(() => {
+        // Keep the last truthful context status while replay remains usable.
+      });
+    }, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [analytics?.context.status, selectedSessionKey, sequence]);
+
   return {
     state,
+    analytics,
     stateHistory,
     sequence,
     metadata,

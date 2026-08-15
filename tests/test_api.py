@@ -63,6 +63,8 @@ def test_catalog_exposes_season_weekend_and_session_metadata() -> None:
             "meetingName": "Singapore Grand Prix",
             "sessionName": "Race",
             "sessionType": "Race",
+            "sessionKind": "race",
+            "layoutFamily": "race",
             "circuit": "Marina Bay",
             "location": "Singapore",
             "dateStart": "2023-09-17T12:00:00+00:00",
@@ -126,6 +128,8 @@ def test_websocket_uses_per_client_seek_cursor() -> None:
         sought = socket.receive_json()
 
     assert initial["data"]["session"]["status"] == "STARTED"
+    assert initial["analytics"]["type"] == "analytics.snapshot"
+    assert initial["analytics"]["sequence"] == initial["seq"]
     assert sought["data"]["session"]["status"] == "STARTED"
     assert sought["seq"] > initial["seq"]
 

@@ -17,10 +17,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .adapters.openf1 import OpenF1Client, write_recording
+from .analytics import AnalyticsService
 from .events import parse_timestamp
 from .library import ReplayLibrary, ReplayResource
 from .playback import ReplayController
 from .serialization import state_envelope
+from .weekend import (
+    ContextAvailability,
+    WeekendContextCoordinator,
+    WeekendContextStore,
+)
 
 
 def create_app(
@@ -28,13 +34,23 @@ def create_app(
     *,
     now: Callable[[], datetime] | None = None,
     capture_session: Callable[[int], dict[str, Any]] | None = None,
+    prepare_weekend_context: Callable[..., dict[str, Any]] | None = None,
     web_dir: Path | None = None,
 ) -> FastAPI:
     clock = now or (lambda: datetime.now(UTC))
     library_ref = [ReplayLibrary(recording_path, now=clock)]
     downloader = capture_session or OpenF1Client().capture_session
+    analytics_service = AnalyticsService()
     download_lock = asyncio.Lock()
     downloads_enabled = recording_path.is_dir() and os.access(recording_path, os.W_OK)
+    context_coordinator = (
+        WeekendContextCoordinator(
+            WeekendContextStore(recording_path),
+            prepare_weekend_context or OpenF1Client().capture_weekend_context,
+        )
+        if downloads_enabled
+        else None
+    )
     app = FastAPI(title="Slipstream F1", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -48,6 +64,20 @@ def create_app(
             return library_ref[0].get(session_key)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    def meeting_context(
+        selected: ReplayResource, *, prepare: bool
+    ) -> ContextAvailability:
+        if context_coordinator is None:
+            return ContextAvailability(
+                "unavailable", error="operational context storage is not writable"
+            )
+        if prepare:
+            inventory = selected.descriptor.meeting_inventory(
+                library_ref[0].descriptors
+            )
+            return context_coordinator.ensure(selected.descriptor, inventory)
+        return context_coordinator.current(selected.descriptor)
 
     @app.get("/api/v1/catalog")
     def get_catalog() -> dict[str, Any]:
@@ -163,7 +193,54 @@ def create_app(
             "driverNumber": str(driver_number),
             "available": selected.replay_available,
             "observations": observations,
+            "pitEvents": [
+                {
+                    "sequence": item.sequence,
+                    "occurredAt": item.occurred_at,
+                    "driverNumber": item.driver_number,
+                    "lap": item.lap,
+                    "previousCompound": item.previous_compound,
+                    "newCompound": item.new_compound,
+                    "stopDuration": item.stop_duration,
+                    "pitLaneDuration": item.pit_lane_duration,
+                }
+                for item in selected.evidence.pit_events_for_driver(
+                    str(driver_number)
+                )
+            ],
         }
+
+    @app.get("/api/v1/analytics")
+    async def get_analytics(
+        session_key: str | None = None,
+        at: str | None = None,
+        seq: int | None = None,
+    ) -> dict[str, Any]:
+        selected = resource(session_key)
+        controller = ReplayController(
+            selected.events,
+            start_time=selected.descriptor.date_start,
+            end_time=_effective_end_time(selected, clock()),
+        )
+        if at is not None and seq is not None:
+            raise HTTPException(status_code=422, detail="use either at or seq")
+        try:
+            if seq is not None:
+                controller.seek_cursor(seq)
+            elif at is not None:
+                controller.seek(at)
+            else:
+                controller.seek_cursor(len(selected.events))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        context = meeting_context(selected, prepare=True)
+        return analytics_service.snapshot(
+            selected,
+            controller.state,
+            sequence=controller.cursor,
+            as_of=controller.playhead,
+            context=context,
+        )
 
     @app.websocket("/api/v1/stream")
     async def stream(websocket: WebSocket) -> None:
@@ -180,9 +257,21 @@ def create_app(
             end_time=_effective_end_time(selected, clock()),
         )
         controller.start()
+        meeting_context(selected, prepare=True)
+
+        def current_analytics() -> dict[str, Any]:
+            return analytics_service.snapshot(
+                selected,
+                controller.state,
+                sequence=controller.cursor,
+                as_of=controller.playhead,
+                context=meeting_context(selected, prepare=False),
+            )
         send_lock = asyncio.Lock()
         playback_task: asyncio.Task[None] | None = None
-        await _send_snapshot(websocket, controller, send_lock)
+        await _send_snapshot(
+            websocket, controller, send_lock, analytics=current_analytics()
+        )
         try:
             while True:
                 message = await websocket.receive_json()
@@ -203,12 +292,24 @@ def create_app(
                         controller.start()
                     controller.is_playing = True
                     playback_task = asyncio.create_task(
-                        _play(websocket, controller, speed, send_lock)
+                        _play(
+                            websocket,
+                            controller,
+                            speed,
+                            send_lock,
+                            current_analytics,
+                        )
                     )
                     continue
                 if message_type != "snapshot":
                     playback_task = await _stop_playback(playback_task, controller)
-                await _handle_message(websocket, controller, message, send_lock)
+                await _handle_message(
+                    websocket,
+                    controller,
+                    message,
+                    send_lock,
+                    current_analytics,
+                )
         except WebSocketDisconnect:
             pass
         finally:
@@ -252,20 +353,31 @@ async def _play(
     controller: ReplayController,
     speed: float,
     send_lock: asyncio.Lock,
+    analytics_supplier: Callable[[], dict[str, Any]],
 ) -> None:
     naturally_finished = False
     try:
         while controller.is_playing and not controller.finished:
             await asyncio.sleep(0.25)
             controller.advance(0.25 * speed)
-            await _send_snapshot(websocket, controller, send_lock)
+            await _send_snapshot(
+                websocket,
+                controller,
+                send_lock,
+                analytics=analytics_supplier(),
+            )
         naturally_finished = controller.finished
     except (WebSocketDisconnect, RuntimeError):
         return
     finally:
         controller.pause()
         if naturally_finished:
-            await _send_snapshot(websocket, controller, send_lock)
+            await _send_snapshot(
+                websocket,
+                controller,
+                send_lock,
+                analytics=analytics_supplier(),
+            )
 
 
 async def _stop_playback(
@@ -283,6 +395,7 @@ async def _handle_message(
     controller: ReplayController,
     message: dict[str, Any],
     send_lock: asyncio.Lock,
+    analytics_supplier: Callable[[], dict[str, Any]],
 ) -> None:
     message_type = message.get("type")
     try:
@@ -309,19 +422,26 @@ async def _handle_message(
     except (KeyError, ValueError) as error:
         await websocket.send_json({"v": 1, "type": "error", "error": str(error)})
         return
-    await _send_snapshot(websocket, controller, send_lock)
+    await _send_snapshot(
+        websocket,
+        controller,
+        send_lock,
+        analytics=analytics_supplier(),
+    )
 
 
 async def _send_snapshot(
     websocket: WebSocket,
     controller: ReplayController,
     send_lock: asyncio.Lock,
+    analytics: dict[str, Any] | None = None,
 ) -> None:
     payload = state_envelope(
         controller.state,
         sequence=controller.cursor,
         session_time=controller.playhead,
         playing=controller.is_playing,
+        analytics=analytics,
     )
     async with send_lock:
         await websocket.send_json(payload)

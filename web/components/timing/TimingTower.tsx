@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
 import { formatSector } from "../../domain/format";
-import type { Driver } from "../../domain/protocol";
+import type { TowerView } from "../../domain/layout";
+import type { AnalyticsSnapshot, Driver } from "../../domain/protocol";
 import { DataValue } from "../shared/DataValue";
 import { Panel } from "../shared/Panel";
 
@@ -10,6 +11,8 @@ export type TimingVariant = "race" | "qualifying" | "practice";
 type TimingTowerProps = {
   drivers: Driver[];
   variant: TimingVariant;
+  mode?: TowerView;
+  analytics?: AnalyticsSnapshot | null;
   replayAvailable: boolean;
   toolbar?: ReactNode;
   onSelectDriver?: (driverNumber: string) => void;
@@ -41,6 +44,32 @@ function RaceRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumbe
       <span>{driver.pit_count}</span>
     </button>
   );
+}
+
+function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
+  return <button type="button" className="timing-row timing-race-timing" role="row" onClick={() => onSelect?.(driver.number)}>
+    <strong>{driver.position ?? "-"}</strong><DriverIdentity driver={driver} />
+    <DataValue compact value={driver.position === 1 ? "LEADER" : driver.interval_to_ahead ?? driver.gap_to_leader} availability={driver.availability.interval_to_ahead} />
+    <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} />
+    <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} />
+    <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} />
+    <DataValue compact value={driver.last_lap} availability={driver.availability.last_lap} />
+    <DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} />
+  </button>;
+}
+
+function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+  const strategy = analytics?.drivers[driver.number]?.strategy;
+  const window = strategy?.pitWindow.value;
+  return <button type="button" className="timing-row timing-race-strategy" role="row" onClick={() => onSelect?.(driver.number)}>
+    <strong>{driver.position ?? "-"}</strong><DriverIdentity driver={driver} />
+    <i className={compoundClass(driver.compound)}>{driver.compound?.[0] ?? "?"}</i>
+    <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
+    <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
+    <span>{driver.pit_count}</span>
+    <DataValue compact value={strategy?.likelyNextCompound.value ?? null} />
+    <DataValue compact value={window ? `${window[0]}–${window[1]}` : null} />
+  </button>;
 }
 
 function QualifyingRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
@@ -77,17 +106,32 @@ const headers = {
   practice: ["P", "DRIVER", "TYRE", "AGE", "LAST", "BEST", "STINT", "PIT"],
 };
 
-export function TimingTower({ drivers, variant, replayAvailable, toolbar, onSelectDriver }: TimingTowerProps) {
-  const Row = variant === "race" ? RaceRow : variant === "qualifying" ? QualifyingRow : PracticeRow;
+const raceModeHeaders = {
+  standard: headers.race,
+  timing: ["P", "DRIVER", "INT/GAP", "S1", "S2", "S3", "LAST", "BEST"],
+  strategy: ["P", "DRIVER", "TYRE", "AGE", "STINT", "PIT", "NEXT", "WINDOW"],
+};
+
+export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, toolbar, onSelectDriver }: TimingTowerProps) {
+  const headersForView = variant === "race" ? raceModeHeaders[mode] : headers[variant];
+  const rowClass = variant === "race" && mode !== "standard" ? `race-${mode}` : variant;
   return (
     <Panel eyebrow={variant === "race" ? "CLASSIFICATION" : variant === "qualifying" ? "SESSION CLASSIFICATION" : "RUN CLASSIFICATION"} title="Timing tower" action={<div className="panel-actions"><span className="panel-badge">{drivers.length} DRIVERS</span>{toolbar}</div>} className="timing-panel">
       {!replayAvailable && <div className="panel-empty">TIMING DATA - UNAVAILABLE</div>}
       {replayAvailable && drivers.length === 0 && <div className="panel-empty">TIMING DATA - UNKNOWN AT THIS SESSION TIME</div>}
-      <div className={`timing-table timing-${variant}`} role="table">
-        <div className={`timing-header timing-${variant}`} role="row">
-          {headers[variant].map((header) => <span key={header}>{header}</span>)}
+      <div className={`timing-table timing-${rowClass}`} role="table">
+        <div className={`timing-header timing-${rowClass}`} role="row">
+          {headersForView.map((header) => <span key={header}>{header}</span>)}
         </div>
-        {drivers.map((driver) => <Row driver={driver} onSelect={onSelectDriver} key={driver.number} />)}
+        {drivers.map((driver) => variant === "race" && mode === "timing"
+          ? <RaceTimingRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
+          : variant === "race" && mode === "strategy"
+            ? <RaceStrategyRow driver={driver} analytics={analytics} onSelect={onSelectDriver} key={driver.number} />
+            : variant === "race"
+              ? <RaceRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
+              : variant === "qualifying"
+                ? <QualifyingRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
+                : <PracticeRow driver={driver} onSelect={onSelectDriver} key={driver.number} />)}
       </div>
     </Panel>
   );

@@ -12,8 +12,10 @@ The usable product today is historical replay. A public live-feed recorder also 
 | Historical session download | Finished practice, qualifying, sprint, and race sessions can be downloaded from the browser or CLI |
 | Replay timing | Race, Qualifying, and Practice layouts driven by canonical timing, lap, tyre, stint, sector, pit, and race-control facts |
 | Focused views | Contextual Driver Focus with on-demand normalized lap evidence, plus factual any-two-driver Battle |
+| Race intelligence | As-of-time Strategy, clean-lap pace/degradation, pit history, Driver context, and stabilized Recommended Battle with explicit provenance |
+| Weekend context | Compact prior-session evidence prepares asynchronously and never blocks replay startup |
 | Display modes | Responsive portrait/landscape session layouts and an authored browser TV Mode |
-| Presentation settings | Device-local dark background, accent, Race split, module visibility/order/size, and named presets |
+| Presentation settings | Device-local dark background, accent, Race split, Timing Tower mode, module layout, and TV rotation preferences |
 | Track display | Preloaded historical circuit outline, independent of timing downloads |
 | Car placement | Timing-derived estimate by default; optional historical source X/Y when downloaded |
 | Conditions | Weather observations, rain sensor state, whole-track status, and circuit-local time |
@@ -21,7 +23,7 @@ The usable product today is historical replay. A public live-feed recorder also 
 | Outputs | Browser, API v1, WebSocket snapshots, and terminal output |
 | Deployment | One container, one process, and one internal port |
 
-Not yet implemented: production strategy analytics, authentication/SQLite, Sync Groups and device pairing, normalized live timing in the browser/API, authenticated live sources, live per-car X/Y, or hardware clients. A schedule entry may be labelled `LIVE` because its official time window is active; that does not mean a live timing source is connected.
+Not yet implemented: authentication/SQLite, Sync Groups and device pairing, normalized live timing in the browser/API, authenticated live sources, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. A schedule entry may be labelled `LIVE` because its official time window is active; that does not mean a live timing source is connected.
 
 ## Run it with Docker
 
@@ -108,8 +110,12 @@ npm test
 ## Design commitments
 
 - `RaceState` is the normalized boundary used by every presentation and transport.
+- Analytics is a separate versioned, replay-synchronized sidecar; it never becomes a second factual dashboard model.
+- Playback assets are session-scoped while compact analytics context is strictly limited to earlier sessions in the same `meeting_key` and is cutoff-safe; prior weekends and prior circuit editions are not direct V1 inputs.
 - Source-specific fields stay inside adapters; upstream payloads do not leak into the public API.
 - One application instance owns at most one upstream live connection.
+
+The formulas, evidence thresholds, confidence rules, UNKNOWN behavior, Battle Score, and current limitations are documented in [docs/analytics.md](docs/analytics.md).
 - Capabilities are explicit, especially where public and authenticated sources differ.
 - Public API routes and event envelopes are versioned from the beginning.
 - Secrets, cookies, environment files, authenticated captures, and recordings never belong in Git.

@@ -32,8 +32,8 @@ export function LayoutEditor({ value, onChange }: { value: RaceLayoutConfig; onC
         <div><span>RACE SPLIT PRESETS</span><strong>{value.preset.toUpperCase()}</strong></div>
         <div className="layout-editor-presets">
           <button onClick={() => onChange(applyRacePreset(value, "balanced"))}>BALANCED</button>
-          <button onClick={() => onChange(applyRacePreset(value, "timing"))}>TIMING FOCUS</button>
-          <button onClick={() => onChange(applyRacePreset(value, "strategy"))}>STRATEGY FOCUS</button>
+          <button onClick={() => onChange(applyRacePreset(value, "towerWide"))}>TOWER WIDE</button>
+          <button onClick={() => onChange(applyRacePreset(value, "analysisWide"))}>ANALYSIS WIDE</button>
         </div>
         <label><span>TIMING {Math.round(value.timingWidth)}%</span><input type="range" min="48" max="76" value={value.timingWidth} onChange={(event) => onChange({ ...value, preset: "custom", timingWidth: Number(event.target.value) })} /><span>ANALYSIS {Math.round(100 - value.timingWidth)}%</span></label>
       </section>
