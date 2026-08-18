@@ -2,6 +2,7 @@ import { useState, type PointerEvent as ReactPointerEvent, type ReactNode } from
 
 import { Conditions } from "../components/analysis/Conditions";
 import { RaceControl } from "../components/analysis/RaceControl";
+import { SessionStrategySnapshot } from "../components/analysis/SessionStrategySnapshot";
 import { StrategyOutlook } from "../components/analysis/StrategyOutlook";
 import { TrackMap } from "../components/analysis/TrackMap";
 import { TimingTower } from "../components/timing/TimingTower";
@@ -19,13 +20,14 @@ type RaceViewProps = {
   onSelectDriver: (driverNumber: string) => void;
   towerView: TowerView;
   onTowerViewChange: (view: TowerView) => void;
+  onOpenStrategy: () => void;
 };
 
-export function RaceView({ state, analytics, replayAvailable, positionMode, layout, onLayoutChange, onOpenLayoutEditor, onSelectDriver, towerView, onTowerViewChange }: RaceViewProps) {
+export function RaceView({ state, analytics, replayAvailable, positionMode, layout, onLayoutChange, onOpenLayoutEditor, onSelectDriver, towerView, onTowerViewChange, onOpenStrategy }: RaceViewProps) {
   const [mobileTab, setMobileTab] = useState<"timing" | "strategy" | "map" | "control">("timing");
   const drivers = Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
   const modules: Record<AnalysisModuleId, ReactNode> = {
-    strategy: <StrategyOutlook analytics={analytics} compact={layout.moduleSizes.strategy === "compact"} />,
+    strategy: <SessionStrategySnapshot analytics={analytics} onOpenStrategy={onOpenStrategy} compact={layout.moduleSizes.strategy === "compact"} />,
     map: <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} />,
     conditions: <Conditions weather={state.weather} session={state.session} />,
     raceControl: <RaceControl messages={state.race_control} />,
@@ -65,13 +67,6 @@ export function RaceView({ state, analytics, replayAvailable, positionMode, layo
         <div className="mobile-session-content">
           <div className="mobile-primary">
             {mobileTab === "timing" && <TimingTower drivers={drivers} variant="race" analytics={analytics} replayAvailable={replayAvailable} onSelectDriver={onSelectDriver} />}
-            {mobileTab === "strategy" && <StrategyOutlook analytics={analytics} />}
-            {mobileTab === "map" && <div className="mobile-map-stack"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /><Conditions weather={state.weather} session={state.session} /></div>}
-            {mobileTab === "control" && <RaceControl messages={state.race_control} />}
-          </div>
-          <div className="landscape-companion">{mobileTab === "control" ? <Conditions weather={state.weather} session={state.session} /> : <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} />}</div>
-        </div>
-      </div>
     </div>
   );
 }
