@@ -37,11 +37,34 @@ export function BattleView({ state, stateHistory, analytics, recommendedPair }: 
   const battleCandidate = analytics?.battle.candidates.find((item) => item.aheadDriverNumber === left?.number && item.behindDriverNumber === right?.number) ?? null;
   const leftStrategy = left ? analytics?.drivers[left.number]?.strategy : null;
   const rightStrategy = right ? analytics?.drivers[right.number]?.strategy : null;
+  const battleValid = Boolean(
+    left?.position != null
+    && right?.position != null
+    && left.position != null && right.position != null
+    && Math.abs(right.position - left.position) === 1
+  );
 
   return <div className="battle-view">
     <header className="experience-heading"><div><span>RACE INTELLIGENCE</span><h1>Battle</h1><p>One deterministic recommendation shared by desktop and TV.</p></div><div className="battle-modes">{(["recommended", "leader", "pinned"] as const).map((item) => <button className={mode === item ? "active" : ""} key={item} onClick={() => setMode(item)}>{item.toUpperCase()}</button>)}</div></header>
     <div className="battle-selectors"><label><span>DRIVER A</span><select value={left?.number ?? pinned[0]} onChange={(event) => { setPinned([event.target.value, pinned[1]]); setMode("pinned"); }}>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "-"} · {driver.code ?? driver.number}</option>)}</select></label><div><span>OBSERVED GAP</span><strong>{gap == null ? "-" : `${gap.toFixed(3)}s`}</strong><small className={`trend trend-${trend.toLowerCase().split(" ")[0]}`}>{trend}</small></div><label><span>DRIVER B</span><select value={right?.number ?? pinned[1]} onChange={(event) => { setPinned([pinned[0], event.target.value]); setMode("pinned"); }}>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "-"} · {driver.code ?? driver.number}</option>)}</select></label></div>
     <div className="battle-symmetric"><BattleDriverCard driver={left} side="left" /><div className="battle-axis"><i /><span>TRACK ORDER</span></div><BattleDriverCard driver={right} side="right" /></div>
-    <div className="battle-lower"><Panel eyebrow="OBSERVED" title="Gap history"><GapHistory samples={samples} /></Panel><Panel eyebrow="BATTLE SCORE" title={battleCandidate ? `${battleCandidate.score.toFixed(1)} / 100` : "—"}><div className="battle-score-factors">{battleCandidate?.factors.map((factor) => <div key={factor.name}><span>{factor.name.replaceAll("_", " ").toUpperCase()}</span><strong>{factor.weight >= 0 ? "+" : ""}{factor.weight.toFixed(1)}</strong></div>) ?? <div className="panel-empty">INSUFFICIENT COMPARABLE EVIDENCE</div>}</div></Panel><Panel eyebrow="SHARED STRATEGY" title="Interaction"><div className="battle-strategy-compare"><div><span>{left?.code ?? "DRIVER A"}</span><strong>{leftStrategy?.pitWindow.value ? `L${leftStrategy.pitWindow.value[0]}–${leftStrategy.pitWindow.value[1]}` : "—"}</strong><small>{leftStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div><div><span>{right?.code ?? "DRIVER B"}</span><strong>{rightStrategy?.pitWindow.value ? `L${rightStrategy.pitWindow.value[0]}–${rightStrategy.pitWindow.value[1]}` : "—"}</strong><small>{rightStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div></div></Panel></div>
+    <div className="battle-lower">
+      <Panel eyebrow="OBSERVED" title="Gap history"><GapHistory samples={samples} /></Panel>
+      {battleValid ? (
+        <Panel eyebrow="BATTLE SCORE" title={battleCandidate ? `${battleCandidate.score.toFixed(1)} / 100` : "—"}>
+          <div className="battle-score-factors">{battleCandidate?.factors.map((factor) => <div key={factor.name}><span>{factor.name.replaceAll("_", " ").toUpperCase()}</span><strong>{factor.weight >= 0 ? "+" : ""}{factor.weight.toFixed(1)}</strong></div>) ?? <div className="panel-empty">INSUFFICIENT COMPARABLE EVIDENCE</div>}</div>
+        </Panel>
+      ) : (
+        <Panel eyebrow="BATTLE SCORE" title="NOT AVAILABLE">
+          <div className="panel-empty">SELECTED DRIVERS ARE NOT ADJACENT ON TRACK — BATTLE RECOMMENDATION NOT APPLICABLE</div>
+        </Panel>
+      )}
+      <Panel eyebrow="SHARED STRATEGY" title="Interaction">
+        <div className="battle-strategy-compare">
+          <div><span>{left?.code ?? "DRIVER A"}</span><strong>{leftStrategy?.pitWindow.value ? `L${leftStrategy.pitWindow.value[0]}–${leftStrategy.pitWindow.value[1]}` : "—"}</strong><small>{leftStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div>
+          <div><span>{right?.code ?? "DRIVER B"}</span><strong>{rightStrategy?.pitWindow.value ? `L${rightStrategy.pitWindow.value[0]}–${rightStrategy.pitWindow.value[1]}` : "—"}</strong><small>{rightStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div>
+        </div>
+      </Panel>
+    </div>
   </div>;
 }

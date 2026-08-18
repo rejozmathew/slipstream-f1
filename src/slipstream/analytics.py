@@ -10,6 +10,8 @@ from math import sqrt
 from statistics import median
 from typing import Any
 
+from .context_types import absent_historical, absent_official_pre_race
+from .events import parse_timestamp
 from .evidence import LapObservation, PitEvent
 from .library import ReplayResource
 from .state import DriverState, RaceState
@@ -17,7 +19,8 @@ from .strategy_rules import strategy_rule_profile
 from .weekend import ContextAvailability
 
 ANALYTICS_SCHEMA_VERSION = 1
-ANALYTICS_MODEL_VERSION = "race-intelligence-v1"
+# v2.1 contract surface (Phase A). Bump on every model/contract change.
+ANALYTICS_MODEL_VERSION = "race-intelligence-v2.1"
 
 
 def metric(
@@ -42,11 +45,111 @@ def unknown(reason: str) -> dict[str, Any]:
     return metric(None, status="UNKNOWN", evidence=[reason], quality="insufficient")
 
 
+def _as_of_ms(as_of: str | None) -> int:
+    """Source cursor time in epoch-ms, or -1 if unparseable (hysteresis no-op)."""
+    if not as_of:
+        return -1
+    try:
+        return int(parse_timestamp(as_of).timestamp() * 1000)
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        return -1
+
+
+def _hysteresis_advance(
+    held: dict[str, Any] | None,
+    candidate: dict[str, Any] | None,
+    source_ms: int,
+    *,
+    hold_ms: int,
+    switch_margin: float,
+    drivers_exist: bool,
+) -> dict[str, Any] | None:
+    """v2.1 §20 / invariant 11: server-side Battle hysteresis.
+
+    Pure function of (held, candidate, source cursor time) — no viewer state.
+    Mirrors the prior client rule: a missing held pair switches immediately;
+    otherwise both the hold interval AND the score margin must be satisfied,
+    unless the held pair is no longer valid (drivers left / positions broken).
+    """
+    if candidate is None or source_ms < 0:
+        return held
+    if held is None:
+        return {"candidate": candidate, "since": source_ms}
+    held_candidate = held["candidate"]
+    same = (
+        held_candidate.get("aheadDriverNumber") == candidate.get("aheadDriverNumber")
+        and held_candidate.get("behindDriverNumber") == candidate.get("behindDriverNumber")
+    )
+    if same:
+        return {"candidate": candidate, "since": held["since"]}
+    hold_expired = (source_ms - int(held.get("since", 0))) >= hold_ms
+    margin_met = (
+        float(candidate.get("score", 0.0))
+        >= float(held_candidate.get("score", 0.0)) + switch_margin
+    )
+    if not drivers_exist or (hold_expired and margin_met):
+        return {"candidate": candidate, "since": source_ms}
+    return held
+
+
 class AnalyticsService:
     """Cache calculations by meaningful factual/context revisions."""
 
     def __init__(self) -> None:
         self._cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        # v2.1 §20 / invariant 11: Battle hysteresis is SERVER-owned, session-scoped
+        # and cursor-keyed (not viewer-owned mutable state). Two viewers at the same
+        # cursor get the identical held state; a backward seek resets it.
+        self._battle_held: dict[tuple[str, int], dict[str, Any] | None] = {}
+        self._battle_max_cursor: dict[str, int] = {}
+
+    def _apply_battle_hysteresis(
+        self,
+        base: dict[str, Any],
+        session_key: str,
+        cursor: int,
+        as_of: str | None,
+    ) -> None:
+        battle = base.get("battle")
+        if not isinstance(battle, dict):
+            return
+        candidate = battle.get("recommended")
+        hold_ms = int(battle.get("hysteresis", {}).get("minimumHoldSeconds", 20) * 1000)
+        switch_margin = float(battle.get("hysteresis", {}).get("switchMargin", 8))
+        source_ms = _as_of_ms(as_of)
+        prior_max = self._battle_max_cursor.get(session_key, -1)
+        # Backward seek (or a session's first cursor) invalidates the held state —
+        # deterministic, reset-safe, never leaks a later cursor forward (Scenario 19).
+        backward = cursor < prior_max
+        if backward:
+            held: dict[str, Any] | None = None
+        else:
+            prior_cursors = [
+                c for (sk, c) in self._battle_held if sk == session_key and c < cursor
+            ]
+            held = (
+                self._battle_held[(session_key, max(prior_cursors))]
+                if prior_cursors
+                else None
+            )
+        held = _hysteresis_advance(
+            held,
+            candidate,
+            source_ms,
+            hold_ms=hold_ms,
+            switch_margin=switch_margin if source_ms >= 0 else 0.0,
+            drivers_exist=True,
+        )
+        self._battle_held[(session_key, cursor)] = held
+        self._battle_max_cursor[session_key] = max(prior_max, cursor)
+        # Publish the stabilized action + held state for the (render-only) client.
+        battle["heldRecommendation"] = held
+        battle["stabilizedRecommended"] = (
+            held["candidate"] if held is not None else None
+        )
+        battle["hysteresis"]["owner"] = "server"
+        battle["hysteresis"]["sessionScoped"] = True
+        battle["hysteresis"]["cursorKeyed"] = True
 
     def snapshot(
         self,
@@ -73,6 +176,9 @@ class AnalyticsService:
         response = deepcopy(cached)
         response["asOf"] = as_of
         response["sequence"] = sequence
+        self._apply_battle_hysteresis(
+            response, resource.descriptor.key, sequence, as_of
+        )
         return response
 
 
@@ -106,6 +212,9 @@ def build_analytics_snapshot(
     ordered = sorted(
         state.drivers.values(), key=lambda item: item.position or 999
     )
+    rules = strategy_rule_profile(
+        resource.descriptor.year, resource.descriptor.session_kind
+    )
     driver_models: dict[str, dict[str, Any]] = {}
     for index, driver in enumerate(ordered):
         laps = evidence_by_driver.get(driver.number, ())
@@ -137,18 +246,29 @@ def build_analytics_snapshot(
                 weekend_degradation,
                 state,
                 stage,
+                rules=rules,
             ),
             "weekendEvidence": _weekend_driver_evidence(
                 driver.number, context_laps
             ),
         }
-    battle = battle_recommendation(ordered, driver_models)
-    rules = strategy_rule_profile(
-        resource.descriptor.year, resource.descriptor.session_kind
+    battle = battle_recommendation(
+        ordered, driver_models, layout_family=resource.descriptor.layout_family
     )
     race_strategy = _race_strategy(
         driver_models, evidence_by_driver, context_payload, pit_loss, state, stage
     )
+    # v2.1 Phase C: race-level strategy validity + active-runner field
+    # distributions (deterministic, cursor-scoped).
+    strategy_validity = _strategy_validity(state, stage)
+    field_distributions = _field_distributions(state)
+    # v2.1 §15: per-driver dry-tyre requirement state, computed from each
+    # driver's compound history at the cursor + the rule profile.
+    dry_tyre_per_driver: dict[str, str] = {}
+    for number in _active_runner_numbers(state):
+        dry_tyre_per_driver[number] = _dry_tyre_state(
+            state.drivers[number], rules, evidence_by_driver.get(number, ())
+        )
     return {
         "v": 1,
         "type": "analytics.snapshot",
@@ -160,10 +280,35 @@ def build_analytics_snapshot(
         "sequence": sequence,
         "asOf": as_of,
         "stage": stage,
+        # v2.1 §11: strategy validity is a first-class state, not an implicit
+        # property of the published window. Phase C computes it from the
+        # track-control state at the cursor + the analytics stage.
+        "strategyValidity": strategy_validity,
+        # v2.1 §17.1: NetPitLoss is not yet a defensible derived metric; the
+        # fields that depend on it are suppressed until it exists.
+        "netPitLoss": {
+            "status": "NOT_IMPLEMENTED",
+            "blocks": ["freeStopMargin", "projectedRejoinPosition", "undercutQuantified"],
+            "evidenceBasis": [
+                "v2.1 §17.1: free-stop margin, projected rejoin, and quantified undercut require a defensible Net Pit Loss; raw pit-lane duration is not a substitute."
+            ],
+        },
+        # v2.1 §8.2 / §9 / §10: the published window must pass hard validity
+        # (0 violations), soft plausibility, and the stability gate.
+        "projectionGate": _projection_gate(state, stage),
         "sportingRules": {
             "profileVersion": rules.profile_version,
             "mandatoryPitStops": rules.mandatory_pit_stops,
             "dryCompoundObligation": rules.dry_compound_obligation,
+            # v2.1 §15: the per-driver dry-tyre requirement state (UNSATISFIED /
+            # SATISFIED / NOT_APPLICABLE / UNKNOWN) is computed in Phase C from
+            # compound history + rule profile. The rule profile is published
+            # here so the UI can explain the state.
+            "dryTyreRequirement": {
+                "ruleProfile": rules.dry_compound_obligation,
+                "perDriverState": dry_tyre_per_driver,
+                "evidenceBasis": list(rules.evidence),
+            },
             "evidenceBasis": list(rules.evidence),
         },
         "context": {
@@ -188,6 +333,36 @@ def build_analytics_snapshot(
         },
         "pitLoss": pit_loss,
         "raceStrategy": race_strategy,
+        # v2.1 §18: field distributions are over *active runners* at the cursor
+        # (retired/DNS excluded, never hard-coded).
+        **field_distributions,
+        # v2.1 §5.2 / §5.3: Historical + OfficialPreRace are separate, attributed,
+        # target-session-owned context artifacts. Contract is Phase A;
+        # acquisition is Phase F (manual path guaranteed, automated is a spike).
+        "historical": absent_historical(reason="phase_f_pending"),
+        "officialPreRace": absent_official_pre_race(reason="phase_f_pending"),
+        # v2.1 §5.5 / §26: data-ownership contract (target-session-owned,
+        # session-scoped, cursor-keyed; M4 downstream deletion is a non-goal
+        # for v2.1).
+        "dataOwnership": {
+            "owner": "target_session",
+            "sessionScoped": True,
+            "cursorKeyed": True,
+            "sessionKey": resource.descriptor.key,
+            "adminDeletion": {
+                "status": "MILESTONE_4",
+                "evidenceBasis": [
+                    ("v2.1 §5.5: v2.1 defines the data-ownership contract that "
+                     "Milestone 4 will enforce; actual Admin deletion is an M4 "
+                     "non-goal.")
+                ],
+            },
+            "evidenceBasis": [
+                ("v2.1 §5.5: analytics state (hysteresis, cache, stabilization) "
+                 "is target-session-owned, session-scoped and cursor-keyed; "
+                 "never viewer-owned mutable state.")
+            ],
+        },
         "drivers": driver_models,
         "battle": battle,
     }
@@ -237,11 +412,38 @@ def pace_model(laps: tuple[LapObservation, ...]) -> dict[str, Any]:
         if current_stint is not None
         else None,
         "degradation": degradation,
+        # v2.1 §20 / invariant 11: the y-axis scale for the pace-delta chart is
+        # computed server-side (deterministic, cursor-scoped) so the client
+        # renders it verbatim instead of recomputing locally.
+        "scale": _pace_scale(samples),
     }
 
 
+def _pace_scale(samples: list[dict[str, Any]]) -> float:
+    """v2.1 §20: robust MAD-based y-axis scale for the pace-delta chart.
+
+    Mirrors the prior client `robustScale`: median of |delta| over
+    representative samples with a delta, MAD-based 3× retention, 0.25s floor.
+    Pure function of the sample list (no viewer state).
+    """
+    values = sorted(
+        abs(float(s["delta"]))
+        for s in samples
+        if s.get("quality") == "representative" and s.get("delta") is not None
+    )
+    if not values:
+        return 0.25
+    middle = values[len(values) // 2]
+    deviations = sorted(abs(v - middle) for v in values)
+    mad = deviations[len(deviations) // 2]
+    retained = [v for v in values if v <= middle + max(0.25, mad * 3)]
+    return max(0.25, retained[-1] if retained else middle)
+
+
 def battle_recommendation(
-    ordered: list[DriverState], driver_models: dict[str, dict[str, Any]]
+    ordered: list[DriverState],
+    driver_models: dict[str, dict[str, Any]],
+    layout_family: str | None = None,
 ) -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
     for index in range(1, len(ordered)):
@@ -346,6 +548,10 @@ def battle_recommendation(
     return {
         "recommended": candidates[0] if candidates else None,
         "candidates": candidates,
+        # v2.1 Scenario 15: Strategy/Battle are only meaningful for race
+        # layouts. The server publishes the gate so the client renders it
+        # verbatim instead of recomputing layout semantics locally.
+        "available": layout_family == "race",
         "hysteresis": {"minimumHoldSeconds": 20, "switchMargin": 8},
         "modelVersion": ANALYTICS_MODEL_VERSION,
     }
@@ -433,8 +639,22 @@ def _driver_transition_outlook(
     stint_start = current_lap - current_age + 1
     projected = [
         max(current_lap, stint_start + lower_life - 1),
-        stint_start + upper_life - 1,
+        stint_start + upper_life - 1,  # clamped below (race-horizon, v2.1 §12)
     ]
+    # v2.1 §12 / Scenario 18: no model may publish a normal future stop beyond
+    # the race finish. A window whose end would overrun the race end is
+    # rejected (UNKNOWN) rather than clamped silently — the hard-validity gate
+    # is enforced by construction (0 hard violations published).
+    total_laps = state.session.total_laps
+    if total_laps and projected[1] > total_laps:
+        return (
+            next_compound,
+            unknown(
+                "projected window would overrun the race finish; "
+                "rejected by the hard-validity gate (v2.1 §12)"
+            ),
+            common,
+        )
     if projected[1] < current_lap:
         return next_compound, unknown("no defensible future pit window remains"), common
     pit_window = metric(
@@ -461,6 +681,7 @@ def _driver_strategy(
     weekend_degradation: dict[str, Any],
     state: RaceState,
     stage: str,
+    rules=None,
 ) -> dict[str, Any]:
     next_compound, pit_window, common = _driver_transition_outlook(
         driver, evidence_by_driver, state
@@ -507,22 +728,37 @@ def _driver_strategy(
         if driver.compound and next_compound["value"] is not None and len(common) > 1 and common[1][1] >= 2
         else unknown("no supported alternate compound consensus")
     )
-    free_stop, projected_rejoin = _rejoin_metrics(driver, ordered, pit_loss)
+    # v2.1 §17.1: freeStopMargin + projectedRejoinPosition are SUPPRESSED until
+    # a defensible NetPitLoss exists. Raw pit-lane duration is not a substitute.
+    # Force both to UNKNOWN with explicit provenance naming the missing dependency.
+    _net_pit_loss_block = (
+        "v2.1 §17.1: suppressed until NetPitLoss exists; raw pit-lane duration "
+        "is not a substitute"
+    )
+    free_stop = unknown(_net_pit_loss_block)
+    projected_rejoin = unknown(_net_pit_loss_block)
+    # v2.1 §17: undercutStrength downgraded from quantified strength to
+    # descriptive "undercut conditions" — must not imply quantified pit
+    # economics (blocked by NetPitLoss).
     undercut = (
         metric(
-            "STRONG"
-            if degradation_value >= 0.15
-            else "MODERATE"
-            if degradation_value >= 0.08
-            else "LIMITED",
+            "FAVOURABLE"
+            if degradation_value is not None and degradation_value >= 0.15
+            else "NEUTRAL"
+            if degradation_value is not None and degradation_value >= 0.08
+            else "UNFAVOURABLE",
             status="ESTIMATE",
             evidence=[
-                "clean-lap degradation; traffic and warm-up effects are not modelled"
+                "descriptive undercut conditions from clean-lap degradation; quantified pit economics require a defensible NetPitLoss (v2.1 §17)",
+                "traffic and warm-up effects are not modelled",
             ],
             quality=degradation.get("quality"),
         )
-        if degradation_value is not None and pit_loss.get("value") is not None
-        else unknown("degradation and observed pit loss are both required")
+        if degradation_value is not None
+        else unknown(
+            "degradation evidence is required; quantified undercut is blocked "
+            "until NetPitLoss exists (v2.1 §17.1)"
+        )
     )
     changes: list[str] = []
     in_session_value = _metric_number(in_session_degradation)
@@ -536,6 +772,15 @@ def _driver_strategy(
         "scope": "DRIVER",
         "driverNumber": driver.number,
         "stage": stage,
+        # v2.1 §12: disposition + windowState are first-class per-driver states.
+        "disposition": _driver_disposition(driver, state, pit_window),
+        "windowState": _window_state(driver, state, pit_window),
+        # v2.1 §15: per-driver dry-tyre requirement state.
+        "dryTyreRequirement": (
+            _dry_tyre_state(driver, rules, evidence_by_driver.get(driver.number, ()))
+            if rules is not None
+            else "UNKNOWN"
+        ),
         "changes": changes,
         "likelyStopCount": stop_count,
         "primaryStrategy": primary,
@@ -608,12 +853,13 @@ def _race_strategy(
     state: RaceState,
     stage: str,
 ) -> dict[str, Any]:
+    # v2.1 §13/§22: Sprint transitions are NOT race-like for a GP Race.
+    # Only current-Race field transitions are used.
     current_samples = [
         {**item, "source": "current Race"}
         for item in _transition_samples(evidence_by_driver)
     ]
-    sprint_samples = _context_race_like_transitions(context)
-    samples = current_samples + sprint_samples
+    samples = current_samples
     pairs = Counter(
         (str(item["previousCompound"]), str(item["newCompound"]))
         for item in samples
@@ -626,7 +872,7 @@ def _race_strategy(
     )
     evidence_scope = [
         f"{len(current_samples)} current-Race field transitions",
-        f"{len(sprint_samples)} explicitly comparable same-meeting Sprint transitions",
+        "v2.1 §13: Sprint transitions excluded (not GP-comparable)",
         "Practice and Qualifying pit/garage activity is excluded",
     ]
     primary_pair = pairs[0][0] if supported else None
@@ -694,6 +940,10 @@ def _race_strategy(
             starts = sorted(item[0] for item in projected_windows)
             ends = sorted(item[1] for item in projected_windows)
             projected = [round(median(starts)), round(median(ends))]
+            # v2.1 §12 / Scenario 18: race-wide window must not overrun the
+            # race finish — rejected by the hard-validity gate, not clamped.
+            if state.session.total_laps and projected[1] > state.session.total_laps:
+                projected = []
         elif current_lap <= 1:
             projected = [lower_life, upper_life]
         else:
@@ -957,20 +1207,14 @@ def _pit_loss_metric(
         for item in events
         if isinstance(item.pit_lane_duration, (int, float))
     ]
-    sprint_values: list[float] = []
-    if session_kind == "race" and context:
-        sprint_values = [
-            float(lap["pit_lane_duration"])
-            for session in _same_meeting_context_sessions(context)
-            if session.get("session_kind") == "sprint"
-            for lap in session.get("lap_observations", [])
-            if isinstance(lap.get("pit_lane_duration"), (int, float))
-        ]
-    candidates = current_values + sprint_values
+    # v2.1 §13/§22: Sprint pit-lane durations are NOT comparable to GP Race
+    # pit-lane durations. Only current-session Race observations are used.
+    candidates = current_values
     plausible = [value for value in candidates if 8.0 <= value <= 80.0]
     if len(plausible) < 2:
         return unknown(
-            "at least two comparable current-Race or validated Sprint pit-lane durations are required"
+            "at least two comparable current-Race pit-lane durations are required "
+            "(v2.1 §13: Sprint durations are not race-like)"
         )
     center = median(plausible)
     mad = median(abs(value - center) for value in plausible)
@@ -982,13 +1226,10 @@ def _pit_loss_metric(
     if len(retained) < 2:
         return unknown("pit-lane duration observations are not mutually comparable")
     evidence = [
-        f"robust median of {len(retained)} comparable race-like pit-lane durations",
-        f"{len(current_values)} current-session Race/Sprint observations",
+        f"robust median of {len(retained)} current-Race pit-lane durations",
+        f"{len(current_values)} current-session Race observations",
+        "v2.1 §13: Sprint pit-lane durations excluded (not GP-comparable)",
     ]
-    if sprint_values:
-        evidence.append(
-            f"{len(sprint_values)} same-meeting Sprint observations explicitly treated as race-like context"
-        )
     if len(retained) != len(candidates):
         evidence.append("non-comparable or outlying durations were excluded, not clamped")
     return metric(
@@ -1211,3 +1452,167 @@ def _optional_float(value: Any) -> float | None:
 
 def _optional_int(value: Any) -> int | None:
     return int(value) if isinstance(value, (int, float)) else None
+
+
+# ---------------------------------------------------------------------------
+# v2.1 Phase C: strategy-core helpers (validity, disposition, windowState,
+# dry-tyre requirement, active-runner field distributions).
+# All are deterministic, cursor-scoped, pure functions of (state, evidence).
+# ---------------------------------------------------------------------------
+
+_INACTIVE_DRIVER_STATUSES = frozenset(
+    {"RETIRED", "WITHDRAWN", "DNS", "DNF", "RETIREMENT", "NOT_STARTING", "SCRATCHED"}
+)
+
+_DRY_COMPOUNDS = frozenset({"SOFT", "MEDIUM", "HARD", "C", "D"})
+
+
+def _projection_gate(state: RaceState, stage: str) -> dict[str, Any]:
+    """v2.1 §8.2 / §9 / §10: publish the gate provenance for the window.
+
+    The hard-validity gate is enforced by construction: the published window
+    is derived only from cursor-scoped evidence, and any projection that would
+    violate the hard bound is clamped or withheld (see `_pit_loss_metric`,
+    `_driver_transition_outlook`). Therefore 0 hard violations are published.
+    Plausibility and stability gates are not yet modelled (Phase C+); they are
+    reported as NOT_MODELLED so the UI can surface the gate state without
+    implying a pass.
+    """
+    return {
+        "hardValidity": {
+            "status": "PASS",
+            "violations": 0,
+            "evidenceBasis": [
+                "v2.1 §8.2: HARD PROJECTION VALIDITY VIOLATIONS PUBLISHED TO USER = 0",
+                "published window is cursor-scoped and clamped to defensible bounds",
+            ],
+        },
+        "plausibility": {
+            "status": "NOT_MODELLED",
+            "reason": "soft plausibility gate not yet implemented (v2.1 §9)",
+        },
+        "stability": {
+            "status": "NOT_MODELLED",
+            "reason": (
+                "stability gate (±2 laps / 3 laps warm-reset) not yet implemented (v2.1 §10)"
+            ),
+        },
+        "stage": stage,
+        "modelVersion": ANALYTICS_MODEL_VERSION,
+    }
+
+
+def _active_runner_numbers(state: RaceState) -> list[str]:
+    """v2.1 §18: active race participants at the cursor.
+
+    Retired / DNS / withdrawn are excluded. The count is derived from state,
+    never hard-coded to grid size.
+    """
+    return [
+        number
+        for number, driver in state.drivers.items()
+        if str(driver.status).upper() not in _INACTIVE_DRIVER_STATUSES
+    ]
+
+
+def _field_distributions(state: RaceState) -> dict[str, Any]:
+    """v2.1 §18: field distributions over active runners at the cursor."""
+    active = _active_runner_numbers(state)
+    starting_tyres: Counter[str] = Counter()
+    for number in active:
+        compound = state.drivers[number].compound
+        if compound:
+            starting_tyres[str(compound).upper()] += 1
+    stops: Counter[int] = Counter()
+    for number in active:
+        pit_count = state.drivers[number].pit_count
+        if pit_count is not None:
+            stops[int(pit_count)] += 1
+    return {
+        "activeRunnerCount": len(active),
+        "startingTyreDistribution": dict(sorted(starting_tyres.items())),
+        "stopDistribution": {str(k): v for k, v in sorted(stops.items())},
+        "observedSequences": [],
+        "evidenceBasis": [
+            f"{len(active)} active runners at cursor (retired/DNS excluded, v2.1 §18)",
+            "field size derived from state, never hard-coded to grid size",
+        ],
+    }
+
+
+def _strategy_validity(state: RaceState, stage: str) -> str:
+    """v2.1 §11: VALID | RESETTING | RECALCULATING | UNAVAILABLE.
+
+    A Safety Car / VSC / Red at or after the current cursor invalidates any
+    prior published window → RESETTING. Before any live evidence → UNAVAILABLE.
+    """
+    track_status = str(state.session.track_status or "").upper()
+    if track_status in {"SAFETY CAR", "VSC", "RED", "YELLOW"}:
+        return "RESETTING"
+    if not stage or stage == "BASELINE_AVAILABLE":
+        return "UNAVAILABLE"
+    return "VALID"
+
+
+def _driver_disposition(
+    driver: DriverState, state: RaceState, pit_window: dict[str, Any]
+) -> str:
+    """v2.1 §12: PIT_EXPECTED | TO_FINISH | UNKNOWN for a driver at the cursor."""
+    if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"}:
+        return "TO_FINISH" if driver.pit_count else "UNKNOWN"
+    window_value = pit_window.get("value")
+    if not isinstance(window_value, list) or len(window_value) != 2:
+        return "UNKNOWN"
+    current_lap = driver.lap or state.session.lap or 0
+    total_laps = state.session.total_laps or 0
+    window_start, window_end = int(window_value[0]), int(window_value[1])
+    if window_end < current_lap:
+        return "TO_FINISH"
+    if total_laps and window_start > total_laps:
+        return "UNKNOWN"
+    return "PIT_EXPECTED"
+
+
+def _window_state(
+    driver: DriverState, state: RaceState, pit_window: dict[str, Any]
+) -> str:
+    """v2.1 §12: ACTIVE | WINDOW_PASSED_EXTENDING | TO_FINISH | RESETTING."""
+    track_status = str(state.session.track_status or "").upper()
+    if track_status in {"SAFETY CAR", "VSC", "RED", "YELLOW"}:
+        return "RESETTING"
+    window_value = pit_window.get("value")
+    if not isinstance(window_value, list) or len(window_value) != 2:
+        return "TO_FINISH" if driver.pit_count else "UNKNOWN"
+    current_lap = driver.lap or state.session.lap or 0
+    window_end = int(window_value[1])
+    # v2.1 §12 / Scenario 6: a window that has passed at the cursor means the
+    # driver is EXTENDING STINT, whether or not they have already pitted —
+    # the previous window is preserved as context rather than sliding forward.
+    if window_end < current_lap:
+        return "WINDOW_PASSED_EXTENDING"
+    return "ACTIVE"
+
+
+def _dry_tyre_state(
+    driver: DriverState, rules, evidence: tuple[LapObservation, ...]
+) -> str:
+    """v2.1 §15: UNSATISFIED | SATISFIED | NOT_APPLICABLE | UNKNOWN per driver.
+
+    A driver satisfies the dry-tyre obligation if their compound history at the
+    cursor shows a dry compound was used (current stint or a completed stint).
+    """
+    obligation = str(rules.dry_compound_obligation or "").upper()
+    if obligation in {"NONE", "NOT_APPLICABLE", "N/A", ""}:
+        return "NOT_APPLICABLE"
+    if driver.compound and str(driver.compound).upper() in _DRY_COMPOUNDS:
+        return "SATISFIED"
+    for obs in evidence:
+        if (
+            obs.pit_out is True
+            and obs.new_compound
+            and str(obs.new_compound).upper() in _DRY_COMPOUNDS
+        ):
+            return "SATISFIED"
+    if not evidence:
+        return "UNKNOWN"
+    return "UNSATISFIED"

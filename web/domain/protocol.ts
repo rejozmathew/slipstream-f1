@@ -182,6 +182,62 @@ export type PaceSample = {
   contaminationReasons: string[];
 };
 
+// v2.1 contract vocabulary (single source of truth; mirror Python context_types.py).
+export type Disposition = "PIT_EXPECTED" | "TO_FINISH" | "UNKNOWN";
+export type WindowState = "ACTIVE" | "WINDOW_PASSED_EXTENDING" | "TO_FINISH" | "RESETTING";
+export type StrategyValidity = "VALID" | "RESETTING" | "RECALCULATING" | "UNAVAILABLE";
+export type DryTyreRequirementState = "UNSATISFIED" | "SATISFIED" | "NOT_APPLICABLE" | "UNKNOWN";
+export type HistoricalComparability = "NORMAL" | "LIMITED" | "INCOMPATIBLE";
+
+export type HistoricalContext = {
+  status: "PRESENT" | "ABSENT";
+  season?: number | null;
+  circuitId?: string | null;
+  comparability?: HistoricalComparability;
+  stopDistribution?: Record<string, number>;
+  compoundSequences?: string[];
+  stintLengths?: unknown;
+  sourceNote?: string;
+  evidenceCutoff?: string | null;
+  targetSessionKey?: string | null;
+  reason?: string;
+};
+
+export type OfficialPreRaceContext = {
+  status: "PRESENT" | "ABSENT";
+  source?: string | null;
+  publishedAt?: string | null;
+  retrievedAt?: string | null;
+  sourceUrl?: string | null;
+  expectedStopCount?: number | null;
+  primarySequence?: string | null;
+  alternateSequence?: string | null;
+  statedPitWindows?: unknown[];
+  caveats?: string[];
+  providerVersion?: string | null;
+  acquisition?: "MANUAL" | "AUTOMATED";
+  targetSessionKey?: string | null;
+  reason?: string;
+};
+
+export type ProjectionGate = {
+  hardValidity: { status: string; violations: number; reason?: string };
+  plausibility: { status: string; reason?: string };
+  stability: { status: string; reason?: string };
+};
+
+export type NetPitLoss = {
+  status: "ABSENT" | "NOT_IMPLEMENTED" | "UNKNOWN" | "PRESENT";
+  blocks?: string[];
+  evidenceBasis?: string[];
+};
+
+export type DryTyreRequirement = {
+  state: DryTyreRequirementState;
+  ruleProfile?: string;
+  evidenceBasis?: string[];
+};
+
 export type StrategyAnalytics = {
   scope: "RACE" | "DRIVER";
   driverNumber?: string;
@@ -200,6 +256,12 @@ export type StrategyAnalytics = {
   freeStopMargin: AnalyticsMetric<number>;
   weatherRisk: AnalyticsMetric<string>;
   rulesNote: string;
+  // v2.1 §11 / §12 / §15: per-driver disposition, window state, validity, and
+  // the dry-tyre requirement state. Phase C fills in real values.
+  disposition?: Disposition;
+  windowState?: WindowState;
+  strategyValidity?: StrategyValidity;
+  dryTyreRequirement?: DryTyreRequirement;
 };
 
 export type DriverAnalytics = {
@@ -211,6 +273,9 @@ export type DriverAnalytics = {
     baselineVersion: string;
     samples: PaceSample[];
     currentStintBaseline: number | null;
+    // v2.1 §20: SERVER-computed deterministic chart scale (median of |delta|,
+    // MAD 3× retention, 0.25s floor). Client renders verbatim.
+    scale?: number;
     degradation: AnalyticsMetric<number>;
   };
   pitEvents: PitEvent[];
@@ -254,11 +319,43 @@ export type AnalyticsSnapshot = {
   sequence: number;
   asOf: string | null;
   stage: AnalyticsStage;
+  // v2.1 §11: race-level strategy validity (SC/VSC/Red resets this).
+  strategyValidity?: StrategyValidity;
+  // v2.1 §17.1: NetPitLoss is a derived metric; until it exists, the fields
+  // that depend on it are suppressed (freeStopMargin, projectedRejoinPosition,
+  // quantified undercut).
+  netPitLoss?: NetPitLoss;
+  // v2.1 §8.2 / §9 / §10: gate provenance for the published window.
+  projectionGate?: ProjectionGate;
+  // v2.1 §18: field distributions over active runners at the cursor.
+  activeRunnerCount?: number;
+  startingTyreDistribution?: Record<string, number>;
+  stopDistribution?: Record<string, number>;
+  observedSequences?: string[];
+  // v2.1 §5.2 / §5.3: attributed, target-session-owned context artifacts.
+  historical?: HistoricalContext;
+  officialPreRace?: OfficialPreRaceContext;
+  // v2.1 §5.5 / §26: data-ownership contract (target-session-owned,
+  // session-scoped, cursor-keyed; M4 downstream deletion is a non-goal).
+  dataOwnership: {
+    owner: "target_session";
+    sessionScoped: boolean;
+    cursorKeyed: boolean;
+    sessionKey: string;
+    adminDeletion: { status: string; evidenceBasis: string[] };
+    evidenceBasis: string[];
+  };
   sportingRules: {
     profileVersion: string;
     mandatoryPitStops: number | null;
     dryCompoundObligation: string;
     evidenceBasis: string[];
+    // v2.1 §15: rule-derived dry-tyre obligation (per-driver state in Phase C).
+    dryTyreRequirement?: {
+      ruleProfile?: string;
+      perDriverState?: DryTyreRequirementState;
+      evidenceBasis?: string[];
+    };
   };
   context: {
     status: "missing" | "preparing" | "ready" | "unavailable";
@@ -276,7 +373,12 @@ export type AnalyticsSnapshot = {
   battle: {
     recommended: BattleCandidate | null;
     candidates: BattleCandidate[];
-    hysteresis: { minimumHoldSeconds: number; switchMargin: number };
+    // v2.1 §20 / invariant 6: server-stabilized recommendation (session-scoped,
+    // cursor-keyed hysteresis owned by AnalyticsService). The client renders
+    // this verbatim and must NOT recompute it locally.
+    stabilizedRecommended: BattleCandidate | null;
+    heldRecommendation: BattleCandidate | null;
+    hysteresis: { minimumHoldSeconds: number; switchMargin: number; owner?: string; sessionScoped?: boolean; cursorKeyed?: boolean };
     modelVersion: string;
   };
 };

@@ -2,12 +2,13 @@ import type { CSSProperties } from "react";
 
 import type { PaceSample } from "../../domain/protocol";
 
-function robustScale(samples: PaceSample[]) {
+function fallbackScale(samples: PaceSample[]) {
+  // Only reached when the server has not published a scale (legacy snapshots).
   const values = samples
     .filter((sample) => sample.quality === "representative" && sample.delta != null)
     .map((sample) => Math.abs(sample.delta as number))
     .sort((a, b) => a - b);
-  if (values.length === 0) return 1;
+  if (values.length === 0) return 0.25;
   const middle = values[Math.floor(values.length / 2)];
   const deviations = values.map((value) => Math.abs(value - middle)).sort((a, b) => a - b);
   const mad = deviations[Math.floor(deviations.length / 2)];
@@ -20,9 +21,12 @@ function formatDelta(value: number | null) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(3)}s`;
 }
 
-export function PaceDeltaChart({ samples, compact = false }: { samples: PaceSample[]; compact?: boolean }) {
+export function PaceDeltaChart({ samples, compact = false, serverScale }: { samples: PaceSample[]; compact?: boolean; serverScale?: number | null }) {
   if (samples.length === 0) return <div className="panel-empty">PACE EVIDENCE · UNKNOWN AT THIS REPLAY TIME</div>;
-  const scale = robustScale(samples);
+  // v2.1 §20: the y-axis scale is SERVER-computed (deterministic, cursor-
+  // scoped). The client renders it verbatim; the local fallback only covers
+  // snapshots that predate the server field.
+  const scale = typeof serverScale === "number" && Number.isFinite(serverScale) && serverScale > 0 ? serverScale : fallbackScale(samples);
   return <div className={`pace-delta-chart${compact ? " pace-delta-chart-compact" : ""}`} role="img" aria-label="Signed pace delta by lap; faster laps above zero and slower laps below zero">
     <div className="pace-legend"><span>FASTER ↑</span><b>0 = STINT BASELINE</b><span>SLOWER ↓</span></div>
     <div className="pace-plot"><div className="pace-zero" />

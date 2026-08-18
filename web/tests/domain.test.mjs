@@ -1,28 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { advanceBattleRecommendation } from "../domain/battleHysteresis.mjs";
 import { isCriticalTrackStatus, nextAuthoredState } from "../domain/tvMode.mjs";
 
-const pair = (ahead, behind, score) => ({ aheadDriverNumber: ahead, behindDriverNumber: behind, score });
-
-test("recommended battle holds until source-time hysteresis and score margin are met", () => {
-  const initial = advanceBattleRecommendation(null, pair("1", "2", 50), 1_000);
-  const tooSoon = advanceBattleRecommendation(initial, pair("3", "4", 80), 10_000, 20, 8);
-  const tooSmall = advanceBattleRecommendation(initial, pair("3", "4", 56), 25_000, 20, 8);
-  const switched = advanceBattleRecommendation(initial, pair("3", "4", 60), 25_000, 20, 8);
-
-  assert.deepEqual(tooSoon, initial);
-  assert.deepEqual(tooSmall, initial);
-  assert.deepEqual(switched.candidate, pair("3", "4", 60));
-});
-
-test("recommended battle switches immediately when the held pair is no longer valid", () => {
-  const initial = { candidate: pair("1", "2", 80), since: 1_000 };
-  const switched = advanceBattleRecommendation(initial, pair("3", "4", 20), 2_000, 20, 8, false);
-
-  assert.deepEqual(switched.candidate, pair("3", "4", 20));
-});
+// v2.1 §20 / invariant 6: Battle hysteresis is SERVER-owned (AnalyticsService,
+// session-scoped + cursor-keyed, pinned in tests/test_strategy_v21_battle.py).
+// The prior client `advanceBattleRecommendation` module and its tests are
+// removed — the client now renders the server's stabilized recommendation.
 
 test("TV rotation follows the authored preference order", () => {
   const authored = ["tower", "battle", "driver"];

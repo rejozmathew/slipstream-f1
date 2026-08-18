@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .events import NormalizedEvent, parse_timestamp
+from .state import RaceState
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,22 @@ class SessionEvidence:
     lap_observations: tuple[LapEvidence, ...] = ()
 
     @classmethod
-    def from_events(cls, events: tuple[NormalizedEvent, ...]) -> SessionEvidence:
+    def from_events(
+        cls,
+        events: tuple[NormalizedEvent, ...],
+        *,
+        cutoff: str | None = None,
+    ) -> SessionEvidence:
+        """Build evidence from normalized events.
+
+        v2.1 Scenario 20: when ``cutoff`` is provided (the session's evidence
+        cutoff / date_start), any observation whose ``started_at`` is *after*
+        the cutoff is a cross-meeting / future-evidence integrity violation and
+        is rejected **loudly** (``ValueError``) rather than silently degraded
+        to an ordinary ``UNKNOWN``. The deterministic replay path (``at`` /
+        ``event_limit``) still filters by cursor and is unaffected.
+        """
+        cutoff_dt = parse_timestamp(cutoff) if cutoff is not None else None
         observations: list[LapEvidence] = []
         for sequence, event in enumerate(events, start=1):
             payload = event.payload.get("lap_observation")
@@ -73,12 +89,25 @@ class SessionEvidence:
             values["contamination_reasons"] = tuple(
                 values.get("contamination_reasons", ())
             )
+            observation = LapObservation(**values)
+            if (
+                cutoff_dt is not None
+                and observation.started_at
+                and parse_timestamp(observation.started_at) > cutoff_dt
+            ):
+                raise ValueError(
+                    "future-evidence integrity violation: observation "
+                    f"lap={observation.lap} started_at={observation.started_at} "
+                    f"is after the session evidence cutoff {cutoff!r}; "
+                    "rejected loudly (v2.1 Scenario 20) rather than degraded "
+                    "to UNKNOWN"
+                )
             observations.append(
                 LapEvidence(
                     sequence=sequence,
                     occurred_at=event.occurred_at,
                     driver_number=str(driver_number),
-                    observation=LapObservation(**values),
+                    observation=observation,
                 )
             )
         return cls(tuple(observations))
@@ -132,3 +161,121 @@ class SessionEvidence:
             and (event_limit is None or item.sequence <= event_limit)
             and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
         )
+
+    # ------------------------------------------------------------------
+    # v2.1 Phase B: strategy evidence primitives (consumed by Phase C)
+    # ------------------------------------------------------------------
+
+    def dry_compound_history(
+        self,
+        driver_number: str,
+        *,
+        at: str | None = None,
+        event_limit: int | None = None,
+    ) -> tuple[str, ...]:
+        """Return the distinct dry compounds a driver has used, first-seen order.
+
+        v2.1 §15: the per-driver dry-tyre requirement state is computed from
+        this history + the rule profile. Wet/intermediate compounds are
+        excluded — only the *dry* specification set counts toward the
+        two-dry-obligation (FIA 2026 B6.3.6).
+        """
+        if at is not None and event_limit is not None:
+            raise ValueError("evidence accepts either at or event_limit, not both")
+        cutoff = parse_timestamp(at) if at is not None else None
+        seen: dict[str, None] = {}
+        for item in self.lap_observations:
+            if item.driver_number != str(driver_number):
+                continue
+            if event_limit is not None and item.sequence > event_limit:
+                continue
+            if cutoff is not None and parse_timestamp(item.occurred_at) > cutoff:
+                continue
+            compound = item.observation.compound
+            if compound is None:
+                continue
+            upper = compound.upper()
+            if upper in {"WET", "INTERMEDIATE"}:
+                continue
+            seen.setdefault(upper, None)
+        return tuple(seen)
+
+    def pit_lane_durations(
+        self,
+        *,
+        at: str | None = None,
+        event_limit: int | None = None,
+    ) -> tuple[float, ...]:
+        """Return all observed pit-lane durations (for pit-loss baseline).
+
+        v2.1 §17.1: raw pit-lane duration is *not* a defensible Net Pit Loss,
+        but it is the only observed input available before Phase C derives
+        the full metric.
+        """
+        if at is not None and event_limit is not None:
+            raise ValueError("evidence accepts either at or event_limit, not both")
+        cutoff = parse_timestamp(at) if at is not None else None
+        return tuple(
+            item.observation.pit_lane_duration
+            for item in self.lap_observations
+            if item.observation.pit_lane_duration is not None
+            and (event_limit is None or item.sequence <= event_limit)
+            and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
+        )
+
+    def stint_lengths(
+        self,
+        driver_number: str,
+        *,
+        at: str | None = None,
+        event_limit: int | None = None,
+    ) -> tuple[int, ...]:
+        """Return per-stint lap counts for a driver, in stint order.
+
+        v2.1 §12: stint life is a first-class strategy input. A stint is
+        delimited by a pit-in event; the final (in-progress) stint is
+        included with the laps accumulated so far.
+        """
+        if at is not None and event_limit is not None:
+            raise ValueError("evidence accepts either at or event_limit, not both")
+        cutoff = parse_timestamp(at) if at is not None else None
+        stints: list[int] = []
+        current = 0
+        for item in self.lap_observations:
+            if item.driver_number != str(driver_number):
+                continue
+            if event_limit is not None and item.sequence > event_limit:
+                continue
+            if cutoff is not None and parse_timestamp(item.occurred_at) > cutoff:
+                continue
+            if item.observation.pit_in is True:
+                if current > 0:
+                    stints.append(current)
+                current = 0
+            else:
+                current += 1
+        if current > 0:
+            stints.append(current)
+        return tuple(stints)
+
+
+# ----------------------------------------------------------------------
+# v2.1 Phase B: active-runner filter (v2.1 §18)
+# ----------------------------------------------------------------------
+
+_RETIRED_STATUSES = frozenset({"RETIRED", "DNS", "DID_NOT_START", "WITHDRAWN", "EXCLUDED"})
+
+
+def active_runners(state: RaceState) -> tuple[str, ...]:
+    """Return driver numbers of *active runners* at the current cursor.
+
+    v2.1 §18: field distributions (starting tyre, stop count, sequences)
+    are over active runners only. Retired / DNS / excluded drivers are
+    excluded. The predicate is derived from the driver's current status,
+    never hard-coded to a fixed grid size.
+    """
+    return tuple(
+        number
+        for number, driver in state.drivers.items()
+        if driver.status.upper() not in _RETIRED_STATUSES
+    )

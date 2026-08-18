@@ -60,7 +60,7 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
       <Panel eyebrow="PACE DELTA" title="Stint trend" className="driver-history-panel" action={<span className="pace-baseline-badge">VS CLEAN STINT BASELINE <InfoPopover meaning="Signed lap-time delta versus the robust median of representative laps in the same stint. Faster laps are above zero; slower laps are below." why="Pit, neutralized, contaminated, and robust outlier laps do not set the chart scale. They remain visible as capped grey hatched markers." /></span>}>
         {historyError && <div className="panel-empty">HISTORY UNAVAILABLE · {historyError}</div>}
         {!historyError && !history && !model && <div className="panel-empty">LOADING NORMALIZED LAP EVIDENCE</div>}
-        <PaceDeltaChart samples={paceSamples} />
+        <PaceDeltaChart samples={paceSamples} serverScale={model?.pace.scale} />
       </Panel>
       <Panel eyebrow="FACTUAL" title="Pit history" className="pit-history-panel"><PitHistory events={pitEvents} /></Panel>
     </div>

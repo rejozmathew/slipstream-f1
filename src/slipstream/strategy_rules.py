@@ -11,6 +11,10 @@ class StrategyRuleProfile:
     mandatory_pit_stops: int | None
     dry_compound_obligation: str
     evidence: tuple[str, ...]
+    # v2.1 §15: the per-driver dry-tyre requirement is a separate, rule-derived
+    # state (NOT "MUST_STOP"). This field carries the season/session-specific
+    # rule profile the per-driver evaluation uses.
+    dry_requirement: str = "unknown"
 
 
 def strategy_rule_profile(year: int, session_kind: str) -> StrategyRuleProfile:
