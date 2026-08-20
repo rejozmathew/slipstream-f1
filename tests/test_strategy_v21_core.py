@@ -49,10 +49,9 @@ def test_snapshot_publishes_phase_c_contract_fields(tmp_path) -> None:
     assert snap["strategyValidity"] in {"VALID", "UNAVAILABLE", "NOT_APPLICABLE"}
     assert snap["projectionGate"]["hardValidity"]["violations"] == 0
     assert snap["projectionGate"]["hardValidity"]["status"] == "PASS"
-    assert snap["activeRunnerCount"] == 2
-    assert "startingTyreDistribution" in snap
-    assert "stopDistribution" in snap
-    assert "observedSequences" in snap
+    assert snap["raceRead"]["activeRunnerCount"] == 2
+    assert "startingTyreDistribution" in snap["raceRead"]
+    assert "completedStopDistribution" in snap["raceRead"]
     # §17.1: NetPitLoss suppresses freeStopMargin + projectedRejoinPosition.
     for number in drivers:
         strategy = snap["drivers"][number]["strategy"]
@@ -78,8 +77,8 @@ def test_field_distributions_excludes_retired_runners(tmp_path) -> None:
     snap = build_analytics_snapshot(resource, state, sequence=1, as_of="2026-08-01T14:00:00+00:00", context=ContextAvailability("unavailable"))
 
     # Retired driver excluded from active-runner field distributions.
-    assert snap["activeRunnerCount"] == 2
-    dist = snap["startingTyreDistribution"]
+    assert snap["raceRead"]["activeRunnerCount"] == 2
+    dist = snap["raceRead"]["startingTyreDistribution"]
     assert dist.get("MEDIUM") == 1
     assert dist.get("HARD") == 1
     assert dist.get("SOFT") is None

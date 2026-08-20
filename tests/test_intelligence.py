@@ -282,9 +282,9 @@ def test_driver_context_and_recommended_battle_share_one_model(tmp_path: Path) -
     state = RaceState(
         session=SessionState(key="300", session_kind="race", layout_family="race", status="STARTED"),
         drivers={
-            "1": DriverState(number="1", code="AAA", position=1, gap_to_leader=None),
-            "2": DriverState(number="2", code="BBB", position=2, gap_to_leader="+1.250", interval_to_ahead="+1.250"),
-            "3": DriverState(number="3", code="CCC", position=3, gap_to_leader="+9.000", interval_to_ahead="+7.750"),
+            "1": DriverState(number="1", code="AAA", position=1, gap_to_leader=None, status="RUNNING", lap=1),
+            "2": DriverState(number="2", code="BBB", position=2, gap_to_leader="+1.250", interval_to_ahead="+1.250", status="RUNNING", lap=1),
+            "3": DriverState(number="3", code="CCC", position=3, gap_to_leader="+9.000", interval_to_ahead="+7.750", status="RUNNING", lap=1),
         },
     )
     resource = ReplayResource(descriptor(tmp_path), events, state, SessionEvidence.from_events(events), True, False)

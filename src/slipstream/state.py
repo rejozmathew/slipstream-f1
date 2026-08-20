@@ -149,6 +149,111 @@ class RaceState:
             # Completed-lap evidence is retained by SessionEvidence, not repeated in
             # every high-frequency RaceState snapshot.
             updates.pop("lap_observation", None)
+    circuit: str | None = None
+    location: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None
+    gmt_offset: str | None = None
+    local_time: str | None = None
+    lap: int | None = None
+    total_laps: int | None = None
+    track_status: str | None = None
+    status: str = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class WeatherState:
+    updated_at: str | None = None
+    air_temperature: float | None = None
+    track_temperature: float | None = None
+    humidity: float | None = None
+    pressure: float | None = None
+    rainfall: bool | None = None
+    wind_speed: float | None = None
+    wind_direction: int | None = None
+    availability: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CircuitState:
+    key: str | None = None
+    name: str | None = None
+    year: int | None = None
+    rotation: float | None = None
+    path: tuple[tuple[float, float], ...] = ()
+    source: str | None = None
+    availability: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RaceControlMessage:
+    occurred_at: str
+    category: str
+    message: str
+    flag: str | None = None
+    scope: str | None = None
+    driver_number: str | None = None
+    sector: int | None = None
+    lap: int | None = None
+
+
+@dataclass(frozen=True)
+class RaceState:
+    schema_version: int = 1
+    updated_at: str | None = None
+    session: SessionState = field(default_factory=SessionState)
+    circuit: CircuitState = field(default_factory=CircuitState)
+    weather: WeatherState = field(default_factory=WeatherState)
+    drivers: dict[str, DriverState] = field(default_factory=dict)
+    race_control: tuple[RaceControlMessage, ...] = ()
+
+    def apply(self, event: NormalizedEvent) -> RaceState:
+        if event.kind == "session":
+            session = replace(self.session, **event.payload)
+            return replace(
+                self,
+                updated_at=event.occurred_at,
+                session=_with_local_time(session, event.occurred_at),
+            )
+        if event.kind == "circuit":
+            updates = dict(event.payload)
+            path = updates.get("path")
+            if isinstance(path, (list, tuple)):
+                updates["path"] = tuple(
+                    (float(point[0]), float(point[1]))
+                    for point in path
+                    if isinstance(point, (list, tuple)) and len(point) >= 2
+                )
+            explicit_availability = updates.pop("availability", {})
+            availability = {
+                **self.circuit.availability,
+                **explicit_availability,
+            }
+            return replace(
+                self,
+                updated_at=event.occurred_at,
+                session=_with_local_time(self.session, event.occurred_at),
+                circuit=replace(self.circuit, **updates, availability=availability),
+            )
+        if event.kind == "driver":
+            number = str(event.payload["number"])
+            current = self.drivers.get(number, DriverState(number=number))
+            item = replace(
+                current, **{k: v for k, v in event.payload.items() if k != "number"}
+            )
+            return replace(
+                self,
+                updated_at=event.occurred_at,
+                session=_with_local_time(self.session, event.occurred_at),
+                drivers={**self.drivers, number: item},
+            )
+        if event.kind == "timing":
+            number = str(event.payload["number"])
+            current = self.drivers.get(number, DriverState(number=number))
+            updates = {k: v for k, v in event.payload.items() if k != "number"}
+            # Completed-lap evidence is retained by SessionEvidence, not repeated in
+            # every high-frequency RaceState snapshot.
+            updates.pop("lap_observation", None)
             explicit_availability = updates.pop("availability", {})
             availability = {
                 **current.availability,
@@ -156,6 +261,9 @@ class RaceState:
                 **explicit_availability,
             }
             item = replace(current, **updates)
+            if "status" not in updates and event.kind == "timing" and item.status in {"STOPPED", "UNKNOWN"}:
+                # Subsequent factual timing evidence establishes the car resumed/is running
+                item = replace(item, status="RUNNING")
             item = replace(item, availability=availability)
             session = self.session
             event_lap = updates.get("lap")
@@ -195,10 +303,20 @@ class RaceState:
             track_status = _track_status_from(item)
             if track_status:
                 session = replace(session, track_status=track_status)
+            drivers = self.drivers
+            driver_status_update = _driver_status_from(item)
+            if driver_status_update:
+                driver_num, new_status = driver_status_update
+                if driver_num in drivers:
+                    drivers = {**drivers, driver_num: replace(drivers[driver_num], status=new_status)}
+                else:
+                    drivers = {**drivers, driver_num: DriverState(number=driver_num, status=new_status)}
+
             return replace(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(session, event.occurred_at),
+                drivers=drivers,
                 race_control=(*self.race_control, item),
             )
         raise ValueError(f"Unsupported event kind: {event.kind}")
@@ -245,4 +363,16 @@ def _track_status_from(message: RaceControlMessage) -> str | None:
         return "SAFETY CAR"
     if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
         return "RED"
+    return None
+
+
+def _driver_status_from(message: RaceControlMessage) -> tuple[str, str] | None:
+    """Return explicit terminal/stopped states from race control messages."""
+    if not message.driver_number:
+        return None
+    text = message.message.upper()
+    if "RETIRED" in text:
+        return (message.driver_number, "RETIRED")
+    if "STOPPED" in text or "OUT OF RACE" in text:
+        return (message.driver_number, "STOPPED")
     return None

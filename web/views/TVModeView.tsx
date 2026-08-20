@@ -48,13 +48,15 @@ function TVBattle({ drivers, analytics, mode }: { drivers: readonly [Driver | un
   const left = drivers?.[0] ?? null;
   const right = drivers?.[1] ?? null;
   if (!left || !right) return <div className="unknown-block"><strong>BATTLE · NOT AVAILABLE</strong><p>No adjacent comparable pair is available.</p></div>;
-  const gap = gapBetween(left, right);
+  const isRecommended = mode.toUpperCase() === "RECOMMENDED";
+  const gap = isRecommended && analytics?.battle.recommended ? gapBetween(left, right) : gapBetween(left, right);
+  const trend = isRecommended ? analytics?.battle.gapTrend : undefined;
   const cards = [left, right];
   return <div className="tv-battle"><header><span>{mode.toUpperCase()} BATTLE</span><strong>{left.code ?? left.number} · {gap == null ? "—" : `${gap.toFixed(3)}s`} · {right.code ?? right.number}</strong></header><div className="tv-battle-grid">{cards.map((driver) => {
     const model = analytics?.drivers[driver.number];
     const window = model?.strategy.pitWindow.value;
     return <section key={driver.number} style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as React.CSSProperties}><header><b>P{driver.position ?? "—"}</b><strong>{driver.code ?? driver.number}</strong><span>#{driver.number}</span></header><p>{driver.name ?? "Driver"} · {driver.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{driver.last_lap ?? "—"} · {model?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div><div><span>STRATEGY WINDOW</span><strong>{window ? `L${window[0]}–${window[1]}` : "—"}</strong></div><div><span>UNDERCUT</span><strong>{model?.strategy.undercutStrength.value ?? "—"}</strong></div></section>;
-  })}<div className="tv-battle-trend"><span>CURRENT GAP</span><strong>{gap == null ? "—" : `${gap.toFixed(3)}s`}</strong><i /></div></div></div>;
+  })}<div className="tv-battle-trend"><span>CURRENT GAP</span><strong>{gap == null ? "—" : `${gap.toFixed(3)}s`}</strong>{trend && <small className={`trend trend-${trend.toLowerCase()}`}>{trend}</small>}</div></div></div>;
 }
 
 function TVTrack({ state, drivers, analytics, positionMode, replayAvailable }: { state: RaceState; drivers: Driver[]; analytics: AnalyticsSnapshot | null; positionMode: PositionMode; replayAvailable: boolean }) {

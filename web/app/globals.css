@@ -651,6 +651,17 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .strategy-stage strong { color: var(--muted); font: 650 8px/1 var(--mono); }
 .strategy-change { padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--accent), transparent 72%); background: color-mix(in srgb, var(--accent), transparent 91%); color: var(--accent); font: 750 8px/1.2 var(--mono); letter-spacing: .07em; }
 .strategy-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); margin-bottom: 18px; }
+.strategy-dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; margin-bottom: 24px; }
+.strategy-view header { margin-bottom: 24px; }
+.strategy-view header h1 { font-size: 1.5rem; font-weight: 500; margin: 4px 0 8px; color: var(--text-main, #eee); }
+.strategy-view header p { font-size: 0.9rem; color: var(--text-muted, #999); margin: 0; }
+.strategy-validity-state { padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 4px; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.05em; color: var(--text-main, #eee); }
+.strategy-section { padding: 12px; border-bottom: 1px solid var(--line-subtle, #333); display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 4px;}
+.strategy-section:last-child { border-bottom: none; }
+.strategy-section span { font-size: 0.75rem; color: var(--text-muted, #999); letter-spacing: 0.05em; text-transform: uppercase; }
+.strategy-section strong { font-size: 0.9rem; font-weight: 500; color: var(--text-main, #eee); }
+.strategy-section strong.unsatisfied { color: var(--negative, #ff4c4c); }
+
 .strategy-metric { min-height: 58px; display: grid; align-content: center; gap: 5px; padding: 8px 10px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
 .strategy-metric > span { color: var(--quiet); font: 650 8px/1 var(--mono); letter-spacing: .08em; }
 .strategy-metric > span i { margin-left: 5px; color: var(--muted); font-style: normal; }

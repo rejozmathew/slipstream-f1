@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { TrackMap } from "../components/analysis/TrackMap";
 import { BattleDriverCard } from "../components/battle/BattleDriverCard";
 import { Panel } from "../components/shared/Panel";
 import { gapBetween } from "../domain/battle";
@@ -29,25 +30,28 @@ export function BattleView({ state, stateHistory, analytics, recommendedPair }: 
   const left = pair?.[0] ?? null;
   const right = pair?.[1] ?? null;
   const gap = gapBetween(left, right);
-  const samples: GapSample[] = !left || !right ? [] : stateHistory.flatMap((snapshot) => {
+  const isRecommended = mode === "recommended";
+  const samples: GapSample[] = isRecommended && analytics?.battle.gapHistory ? analytics.battle.gapHistory : (!left || !right ? [] : stateHistory.flatMap((snapshot) => {
       const value = gapBetween(snapshot.drivers[left.number] ?? null, snapshot.drivers[right.number] ?? null);
       return snapshot.updated_at && value != null ? [{ at: snapshot.updated_at, value }] : [];
-    });
-  const trend = samples.length < 3 ? "INSUFFICIENT HISTORY" : samples.at(-1)!.value < samples[0].value - 0.05 ? "CLOSING" : samples.at(-1)!.value > samples[0].value + 0.05 ? "OPENING" : "STABLE";
+    }));
+  const trend = isRecommended && analytics?.battle.gapTrend ? analytics.battle.gapTrend : (samples.length < 3 ? "INSUFFICIENT HISTORY" : samples.at(-1)!.value < samples[0].value - 0.05 ? "CLOSING" : samples.at(-1)!.value > samples[0].value + 0.05 ? "OPENING" : "STABLE");
   const battleCandidate = analytics?.battle.candidates.find((item) => item.aheadDriverNumber === left?.number && item.behindDriverNumber === right?.number) ?? null;
   const leftStrategy = left ? analytics?.drivers[left.number]?.strategy : null;
   const rightStrategy = right ? analytics?.drivers[right.number]?.strategy : null;
+  const leftPace = left ? analytics?.drivers[left.number]?.pace : null;
+  const rightPace = right ? analytics?.drivers[right.number]?.pace : null;
   const battleValid = Boolean(
     left?.position != null
     && right?.position != null
-    && left.position != null && right.position != null
-    && Math.abs(right.position - left.position) === 1
+    && left.status === "RUNNING" && right.status === "RUNNING"
+    && Math.abs((right.lap ?? 0) - (left.lap ?? 0)) <= 1
   );
 
   return <div className="battle-view">
     <header className="experience-heading"><div><span>RACE INTELLIGENCE</span><h1>Battle</h1><p>One deterministic recommendation shared by desktop and TV.</p></div><div className="battle-modes">{(["recommended", "leader", "pinned"] as const).map((item) => <button className={mode === item ? "active" : ""} key={item} onClick={() => setMode(item)}>{item.toUpperCase()}</button>)}</div></header>
     <div className="battle-selectors"><label><span>DRIVER A</span><select value={left?.number ?? pinned[0]} onChange={(event) => { setPinned([event.target.value, pinned[1]]); setMode("pinned"); }}>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "-"} · {driver.code ?? driver.number}</option>)}</select></label><div><span>OBSERVED GAP</span><strong>{gap == null ? "-" : `${gap.toFixed(3)}s`}</strong><small className={`trend trend-${trend.toLowerCase().split(" ")[0]}`}>{trend}</small></div><label><span>DRIVER B</span><select value={right?.number ?? pinned[1]} onChange={(event) => { setPinned([pinned[0], event.target.value]); setMode("pinned"); }}>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "-"} · {driver.code ?? driver.number}</option>)}</select></label></div>
-    <div className="battle-symmetric"><BattleDriverCard driver={left} side="left" /><div className="battle-axis"><i /><span>TRACK ORDER</span></div><BattleDriverCard driver={right} side="right" /></div>
+    <div className="battle-symmetric"><BattleDriverCard driver={left} side="left" /><div className="battle-axis"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={state.circuit.path ? "precise_xy" : "unavailable"} focusDrivers={[left?.number ?? "", right?.number ?? ""]} /></div><BattleDriverCard driver={right} side="right" /></div>
     <div className="battle-lower">
       <Panel eyebrow="OBSERVED" title="Gap history"><GapHistory samples={samples} /></Panel>
       {battleValid ? (
@@ -60,9 +64,23 @@ export function BattleView({ state, stateHistory, analytics, recommendedPair }: 
         </Panel>
       )}
       <Panel eyebrow="SHARED STRATEGY" title="Interaction">
-        <div className="battle-strategy-compare">
-          <div><span>{left?.code ?? "DRIVER A"}</span><strong>{leftStrategy?.pitWindow.value ? `L${leftStrategy.pitWindow.value[0]}–${leftStrategy.pitWindow.value[1]}` : "—"}</strong><small>{leftStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div>
-          <div><span>{right?.code ?? "DRIVER B"}</span><strong>{rightStrategy?.pitWindow.value ? `L${rightStrategy.pitWindow.value[0]}–${rightStrategy.pitWindow.value[1]}` : "—"}</strong><small>{rightStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div>
+        <div className="battle-offsets" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: "var(--accent)", font: "700 9px/1 var(--mono)" }}>TYRE OFFSET</span>
+            <strong style={{ font: "800 13px/1 var(--mono)" }}>{left?.tyre_age ?? "-"}L {left?.compound?.[0] ?? "-"} vs {right?.tyre_age ?? "-"}L {right?.compound?.[0] ?? "-"}</strong>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: "var(--accent)", font: "700 9px/1 var(--mono)" }}>PACE (DEG)</span>
+            <strong style={{ font: "800 13px/1 var(--mono)" }}>{leftPace?.degradation.value != null ? `${leftPace.degradation.value}s` : "-"} vs {rightPace?.degradation.value != null ? `${rightPace.degradation.value}s` : "-"}</strong>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: "var(--accent)", font: "700 9px/1 var(--mono)" }}>PRIMARY PLAN</span>
+            <strong style={{ font: "800 13px/1 var(--mono)" }}>{leftStrategy?.primaryStrategy.value ?? "-"} vs {rightStrategy?.primaryStrategy.value ?? "-"}</strong>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: "var(--accent)", font: "700 9px/1 var(--mono)" }}>PIT WINDOW</span>
+            <strong style={{ font: "800 13px/1 var(--mono)" }}>{leftStrategy?.pitWindow.value ? `L${leftStrategy.pitWindow.value[0]}-${leftStrategy.pitWindow.value[1]}` : "-"} vs {rightStrategy?.pitWindow.value ? `L${rightStrategy.pitWindow.value[0]}-${rightStrategy.pitWindow.value[1]}` : "-"}</strong>
+          </div>
         </div>
       </Panel>
     </div>

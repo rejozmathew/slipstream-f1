@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Panel } from "../components/shared/Panel";
 import { CompoundBadge } from "../components/shared/CompoundBadge";
-import type { AnalyticsSnapshot, DryTyreRequirementState, RaceState } from "../domain/protocol";
+import type { AnalyticsSnapshot, RaceState } from "../domain/protocol";
 
 type StrategyViewProps = {
   state: RaceState;
@@ -13,18 +13,12 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
   const drivers = useMemo(() => Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
 
   // 1. Current Race Landscape
-  const tyreDist = analytics?.startingTyreDistribution ?? {};
-  const stopDist = analytics?.stopDistribution ?? {};
-  const activeCount = analytics?.activeRunnerCount ?? 0;
+  const tyreDist = analytics?.raceRead?.startingTyreDistribution ?? {};
+  const stopDist = analytics?.raceRead?.completedStopDistribution ?? {};
+  const activeCount = analytics?.raceRead?.activeRunnerCount ?? 0;
 
   // 3. Rule / Constraint Landscape
-  const dryRuleStates: Record<DryTyreRequirementState, number> = { SATISFIED: 0, UNSATISFIED: 0, NOT_APPLICABLE: 0, UNKNOWN: 0 };
-  for (const d of drivers) {
-    const st = analytics?.drivers[d.number]?.strategy?.dryTyreRequirement;
-    if (st) {
-      dryRuleStates[st] = (dryRuleStates[st] || 0) + 1;
-    }
-  }
+  const dryRuleStates = analytics?.raceRead?.dryRequirementLandscape ?? {};
 
   // Outlook
   const validity = analytics?.strategyValidity ?? "UNAVAILABLE";
@@ -42,7 +36,7 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
         </div>
       </header>
       
-      <div className="strategy-grid">
+      <div className="strategy-dashboard-grid">
         <Panel eyebrow="LANDSCAPE" title="Current Race Landscape">
            <div className="strategy-section">
              <span>ACTIVE RUNNERS</span>
@@ -61,9 +55,9 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
         <Panel eyebrow="RULES" title="Rule / Constraint Landscape">
            <div className="strategy-section">
              <span>DRY TYRE REQUIREMENT</span>
-             {dryRuleStates.UNSATISFIED > 0 && <strong className="unsatisfied">{dryRuleStates.UNSATISFIED} drivers still require another dry spec</strong>}
-             {dryRuleStates.SATISFIED > 0 && <strong>{dryRuleStates.SATISFIED} drivers satisfied</strong>}
-             {dryRuleStates.NOT_APPLICABLE > 0 && <strong>{dryRuleStates.NOT_APPLICABLE} not applicable</strong>}
+             {dryRuleStates["UNSATISFIED"] > 0 && <strong className="unsatisfied">{dryRuleStates["UNSATISFIED"]} drivers still require another dry spec</strong>}
+             {dryRuleStates["SATISFIED"] > 0 && <strong>{dryRuleStates["SATISFIED"]} drivers satisfied</strong>}
+             {dryRuleStates["NOT_APPLICABLE"] > 0 && <strong>{dryRuleStates["NOT_APPLICABLE"]} not applicable</strong>}
            </div>
         </Panel>
 

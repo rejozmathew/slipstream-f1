@@ -62,7 +62,7 @@ export function AppShell() {
       <nav aria-label="Product navigation">
         <button className={view === "session" ? "active" : ""} onClick={() => setView("session")}>SESSION</button>
         <button className={view === "driver" ? "active" : ""} onClick={() => setView("driver")}>DRIVER</button>
-        <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>BATTLE</button>
+        {layout === "race" && <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>BATTLE</button>}
         {layout === "race" && <button className={view === "strategy" ? "active" : ""} onClick={() => setView("strategy")}>STRATEGY</button>}
         <button className="tv-nav-item" onClick={() => setView("tv")}>TV MODE</button>
         <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>SETTINGS</button>
@@ -79,8 +79,8 @@ export function AppShell() {
       {view === "session" && !session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} sessionKind={classification.kind} replayAvailable={replayAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "practice" && <PracticeView state={session.state} replayAvailable={replayAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "unsupported" && <Panel eyebrow="SESSION LAYOUT" title="Session layout unavailable"><div className="unknown-block"><strong>LAYOUT - NOT AVAILABLE</strong><p>This session is present in the catalog but does not classify as Race, Qualifying, or Practice.</p></div></Panel>}
-      {view === "strategy" && !session.connectionError && <StrategyView state={session.state} analytics={session.analytics} onSelectDriver={openDriver} />}
-      {view === "battle" && !session.connectionError && <BattleView state={session.state} stateHistory={session.stateHistory} analytics={session.analytics} recommendedPair={recommendedBattle} />}
+      {view === "strategy" && !session.connectionError && layout === "race" && <StrategyView state={session.state} analytics={session.analytics} onSelectDriver={openDriver} />}
+      {view === "battle" && !session.connectionError && layout === "race" && <BattleView state={session.state} stateHistory={session.stateHistory} analytics={session.analytics} recommendedPair={recommendedBattle} />}
       {view === "driver" && !session.connectionError && (!focusedDriver || !session.state.drivers[focusedDriver]) && <DriverPickerView state={session.state} onSelect={openDriver} />}
       {view === "driver" && !session.connectionError && focusedDriver && session.state.drivers[focusedDriver] && <DriverFocusView state={session.state} analytics={session.analytics} driverNumber={focusedDriver} history={driverHistory.history} historyError={driverHistory.error} playhead={session.playhead} positionMode={positionMode} onChangeDriver={() => setFocusedDriver(null)} onBack={() => setView("session")} />}
       {view === "settings" && <SettingsView appearance={preferences.appearance} onAppearanceChange={preferences.setAppearance} raceLayout={preferences.raceLayout} onRaceLayoutChange={preferences.setRaceLayout} tvPreferences={preferences.tv} onTVPreferencesChange={preferences.setTV} drivers={Object.values(session.state.drivers)} section={settingsSection} onSectionChange={setSettingsSection} />}

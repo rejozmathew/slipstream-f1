@@ -66,8 +66,8 @@ def test_cache_signature_is_session_keyed(tmp_path) -> None:
     ra, sa = _resource(tmp_path, key="300", name="Context GP A", drivers=drivers_a)
     rb, sb = _resource(tmp_path, key="301", name="Context GP B", drivers=drivers_b)
     ctx = ContextAvailability("unavailable")
-    sig_a = _signature(ra, sa, ctx)
-    sig_b = _signature(rb, sb, ctx)
+    sig_a = _signature(ra, sa, ctx, 1, None)
+    sig_b = _signature(rb, sb, ctx, 1, None)
     # Session key must be part of the signature — otherwise two sessions with
     # identical state would collide.
     assert "300" in sig_a

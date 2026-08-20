@@ -101,13 +101,12 @@ class AnalyticsService:
         # and cursor-keyed (not viewer-owned mutable state). Two viewers at the same
         # cursor get the identical held state; a backward seek resets it.
         self._battle_held: dict[tuple[str, int], dict[str, Any] | None] = {}
-        self._battle_max_cursor: dict[str, int] = {}
 
     def _apply_battle_hysteresis(
         self,
         base: dict[str, Any],
         session_key: str,
-        cursor: int,
+        sequence: int,
         as_of: str | None,
     ) -> None:
         battle = base.get("battle")
@@ -117,21 +116,16 @@ class AnalyticsService:
         hold_ms = int(battle.get("hysteresis", {}).get("minimumHoldSeconds", 20) * 1000)
         switch_margin = float(battle.get("hysteresis", {}).get("switchMargin", 8))
         source_ms = _as_of_ms(as_of)
-        prior_max = self._battle_max_cursor.get(session_key, -1)
-        # Backward seek (or a session's first cursor) invalidates the held state —
-        # deterministic, reset-safe, never leaks a later cursor forward (Scenario 19).
-        backward = cursor < prior_max
-        if backward:
-            held: dict[str, Any] | None = None
-        else:
-            prior_cursors = [
-                c for (sk, c) in self._battle_held if sk == session_key and c < cursor
-            ]
-            held = (
-                self._battle_held[(session_key, max(prior_cursors))]
-                if prior_cursors
-                else None
-            )
+        
+        prior_sequences = [
+            seq for (sk, seq) in self._battle_held if sk == session_key and seq < sequence
+        ]
+        held = (
+            self._battle_held[(session_key, max(prior_sequences))]
+            if prior_sequences
+            else None
+        )
+        
         held = _hysteresis_advance(
             held,
             candidate,
@@ -140,8 +134,7 @@ class AnalyticsService:
             switch_margin=switch_margin if source_ms >= 0 else 0.0,
             drivers_exist=True,
         )
-        self._battle_held[(session_key, cursor)] = held
-        self._battle_max_cursor[session_key] = max(prior_max, cursor)
+        self._battle_held[(session_key, sequence)] = held
         # Publish the stabilized action + held state for the (render-only) client.
         battle["heldRecommendation"] = held
         battle["stabilizedRecommended"] = (
@@ -160,7 +153,7 @@ class AnalyticsService:
         as_of: str | None,
         context: ContextAvailability,
     ) -> dict[str, Any]:
-        signature = _signature(resource, state, context)
+        signature = _signature(resource, state, context, sequence, as_of)
         cached = self._cache.get(signature)
         if cached is None:
             cached = build_analytics_snapshot(
@@ -181,6 +174,15 @@ class AnalyticsService:
         )
         return response
 
+
+def _aggregate_dry_tyre_landscape(
+    states: dict[str, str]
+) -> dict[str, int]:
+    counts = {"SATISFIED": 0, "UNSATISFIED": 0, "NOT_APPLICABLE": 0, "UNKNOWN": 0}
+    for state in states.values():
+        if state in counts:
+            counts[state] += 1
+    return counts
 
 def build_analytics_snapshot(
     resource: ReplayResource,
@@ -253,7 +255,11 @@ def build_analytics_snapshot(
             ),
         }
     battle = battle_recommendation(
-        ordered, driver_models, layout_family=resource.descriptor.layout_family
+        ordered,
+        driver_models,
+        evidence_by_driver,
+        as_of=as_of,
+        layout_family=resource.descriptor.layout_family,
     )
     race_strategy = _race_strategy(
         driver_models, evidence_by_driver, context_payload, pit_loss, state, stage
@@ -280,7 +286,16 @@ def build_analytics_snapshot(
         "sequence": sequence,
         "asOf": as_of,
         "stage": stage,
-        **field_distributions,
+        "raceRead": {
+            "raceLifecycle": stage,
+            "activeRunnerCount": field_distributions.get("activeRunnerCount", 0),
+            "startingTyreDistribution": field_distributions.get("startingTyreDistribution", {}),
+            "currentTyreDistribution": field_distributions.get("currentTyreDistribution", {}),
+            "completedStopDistribution": field_distributions.get("stopDistribution", {}),
+            "paceTrendDistribution": {},
+            "dryRequirementLandscape": _aggregate_dry_tyre_landscape(dry_tyre_per_driver),
+            "evidenceBasis": ["v2.1 §18: field distributions exclude retired/DNS runners"],
+        },
         # v2.1 §11: strategy validity is a first-class state, not an implicit
         # property of the published window. Phase C computes it from the
         # track-control state at the cursor + the analytics stage.
@@ -334,9 +349,6 @@ def build_analytics_snapshot(
         },
         "pitLoss": pit_loss,
         "raceStrategy": race_strategy,
-        # v2.1 §18: field distributions are over *active runners* at the cursor
-        # (retired/DNS excluded, never hard-coded).
-        **field_distributions,
         # v2.1 §5.2 / §5.3: Historical + OfficialPreRace are separate, attributed,
         # target-session-owned context artifacts. Contract is Phase A;
         # acquisition is Phase F (manual path guaranteed, automated is a spike).
@@ -444,6 +456,9 @@ def _pace_scale(samples: list[dict[str, Any]]) -> float:
 def battle_recommendation(
     ordered: list[DriverState],
     driver_models: dict[str, dict[str, Any]],
+    evidence_by_driver: dict[str, tuple[LapObservation, ...]],
+    *,
+    as_of: str | None,
     layout_family: str | None = None,
 ) -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
@@ -452,6 +467,10 @@ def battle_recommendation(
         behind = ordered[index]
         gap = _numeric_gap(behind.interval_to_ahead)
         if gap is None:
+            continue
+        if ahead.status != "RUNNING" or behind.status != "RUNNING":
+            continue
+        if abs((ahead.lap or 0) - (behind.lap or 0)) > 1:
             continue
         score = max(0.0, 70.0 - min(gap, 14.0) * 5.0)
         factors: list[dict[str, Any]] = [
@@ -546,8 +565,36 @@ def battle_recommendation(
             }
         )
     candidates.sort(key=lambda item: item["score"], reverse=True)
+    recommended = candidates[0] if candidates else None
+    gap_history = []
+    if recommended:
+        ahead_laps = evidence_by_driver.get(recommended["aheadDriverNumber"], ())
+        behind_laps = evidence_by_driver.get(recommended["behindDriverNumber"], ())
+        ahead_by_lap = {lap.lap: lap for lap in ahead_laps}
+        behind_by_lap = {lap.lap: lap for lap in behind_laps}
+        shared_laps = sorted(set(ahead_by_lap.keys()) & set(behind_by_lap.keys()))
+        for lap_num in shared_laps[-10:]:
+            a_start = parse_timestamp(ahead_by_lap[lap_num].started_at).timestamp()
+            b_start = parse_timestamp(behind_by_lap[lap_num].started_at).timestamp()
+            gap_val = abs(b_start - a_start)
+            if gap_val < 60.0:
+                gap_history.append({"at": behind_by_lap[lap_num].started_at, "value": round(gap_val, 3)})
+
+    trend = "INSUFFICIENT HISTORY"
+    if len(gap_history) >= 3:
+        first_val = gap_history[0]["value"]
+        last_val = gap_history[-1]["value"]
+        if last_val < first_val - 0.05:
+            trend = "CLOSING"
+        elif last_val > first_val + 0.05:
+            trend = "OPENING"
+        else:
+            trend = "STABLE"
+
     return {
-        "recommended": candidates[0] if candidates else None,
+        "recommended": recommended,
+        "gapHistory": gap_history,
+        "gapTrend": trend,
         "candidates": candidates,
         # v2.1 Scenario 15: Strategy/Battle are only meaningful for race
         # layouts. The server publishes the gate so the client renders it
@@ -1401,6 +1448,8 @@ def _signature(
     resource: ReplayResource,
     state: RaceState,
     context: ContextAvailability,
+    sequence: int,
+    as_of: str | None,
 ) -> tuple[Any, ...]:
     context_revision = (
         context.context.get("generated_at") if context.context else context.status
@@ -1422,6 +1471,8 @@ def _signature(
         )
     )
     return (
+        sequence,
+        as_of,
         resource.descriptor.key,
         context_revision,
         state.session.lap,

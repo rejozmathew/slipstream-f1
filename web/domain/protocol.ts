@@ -327,11 +327,17 @@ export type AnalyticsSnapshot = {
   netPitLoss?: NetPitLoss;
   // v2.1 §8.2 / §9 / §10: gate provenance for the published window.
   projectionGate?: ProjectionGate;
-  // v2.1 §18: field distributions over active runners at the cursor.
-  activeRunnerCount?: number;
-  startingTyreDistribution?: Record<string, number>;
-  stopDistribution?: Record<string, number>;
-  observedSequences?: string[];
+  // v2.1 §18: race read and field distributions over active runners at the cursor.
+  raceRead?: {
+    raceLifecycle: AnalyticsStage;
+    activeRunnerCount: number;
+    startingTyreDistribution: Record<string, number>;
+    currentTyreDistribution: Record<string, number>;
+    completedStopDistribution: Record<string, number>;
+    paceTrendDistribution: Record<string, unknown>;
+    dryRequirementLandscape: Record<DryTyreRequirementState, number>;
+    evidenceBasis: string[];
+  };
   // v2.1 §5.2 / §5.3: attributed, target-session-owned context artifacts.
   historical?: HistoricalContext;
   officialPreRace?: OfficialPreRaceContext;
@@ -380,6 +386,8 @@ export type AnalyticsSnapshot = {
     heldRecommendation: BattleCandidate | null;
     hysteresis: { minimumHoldSeconds: number; switchMargin: number; owner?: string; sessionScoped?: boolean; cursorKeyed?: boolean };
     modelVersion: string;
+    gapHistory?: { at: string; value: number }[];
+    gapTrend?: string;
   };
 };
 

@@ -179,12 +179,12 @@ def test_active_runner_population_is_a_contract_field() -> None:
     # §18: field distributions are over *active runners* at the cursor.
     # The contract must expose the population so consumers (and Phase C) can
     # exclude retired/DNS cars without re-deriving the predicate.
-    assert "activeRunnerCount" in snap
-    assert "startingTyreDistribution" in snap
-    assert "stopDistribution" in snap
-    assert "observedSequences" in snap
+    assert "raceRead" in snap
+    assert "activeRunnerCount" in snap["raceRead"]
+    assert "startingTyreDistribution" in snap["raceRead"]
+    assert "completedStopDistribution" in snap["raceRead"]
     # With 2 active drivers in the fixture:
-    assert snap["activeRunnerCount"] == 2
+    assert snap["raceRead"]["activeRunnerCount"] == 2
 
 
 def test_historical_and_official_blocks_present_even_when_absent() -> None:

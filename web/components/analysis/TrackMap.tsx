@@ -9,9 +9,10 @@ type TrackMapProps = {
   session: RaceState["session"];
   drivers: Driver[];
   positionMode: PositionMode;
+  focusDrivers?: string[];
 };
 
-export function TrackMap({ circuit, session, drivers, positionMode }: TrackMapProps) {
+export function TrackMap({ circuit, session, drivers, positionMode, focusDrivers }: TrackMapProps) {
   const geometry = useMemo(() => buildTrackGeometry(circuit.path, circuit.rotation ?? 0), [circuit.path, circuit.rotation]);
   const positioned = drivers.filter((driver) => positionMode === "precise_xy"
     ? driver.x != null && driver.y != null
@@ -27,7 +28,8 @@ export function TrackMap({ circuit, session, drivers, positionMode }: TrackMapPr
           <g className="car-markers">
             {positioned.map((driver) => {
               const point = positionMode === "precise_xy" ? geometry.project(driver.x ?? 0, driver.y ?? 0) : geometry.pointAt(driver.track_position ?? 0);
-              return <g className="car-marker" key={driver.number} transform={`translate(${point.x} ${point.y})`}>
+              const isFocused = !focusDrivers || focusDrivers.includes(driver.number);
+              return <g className={`car-marker ${isFocused ? "" : "dimmed"}`} key={driver.number} transform={`translate(${point.x} ${point.y})`}>
                 <circle r="12" fill={`#${driver.team_colour ?? "ffffff"}`} />
                 <text textAnchor="middle" dominantBaseline="central">{driver.position ?? driver.code ?? driver.number}</text>
               </g>;
