@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Panel } from "../components/shared/Panel";
 import { CompoundBadge } from "../components/shared/CompoundBadge";
-import type { AnalyticsSnapshot, RaceState } from "../domain/protocol";
+import type { AnalyticsSnapshot, DryTyreRequirementState, RaceState } from "../domain/protocol";
 
 type StrategyViewProps = {
   state: RaceState;
@@ -18,11 +18,11 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
   const activeCount = analytics?.activeRunnerCount ?? 0;
 
   // 3. Rule / Constraint Landscape
-  const dryRuleStates = { SATISFIED: 0, UNSATISFIED: 0, NOT_APPLICABLE: 0, UNKNOWN: 0 };
+  const dryRuleStates: Record<DryTyreRequirementState, number> = { SATISFIED: 0, UNSATISFIED: 0, NOT_APPLICABLE: 0, UNKNOWN: 0 };
   for (const d of drivers) {
     const st = analytics?.drivers[d.number]?.strategy?.dryTyreRequirement;
     if (st) {
-      dryRuleStates[st as keyof typeof dryRuleStates] = (dryRuleStates[st as keyof typeof dryRuleStates] || 0) + 1;
+      dryRuleStates[st] = (dryRuleStates[st] || 0) + 1;
     }
   }
 

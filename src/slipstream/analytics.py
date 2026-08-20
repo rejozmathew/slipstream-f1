@@ -280,6 +280,7 @@ def build_analytics_snapshot(
         "sequence": sequence,
         "asOf": as_of,
         "stage": stage,
+        **field_distributions,
         # v2.1 §11: strategy validity is a first-class state, not an implicit
         # property of the published window. Phase C computes it from the
         # track-control state at the cursor + the analytics stage.
@@ -645,12 +646,13 @@ def _driver_transition_outlook(
     # the race finish. A window whose end would overrun the race end is
     # rejected (UNKNOWN) rather than clamped silently — the hard-validity gate
     # is enforced by construction (0 hard violations published).
+    # Furthermore, normal pit stops do not occur in the last 3 laps.
     total_laps = state.session.total_laps
-    if total_laps and projected[1] > total_laps:
+    if total_laps and (projected[1] > total_laps or projected[0] > total_laps - 3):
         return (
             next_compound,
             unknown(
-                "projected window would overrun the race finish; "
+                "projected window would overrun or abut the race finish; "
                 "rejected by the hard-validity gate (v2.1 §12)"
             ),
             common,
@@ -942,8 +944,11 @@ def _race_strategy(
             projected = [round(median(starts)), round(median(ends))]
             # v2.1 §12 / Scenario 18: race-wide window must not overrun the
             # race finish — rejected by the hard-validity gate, not clamped.
-            if state.session.total_laps and projected[1] > state.session.total_laps:
-                projected = []
+            if state.session.total_laps:
+                if projected[0] > state.session.total_laps - 3:
+                    projected = []
+                elif projected[1] > state.session.total_laps:
+                    projected[1] = state.session.total_laps
         elif current_lap <= 1:
             projected = [lower_life, upper_life]
         else:
@@ -1558,7 +1563,7 @@ def _driver_disposition(
     driver: DriverState, state: RaceState, pit_window: dict[str, Any]
 ) -> str:
     """v2.1 §12: PIT_EXPECTED | TO_FINISH | UNKNOWN for a driver at the cursor."""
-    if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"}:
+    if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"} or str(state.session.track_status).upper() == "CHEQUERED":
         return "TO_FINISH" if driver.pit_count else "UNKNOWN"
     window_value = pit_window.get("value")
     if not isinstance(window_value, list) or len(window_value) != 2:
@@ -1599,20 +1604,25 @@ def _dry_tyre_state(
     """v2.1 §15: UNSATISFIED | SATISFIED | NOT_APPLICABLE | UNKNOWN per driver.
 
     A driver satisfies the dry-tyre obligation if their compound history at the
-    cursor shows a dry compound was used (current stint or a completed stint).
+    cursor shows at least two different dry compounds were used (current stint or a completed stint).
     """
     obligation = str(rules.dry_compound_obligation or "").upper()
     if obligation in {"NONE", "NOT_APPLICABLE", "N/A", ""}:
         return "NOT_APPLICABLE"
+    
+    compounds_used = set()
     if driver.compound and str(driver.compound).upper() in _DRY_COMPOUNDS:
-        return "SATISFIED"
+        compounds_used.add(str(driver.compound).upper())
+        
     for obs in evidence:
-        if (
-            obs.pit_out is True
-            and obs.new_compound
-            and str(obs.new_compound).upper() in _DRY_COMPOUNDS
-        ):
-            return "SATISFIED"
-    if not evidence:
+        if obs.compound and str(obs.compound).upper() in _DRY_COMPOUNDS:
+            compounds_used.add(str(obs.compound).upper())
+        if obs.pit_out is True and obs.new_compound and str(obs.new_compound).upper() in _DRY_COMPOUNDS:
+            compounds_used.add(str(obs.new_compound).upper())
+            
+    if len(compounds_used) >= 2:
+        return "SATISFIED"
+        
+    if not evidence and not driver.compound:
         return "UNKNOWN"
     return "UNSATISFIED"

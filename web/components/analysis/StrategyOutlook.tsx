@@ -9,6 +9,7 @@ type StrategyOutlookProps = {
   analytics?: AnalyticsSnapshot | null;
   driverNumber?: string | null;
   compact?: boolean;
+  action?: ReactNode;
 };
 
 const meanings: Record<string, string> = {
@@ -47,25 +48,27 @@ function StrategyMetric({ label, item, display = "text" }: { label: string; item
   </div>;
 }
 
-export function StrategyOutlook({ analytics, driverNumber, compact = false }: StrategyOutlookProps) {
+export function StrategyOutlook({ analytics, driverNumber, compact = false, action }: StrategyOutlookProps) {
   const selectedDriver = driverNumber ? analytics?.drivers[driverNumber] : null;
   const strategy = selectedDriver?.strategy ?? (!driverNumber ? analytics?.raceStrategy : null);
   const contextStatus = analytics?.context.status ?? "unavailable";
   const stage = analytics?.stage ?? "BASELINE_AVAILABLE";
   const scopeLabel = selectedDriver ? `CAR ${selectedDriver.driverNumber}` : strategy?.scope === "RACE" ? "RACE WIDE" : "NO EVIDENCE";
-  return <Panel eyebrow="STRATEGY" title="Strategy Outlook" className={`strategy-panel${compact ? " strategy-panel-compact" : ""}`} action={<span className={`panel-badge context-${contextStatus}`}>WEEKEND CONTEXT · {contextStatus.toUpperCase()}</span>}>
-    <div className="strategy-stage"><span>{stage.replaceAll("_", " ")}</span><strong>{scopeLabel}</strong></div>
-    {strategy?.changes?.map((change) => <div className="strategy-change" key={change}>{change}</div>)}
-    {!strategy && <div className="strategy-unavailable" role="status"><strong>—</strong><p>Strategy remains unavailable until normalized evidence supports this scope.</p></div>}
-    {strategy && <><div className="strategy-grid">
-      <StrategyMetric label="PRIMARY" item={strategy.primaryStrategy} display="transition" />
-      <StrategyMetric label="ALTERNATE" item={strategy.alternateStrategy} display="transition" />
-      <StrategyMetric label="PIT WINDOW" item={strategy.pitWindow} />
-      <StrategyMetric label="NEXT" item={strategy.likelyNextCompound} display="compound" />
-      <StrategyMetric label="DEGRADATION" item={strategy.degradation} />
-      <StrategyMetric label="PIT LOSS" item={strategy.pitLoss} />
-      {!compact && <StrategyMetric label="TYRE STRESS" item={strategy.tyreStress} />}
-      {!compact && selectedDriver && <StrategyMetric label="REJOIN" item={strategy.projectedRejoinPosition} />}
-    </div><p className="strategy-rules-note">{strategy.rulesNote}</p></>}
+  return <Panel eyebrow="STRATEGY" title="Strategy Outlook" className={`strategy-panel${compact ? " strategy-panel-compact" : ""}`} action={action ?? <span className={`panel-badge context-${contextStatus}`}>WEEKEND CONTEXT · {contextStatus.toUpperCase()}</span>}>
+    <div className="strategy-content">
+      <div className="strategy-stage"><span>{stage.replaceAll("_", " ")}</span><strong>{scopeLabel}</strong></div>
+      {strategy?.changes?.map((change) => <div className="strategy-change" key={change}>{change}</div>)}
+      {!strategy && <div className="strategy-unavailable" role="status"><strong>—</strong><p>Strategy remains unavailable until normalized evidence supports this scope.</p></div>}
+      {strategy && <><div className="strategy-grid">
+        <StrategyMetric label="PRIMARY" item={strategy.primaryStrategy} display="transition" />
+        <StrategyMetric label="ALTERNATE" item={strategy.alternateStrategy} display="transition" />
+        <StrategyMetric label="PIT WINDOW" item={strategy.pitWindow} />
+        <StrategyMetric label="NEXT" item={strategy.likelyNextCompound} display="compound" />
+        <StrategyMetric label="DEGRADATION" item={strategy.degradation} />
+        <StrategyMetric label="PIT LOSS" item={strategy.pitLoss} />
+        {!compact && <StrategyMetric label="TYRE STRESS" item={strategy.tyreStress} />}
+        {!compact && selectedDriver && <StrategyMetric label="REJOIN" item={strategy.projectedRejoinPosition} />}
+      </div><p className="strategy-rules-note">{strategy.rulesNote}</p></>}
+    </div>
   </Panel>;
 }

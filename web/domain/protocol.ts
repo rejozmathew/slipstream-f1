@@ -261,7 +261,7 @@ export type StrategyAnalytics = {
   disposition?: Disposition;
   windowState?: WindowState;
   strategyValidity?: StrategyValidity;
-  dryTyreRequirement?: DryTyreRequirement;
+  dryTyreRequirement?: DryTyreRequirementState;
 };
 
 export type DriverAnalytics = {
