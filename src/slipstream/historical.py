@@ -1,7 +1,7 @@
 """Automated Historical Context generation spike (v2.1 Phase F)."""
 
-from typing import Any
 from .context_types import HistoricalContext
+
 
 def generate_historical_context_spike(season: int, circuit_id: str, local_archive_path: str) -> HistoricalContext:
     """Bounded spike for generating HistoricalContext from a local archive.

@@ -1,8 +1,7 @@
 """Projection backtesting harness (v2.1 Phase G)."""
 
-import json
 from dataclasses import dataclass
-from typing import Any
+
 
 @dataclass
 class BacktestMetrics:

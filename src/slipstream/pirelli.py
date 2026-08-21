@@ -1,7 +1,7 @@
 """Automated Pirelli pre-race context acquisition spike (v2.1 Phase F)."""
 
-from typing import Any
 from .context_types import OfficialPreRaceContext
+
 
 def acquire_pirelli_context_spike(url: str, session_cutoff: str | None = None) -> OfficialPreRaceContext | None:
     """Bounded spike for acquiring Pirelli context from an official press article.
