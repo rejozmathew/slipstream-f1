@@ -98,3 +98,78 @@ def test_pace_scale_is_server_owned_and_deterministic() -> None:
     assert scale == _pace_scale(list(samples))
     # Floor on empty.
     assert _pace_scale([]) == 0.25
+
+
+def test_battle_held_pair_cleared_when_driver_retires(tmp_path) -> None:
+    """v2.1 §8.3 / §17: a held Battle pair is only valid while BOTH cars are
+    still battle-eligible. When one car retires, the stale held pair must be
+    cleared the moment it is requested again — it must not be published as if
+    the dead car were still racing."""
+    ctx = ContextAvailability("unavailable")
+    service = AnalyticsService()
+
+    # Cursor 1: both cars running -> a Battle pair is recommended and held.
+    running = _drivers()
+    state_run, resource = _pair(running)
+    first = service.snapshot(
+        resource, state_run, sequence=1,
+        as_of="2026-08-01T14:00:00+00:00", context=ctx,
+    )
+    assert first["battle"]["heldRecommendation"] is not None
+
+    # Cursor 2: driver 2 RETIRES. The held pair (driver 1 vs driver 2) is now
+    # stale — driver 2 is not battle-eligible, so the held recommendation must
+    # be cleared (None), not carried forward with a dead car.
+    retired = {
+        "1": DriverState(number="1", code="AAA", position=1, compound="MEDIUM",
+                         tyre_age=5, lap=11, status="RUNNING"),
+        "2": DriverState(number="2", code="BBB", position=2, compound="HARD",
+                         tyre_age=12, lap=11, status="RETIRED",
+                         interval_to_ahead="1.500"),
+    }
+    state_ret, resource_ret = _pair(retired)
+    second = service.snapshot(
+        resource_ret, state_ret, sequence=2,
+        as_of="2026-08-01T14:01:00+00:00", context=ctx,
+    )
+    assert second["battle"]["heldRecommendation"] is None
+    # And no candidate can be recommended against a retired car either.
+    assert second["battle"]["recommended"] is None
+
+
+def test_delayed_viewer_held_state_is_order_independent(tmp_path) -> None:
+    """v2.1 §7.2 / Scenario 19: a delayed viewer who reaches cursor C after a
+    later cursor must receive the SAME held state at C as a viewer who
+    advanced there monotonically. The held state is a pure function of source
+    history at C — never of the request order. This is the no-hindsight,
+    no-request-history guarantee."""
+    ctx = ContextAvailability("unavailable")
+    drivers = _drivers()
+
+    # Viewer A: monotonic forward 5 -> 10.
+    svc_a = AnalyticsService()
+    state_a, resource_a = _pair(drivers)
+    a_at_5 = svc_a.snapshot(
+        resource_a, state_a, sequence=5,
+        as_of="2026-08-01T14:05:00+00:00", context=ctx,
+    )
+
+    # Viewer B (delayed): jumps to 10 first, then seeks back to 5.
+    svc_b = AnalyticsService()
+    state_b, resource_b = _pair(drivers)
+    svc_b.snapshot(
+        resource_b, state_b, sequence=10,
+        as_of="2026-08-01T14:10:00+00:00", context=ctx,
+    )
+    b_at_5 = svc_b.snapshot(
+        resource_b, state_b, sequence=5,
+        as_of="2026-08-01T14:05:00+00:00", context=ctx,
+    )
+
+    # Both viewers, at the same cursor 5 with the same source, get the SAME
+    # held recommendation and the SAME `since` — no request-history leak.
+    a_held = a_at_5["battle"]["heldRecommendation"]
+    b_held = b_at_5["battle"]["heldRecommendation"]
+    assert a_held is not None and b_held is not None
+    assert a_held == b_held
+    assert a_held["since"] == b_held["since"]

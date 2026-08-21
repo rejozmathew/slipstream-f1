@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from collections import Counter
 from copy import deepcopy
 from dataclasses import asdict
@@ -95,15 +96,31 @@ def _hysteresis_advance(
 
 
 class AnalyticsService:
-    """Cache calculations by meaningful factual/context revisions."""
+    """Deterministic, cursor-safe analytics for a single session.
+
+    v2.1 §7.1 / §7.2 (merge blocker): the analytics snapshot is a pure
+    function of (resource, state, cursor, context), and the Battle
+    stabilization is a deterministic function of source history at the
+    requested cursor — never of request order. A delayed viewer at cursor
+    X-delay and a lead viewer at cursor X each receive their own
+    cursor-correct analytics; no request is ever treated as a "backward
+    seek" that would corrupt another viewer's held state (§7.2).
+    """
 
     def __init__(self) -> None:
+        # §7.1: the snapshot cache is keyed by a signature that MUST include
+        # the cursor (sequence) so analytics at cursor X cannot reuse evidence
+        # from cursor Y. See _signature().
         self._cache: dict[tuple[Any, ...], dict[str, Any]] = {}
-        # v2.1 §20 / invariant 11: Battle hysteresis is SERVER-owned, session-scoped
-        # and cursor-keyed (not viewer-owned mutable state). Two viewers at the same
-        # cursor get the identical held state; a backward seek resets it.
-        self._battle_held: dict[tuple[str, int], dict[str, Any] | None] = {}
-        self._battle_max_cursor: dict[str, int] = {}
+        # §7.2: Battle held-state memo. A per-session, cursor-keyed DETERMINISTIC
+        # cache of the held state — NOT mutable model state. Keyed by
+        # (session, cursor): the held state at a cursor depends only on the
+        # best prior cursor's held state + this cursor's candidate, both pure
+        # functions of source history. A backward/earlier cursor finds its own
+        # best prior cursor (bisect) and advances from there, so the result is
+        # identical whether it was requested first or after a later cursor.
+        self._battle_memo: dict[tuple[str, int], dict[str, Any] | None] = {}
+        self._battle_cursors: dict[str, list[int]] = {}
 
     def _apply_battle_hysteresis(
         self,
@@ -111,6 +128,7 @@ class AnalyticsService:
         session_key: str,
         cursor: int,
         as_of: str | None,
+        eligible: set[str] | None = None,
     ) -> None:
         battle = base.get("battle")
         if not isinstance(battle, dict):
@@ -119,39 +137,74 @@ class AnalyticsService:
         hold_ms = int(battle.get("hysteresis", {}).get("minimumHoldSeconds", 20) * 1000)
         switch_margin = float(battle.get("hysteresis", {}).get("switchMargin", 8))
         source_ms = _as_of_ms(as_of)
-        prior_max = self._battle_max_cursor.get(session_key, -1)
-        # Backward seek (or a session's first cursor) invalidates the held state —
-        # deterministic, reset-safe, never leaks a later cursor forward (Scenario 19).
-        backward = cursor < prior_max
-        if backward:
-            held: dict[str, Any] | None = None
-        else:
-            prior_cursors = [
-                c for (sk, c) in self._battle_held if sk == session_key and c < cursor
-            ]
-            held = (
-                self._battle_held[(session_key, max(prior_cursors))]
-                if prior_cursors
-                else None
+
+        # §7.2: forward-only, order-independent. Find the best cursor STRICTLY
+        # BELOW the requested one (bisect over the sorted per-session cursor
+        # list) and advance from its held state. A backward/earlier cursor
+        # therefore returns ITS OWN deterministic held state — identical
+        # whether requested first or after a later cursor — and a later cursor
+        # never leaks evidence backward (the base is always strictly earlier).
+        # No request is ever treated as a "backward seek" that resets state.
+        cursors = self._battle_cursors.get(session_key)
+        base_held: dict[str, Any] | None = None
+        if cursors:
+            idx = bisect_left(cursors, cursor)
+            if idx > 0:
+                base_cursor = cursors[idx - 1]
+                base_held = self._battle_memo.get((session_key, base_cursor))
+        # §8.3 / §17: the held pair is only valid while BOTH cars are still
+        # battle-eligible at this cursor. A retired / stopped / DSQ car in the
+        # held pair invalidates it — a dead pair must never hold the
+        # recommendation (and a live replacement pair is adopted immediately,
+        # bypassing the hold window, because the hold protects against
+        # flicker between two *live* pairs, not a dead pair).
+        held_valid = True
+        if base_held is not None and eligible is not None:
+            bc = base_held.get("candidate") or {}
+            held_valid = (
+                bc.get("aheadDriverNumber") in eligible
+                and bc.get("behindDriverNumber") in eligible
             )
         held = _hysteresis_advance(
-            held,
+            base_held,
             candidate,
             source_ms,
             hold_ms=hold_ms,
             switch_margin=switch_margin if source_ms >= 0 else 0.0,
-            drivers_exist=True,
+            drivers_exist=held_valid,
         )
-        self._battle_held[(session_key, cursor)] = held
-        self._battle_max_cursor[session_key] = max(prior_max, cursor)
+        # A held pair whose drivers are no longer eligible is cleared even if
+        # advance carried it forward (e.g. both cars retired, candidate now
+        # None — the stale pair must not be published).
+        if held is not None and eligible is not None:
+            hc = held.get("candidate") or {}
+            if (
+                hc.get("aheadDriverNumber") not in eligible
+                or hc.get("behindDriverNumber") not in eligible
+            ):
+                held = None
+        # Memoize the deterministic held state for this cursor. Store a DEEP
+        # COPY in the memo and publish a DEEP COPY into the response: the memo
+        # is read back on later snapshots and must not be aliased by (or alias)
+        # the published response, which is mutated below (hysteresis fields)
+        # and serialized out.
+        if held is not None:
+            self._battle_memo[(session_key, cursor)] = deepcopy(held)
+        if cursors is None:
+            cursors = self._battle_cursors[session_key] = []
+        if cursor not in cursors:
+            cursors.append(cursor)
+            cursors.sort()
+
         # Publish the stabilized action + held state for the (render-only) client.
-        battle["heldRecommendation"] = held
+        battle["heldRecommendation"] = deepcopy(held) if held is not None else None
         battle["stabilizedRecommended"] = (
             held["candidate"] if held is not None else None
         )
         battle["hysteresis"]["owner"] = "server"
         battle["hysteresis"]["sessionScoped"] = True
         battle["hysteresis"]["cursorKeyed"] = True
+        battle["hysteresis"]["orderIndependent"] = True
 
     def snapshot(
         self,
@@ -162,7 +215,7 @@ class AnalyticsService:
         as_of: str | None,
         context: ContextAvailability,
     ) -> dict[str, Any]:
-        signature = _signature(resource, state, context)
+        signature = _signature(resource, state, context, sequence=sequence)
         cached = self._cache.get(signature)
         if cached is None:
             cached = build_analytics_snapshot(
@@ -178,8 +231,18 @@ class AnalyticsService:
         response = deepcopy(cached)
         response["asOf"] = as_of
         response["sequence"] = sequence
+        # §8.3 / §17: the held Battle pair is only valid while both cars are
+        # still battle-eligible at this cursor. Compute the eligible set from
+        # the canonical state at this cursor (retired / stopped / DSQ / DNF
+        # cars are excluded) and pass it to the hysteresis advance so a stale
+        # pair is cleared the moment either car leaves the field.
+        eligible = {
+            number
+            for number, driver in state.drivers.items()
+            if is_battle_eligible(driver)
+        }
         self._apply_battle_hysteresis(
-            response, resource.descriptor.key, sequence, as_of
+            response, resource.descriptor.key, sequence, as_of, eligible=eligible
         )
         return response
 
@@ -1408,6 +1471,8 @@ def _signature(
     resource: ReplayResource,
     state: RaceState,
     context: ContextAvailability,
+    *,
+    sequence: int,
 ) -> tuple[Any, ...]:
     context_revision = (
         context.context.get("generated_at") if context.context else context.status
@@ -1430,6 +1495,12 @@ def _signature(
     )
     return (
         resource.descriptor.key,
+        # §7.1 (merge blocker): the cursor MUST be part of the cache key so
+        # analytics at cursor X can never reuse evidence fetched at cursor Y.
+        # build_analytics_snapshot() scopes evidence by event_limit=sequence,
+        # so the snapshot is a function of the cursor — the signature must be
+        # too, or a cached cursor-50 snapshot would be returned for cursor-60.
+        sequence,
         context_revision,
         state.session.lap,
         state.session.status,

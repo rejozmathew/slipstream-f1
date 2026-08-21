@@ -56,7 +56,9 @@ def _resource(
 
 def test_cache_signature_is_session_keyed(tmp_path) -> None:
     """Same factual content in two sessions must not collide in the analytics
-    cache — the session key is part of the signature."""
+    cache — the session key is part of the signature. §7.1 additionally
+    requires the cursor (sequence) to be part of the signature so analytics
+    at cursor X cannot reuse evidence fetched at cursor Y."""
     from slipstream.analytics import _signature
 
     drivers_a = {"1": DriverState(number="1", code="AAA", position=1, compound="MEDIUM", status="RUNNING"),
@@ -66,13 +68,17 @@ def test_cache_signature_is_session_keyed(tmp_path) -> None:
     ra, sa = _resource(tmp_path, key="300", name="Context GP A", drivers=drivers_a)
     rb, sb = _resource(tmp_path, key="301", name="Context GP B", drivers=drivers_b)
     ctx = ContextAvailability("unavailable")
-    sig_a = _signature(ra, sa, ctx)
-    sig_b = _signature(rb, sb, ctx)
+    sig_a = _signature(ra, sa, ctx, sequence=50)
+    sig_b = _signature(rb, sb, ctx, sequence=50)
     # Session key must be part of the signature — otherwise two sessions with
     # identical state would collide.
     assert "300" in sig_a
     assert "301" in sig_b
     assert sig_a != sig_b
+    # §7.1: the cursor must be part of the signature — otherwise a cached
+    # snapshot at cursor 50 would be returned for a request at cursor 60.
+    sig_a_60 = _signature(ra, sa, ctx, sequence=60)
+    assert sig_a != sig_a_60
 
 
 def test_hysteresis_is_session_scoped_no_cross_session_leakage(tmp_path) -> None:
