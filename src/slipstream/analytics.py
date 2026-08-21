@@ -14,6 +14,8 @@ from .context_types import absent_historical, absent_official_pre_race
 from .events import parse_timestamp
 from .evidence import LapObservation, PitEvent
 from .library import ReplayResource
+from .lifecycle import active_participants as _canonical_active_participants
+from .lifecycle import is_battle_eligible
 from .state import DriverState, RaceState
 from .strategy_rules import strategy_rule_profile
 from .weekend import ContextAvailability
@@ -450,6 +452,11 @@ def battle_recommendation(
     for index in range(1, len(ordered)):
         ahead = ordered[index - 1]
         behind = ordered[index]
+        # v2.1 §8.3 / §17: retired / DNS / DSQ / DNF / stopped drivers are
+        # never Battle candidates. Both cars in a pair must be eligible —
+        # a retired car is not "closing" on its predecessor, it is out.
+        if not (is_battle_eligible(ahead) and is_battle_eligible(behind)):
+            continue
         gap = _numeric_gap(behind.interval_to_ahead)
         if gap is None:
             continue
@@ -1465,10 +1472,6 @@ def _optional_int(value: Any) -> int | None:
 # All are deterministic, cursor-scoped, pure functions of (state, evidence).
 # ---------------------------------------------------------------------------
 
-_INACTIVE_DRIVER_STATUSES = frozenset(
-    {"RETIRED", "WITHDRAWN", "DNS", "DNF", "RETIREMENT", "NOT_STARTING", "SCRATCHED"}
-)
-
 _DRY_COMPOUNDS = frozenset({"SOFT", "MEDIUM", "HARD", "C", "D"})
 
 
@@ -1508,16 +1511,14 @@ def _projection_gate(state: RaceState, stage: str) -> dict[str, Any]:
 
 
 def _active_runner_numbers(state: RaceState) -> list[str]:
-    """v2.1 §18: active race participants at the cursor.
+    """v2.1 §8/§18: active race participants at the cursor.
 
-    Retired / DNS / withdrawn are excluded. The count is derived from state,
-    never hard-coded to grid size.
+    Delegates to the single canonical ``lifecycle.active_participants``
+    concept so the Strategy core, the evidence layer, and the UI all agree on
+    who is active. Retired / DNS / DSQ / DNF / withdrawn are excluded. The
+    count is derived from state, never hard-coded to grid size.
     """
-    return [
-        number
-        for number, driver in state.drivers.items()
-        if str(driver.status).upper() not in _INACTIVE_DRIVER_STATUSES
-    ]
+    return list(_canonical_active_participants(state))
 
 
 def _field_distributions(state: RaceState) -> dict[str, Any]:

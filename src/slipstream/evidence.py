@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .events import NormalizedEvent, parse_timestamp
+from .lifecycle import active_participants as _active_participants
 from .state import RaceState
 
 
@@ -263,8 +264,6 @@ class SessionEvidence:
 # v2.1 Phase B: active-runner filter (v2.1 §18)
 # ----------------------------------------------------------------------
 
-_RETIRED_STATUSES = frozenset({"RETIRED", "DNS", "DID_NOT_START", "WITHDRAWN", "EXCLUDED"})
-
 
 def active_runners(state: RaceState) -> tuple[str, ...]:
     """Return driver numbers of *active runners* at the current cursor.
@@ -273,9 +272,8 @@ def active_runners(state: RaceState) -> tuple[str, ...]:
     are over active runners only. Retired / DNS / excluded drivers are
     excluded. The predicate is derived from the driver's current status,
     never hard-coded to a fixed grid size.
+
+    Delegates to the canonical ``lifecycle.active_participants`` concept so
+    there is a single status vocabulary across the codebase (v2.1 §8).
     """
-    return tuple(
-        number
-        for number, driver in state.drivers.items()
-        if driver.status.upper() not in _RETIRED_STATUSES
-    )
+    return _active_participants(state)

@@ -1,5 +1,27 @@
 import type { Driver } from "./protocol";
 
+// v2.1 §8.3 / §17: a single terminal-status vocabulary shared with the
+// backend `lifecycle` module (src/slipstream/lifecycle.py). A driver in any
+// of these states is never a Battle candidate; STOPPED is active for the
+// field but not circulating, so it is also excluded from Battle.
+const BATTLE_INELIGIBLE_STATUSES = new Set([
+  "RETIRED",
+  "WITHDRAWN",
+  "DNS",
+  "DNF",
+  "DSQ",
+  "DISQUALIFIED",
+  "RETIREMENT",
+  "NOT_STARTING",
+  "SCRATCHED",
+  "STOPPED",
+]);
+
+export function isBattleEligible(driver: Driver): boolean {
+  const status = (driver.status ?? "").toUpperCase();
+  return !BATTLE_INELIGIBLE_STATUSES.has(status);
+}
+
 export function numericGap(value: string | null): number | null {
   if (!value) return null;
   const match = value.replace(",", ".").match(/-?\d+(?:\.\d+)?/);
@@ -20,7 +42,9 @@ export function gapBetween(left: Driver | null, right: Driver | null): number | 
 }
 
 export function recommendedBattle(drivers: Driver[]): [Driver, Driver] | null {
-  const ordered = [...drivers].filter((driver) => driver.position != null).sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+  const ordered = [...drivers]
+    .filter((driver) => driver.position != null && isBattleEligible(driver))
+    .sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
   let best: [Driver, Driver] | null = null;
   let bestGap = Number.POSITIVE_INFINITY;
   for (let index = 1; index < ordered.length; index += 1) {
