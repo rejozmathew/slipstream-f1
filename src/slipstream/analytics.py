@@ -665,7 +665,12 @@ def _driver_transition_outlook(
     evidence_by_driver: dict[str, tuple[LapObservation, ...]],
     state: RaceState,
 ) -> tuple[dict[str, Any], dict[str, Any], list[tuple[str, int]]]:
-    current_lap = driver.lap or state.session.lap
+    # v2.1 §4.2: the race clock (state.session.lap) is the authoritative
+    # progression for window timing / future-strategy existence. A lapped or
+    # retired driver's own driver.lap lags the race and must not substitute
+    # for race time. driver.lap is only the fallback if the race clock is
+    # absent (defensive; a race always has one in practice).
+    current_lap = state.session.lap or driver.lap
     current_age = driver.tyre_age
     if not driver.compound or current_lap is None or current_age is None:
         reason = "current compound, lap, and tyre age are required"
@@ -718,16 +723,18 @@ def _driver_transition_outlook(
         stint_start + upper_life - 1,  # clamped below (race-horizon, v2.1 §12)
     ]
     # v2.1 §12 / Scenario 18: no model may publish a normal future stop beyond
-    # the race finish. A window whose end would overrun the race end is
-    # rejected (UNKNOWN) rather than clamped silently — the hard-validity gate
-    # is enforced by construction (0 hard violations published).
-    # Furthermore, normal pit stops do not occur in the last 3 laps.
+    # the race finish. A window whose END would overrun the flag is rejected
+    # (UNKNOWN) rather than clamped silently — the hard-validity gate is
+    # enforced by construction (0 hard violations published).
+    # v2.1 §4.5: the arbitrary "normal stops do not occur in the last 3 laps"
+    # cutoff is removed — there is no universal law against a strategic stop
+    # near the flag. Only a window that overruns the race finish is rejected.
     total_laps = state.session.total_laps
-    if total_laps and (projected[1] > total_laps or projected[0] > total_laps - 3):
+    if total_laps and projected[1] > total_laps:
         return (
             next_compound,
             unknown(
-                "projected window would overrun or abut the race finish; "
+                "projected window would overrun the race finish; "
                 "rejected by the hard-validity gate (v2.1 §12)"
             ),
             common,
@@ -1030,13 +1037,12 @@ def _race_strategy(
             starts = sorted(item[0] for item in projected_windows)
             ends = sorted(item[1] for item in projected_windows)
             projected = [round(median(starts)), round(median(ends))]
-            # v2.1 §12 / Scenario 18: race-wide window must not overrun the
-            # race finish — rejected by the hard-validity gate, not clamped.
-            if state.session.total_laps:
-                if projected[0] > state.session.total_laps - 3:
-                    projected = []
-                elif projected[1] > state.session.total_laps:
-                    projected[1] = state.session.total_laps
+            # v2.1 §12 / Scenario 18: the race-wide window must not overrun the
+            # race finish — the end is clamped to the flag.
+            # v2.1 §4.5: the arbitrary "no normal stop in the last 3 laps"
+            # cutoff is removed; only overrunning the flag is corrected.
+            if state.session.total_laps and projected[1] > state.session.total_laps:
+                projected[1] = state.session.total_laps
         elif current_lap <= 1:
             projected = [lower_life, upper_life]
         else:
@@ -1658,7 +1664,9 @@ def _driver_disposition(
     window_value = pit_window.get("value")
     if not isinstance(window_value, list) or len(window_value) != 2:
         return "UNKNOWN"
-    current_lap = driver.lap or state.session.lap or 0
+    # v2.1 §4.2: race clock is authoritative for window-passed reasoning; a
+    # retired/lapped driver's own driver.lap lags and must not drive TO_FINISH.
+    current_lap = state.session.lap or driver.lap or 0
     total_laps = state.session.total_laps or 0
     window_start, window_end = int(window_value[0]), int(window_value[1])
     if window_end < current_lap:
@@ -1678,7 +1686,8 @@ def _window_state(
     window_value = pit_window.get("value")
     if not isinstance(window_value, list) or len(window_value) != 2:
         return "TO_FINISH" if driver.pit_count else "UNKNOWN"
-    current_lap = driver.lap or state.session.lap or 0
+    # v2.1 §4.2: race clock is authoritative for WINDOW_PASSED reasoning.
+    current_lap = state.session.lap or driver.lap or 0
     window_end = int(window_value[1])
     # v2.1 §12 / Scenario 6: a window that has passed at the cursor means the
     # driver is EXTENDING STINT, whether or not they have already pitted —
