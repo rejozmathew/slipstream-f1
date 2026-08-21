@@ -140,3 +140,20 @@ def terminal_state(driver: DriverState) -> str | None:
     if status in _TERMINAL_LABELS:
         return _TERMINAL_LABELS[status]
     return None
+
+
+def strategy_lifecycle(state: RaceState) -> str:
+    """Return the global strategy lifecycle state.
+    
+    Returns one of:
+      LIVE
+      RESETTING
+      RECALCULATING
+      FINAL
+      UNAVAILABLE
+    """
+    if state.session.track_status == "CHEQUERED" or str(state.session.status or "").upper() in ("FINISHED", "CANCELLED"):
+        return "FINAL"
+    if state.session.track_status in ("RED", "SAFETY CAR", "VSC"):
+        return "RESETTING"
+    return "LIVE"

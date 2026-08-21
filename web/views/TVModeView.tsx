@@ -37,28 +37,45 @@ function DriverTV({ driver, analytics }: { driver: Driver | null; analytics: Ana
   if (!driver) return <div className="unknown-block"><strong>DRIVER · NOT SELECTED</strong><p>Choose a Driver TV target in Settings → Preferences.</p></div>;
   return <div className="tv-driver-state">
     <header style={{ borderColor: `#${driver.team_colour ?? "77808f"}` }}><div><span>DRIVER</span><strong>#{driver.number}</strong></div><div><h2>{driver.name ?? driver.code ?? driver.number}</h2><p>{driver.team ?? "Team unavailable"}</p></div><b>P{driver.position ?? "—"}</b></header>
-    <div className="tv-driver-zones">
-      <section className="tv-driver-facts"><h3>DRIVER STATE</h3><div><span>AHEAD</span><strong>{model?.ahead?.code ?? "—"}</strong><small>{model?.ahead?.gapSeconds == null ? "—" : `${model.ahead.gapSeconds.toFixed(3)}s`}</small></div><div><span>BEHIND</span><strong>{model?.behind?.code ?? "—"}</strong><small>{model?.behind?.gapSeconds == null ? "—" : `${model.behind.gapSeconds.toFixed(3)}s`}</small></div><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>STRATEGY · DISPOSITION</span><strong>{model?.strategy.disposition ?? "—"}</strong><small>{model?.strategy.windowState ? `WINDOW ${model.strategy.windowState}` : "WINDOW —"}</small></div><div><span>LAST / BEST</span><strong>{driver.last_lap ?? "—"} · {driver.best_lap ?? "—"}</strong></div>{latestPit && <div><span>LATEST PIT · L{latestPit.lap}</span><strong><CompoundTransition from={latestPit.previousCompound} to={latestPit.newCompound} compact /></strong><small>STOP {latestPit.stopDuration == null ? "—" : `${latestPit.stopDuration.toFixed(1)}s`}</small></div>}</section>
+    <div className="tv-driver-zones" style={{ display: "grid", gridTemplateColumns: "28% 42% 30%", gap: "1rem" }}>
+      <section className="tv-driver-facts"><h3>DRIVER STATE</h3><div><span>AHEAD</span><strong>{model?.ahead?.code ?? "—"}</strong><small>{model?.ahead?.gapSeconds == null ? "—" : `${model.ahead.gapSeconds.toFixed(3)}s`}</small></div><div><span>BEHIND</span><strong>{model?.behind?.code ?? "—"}</strong><small>{model?.behind?.gapSeconds == null ? "—" : `${model.behind.gapSeconds.toFixed(3)}s`}</small></div><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / BEST</span><strong>{driver.last_lap ?? "—"} · {driver.best_lap ?? "—"}</strong></div>{latestPit && <div><span>LATEST PIT · L{latestPit.lap}</span><strong><CompoundTransition from={latestPit.previousCompound} to={latestPit.newCompound} compact /></strong><small>STOP {latestPit.stopDuration == null ? "—" : `${latestPit.stopDuration.toFixed(1)}s`}</small></div>}</section>
       <section className="tv-driver-pace"><h3>PACE TREND</h3><PaceDeltaChart samples={samples} compact serverScale={model?.pace.scale} /></section>
-      <StrategyOutlook analytics={analytics} driverNumber={driver.number} compact />
+      <section className="tv-driver-strategy">
+        <h3>STRATEGY</h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div><span>DISPOSITION</span><strong>{model?.strategy.disposition ?? "—"}</strong></div>
+          <div><span>WINDOW</span><strong>{model?.strategy.windowState ? `WINDOW ${model.strategy.windowState}` : "WINDOW —"}</strong></div>
+          <div><span>UNDERCUT</span><strong>{model?.strategy.undercutStrength.value ?? "—"}</strong></div>
+          <div><span>DEGRADATION</span><strong>{model?.strategy.degradation.value ?? "—"} s/lap</strong></div>
+        </div>
+      </section>
     </div>
   </div>;
 }
+
 function TVBattle({ drivers, analytics, mode }: { drivers: readonly [Driver | undefined, Driver | undefined] | null; analytics: AnalyticsSnapshot | null; mode: string }) {
   const left = drivers?.[0] ?? null;
   const right = drivers?.[1] ?? null;
   if (!left || !right) return <div className="unknown-block"><strong>BATTLE · NOT AVAILABLE</strong><p>No adjacent comparable pair is available.</p></div>;
   const gap = currentPairGap(analytics, left, right);
   const cards = [left, right];
-  return <div className="tv-battle"><header><span>{mode.toUpperCase()} BATTLE</span><strong>{left.code ?? left.number} · {gap == null ? "—" : `${gap.toFixed(3)}s`} · {right.code ?? right.number}</strong></header><div className="tv-battle-grid">{cards.map((driver) => {
-    const model = analytics?.drivers[driver.number];
-    const window = model?.strategy.pitWindow.value;
-    return <section key={driver.number} style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as React.CSSProperties}><header><b>P{driver.position ?? "—"}</b><strong>{driver.code ?? driver.number}</strong><span>#{driver.number}</span></header><p>{driver.name ?? "Driver"} · {driver.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{driver.last_lap ?? "—"} · {model?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div><div><span>STRATEGY WINDOW</span><strong>{window ? `L${window[0]}–${window[1]}` : "—"}</strong></div><div><span>UNDERCUT</span><strong>{model?.strategy.undercutStrength.value ?? "—"}</strong></div></section>;
-  })}<div className="tv-battle-trend"><span>CURRENT GAP</span><strong>{gap == null ? "—" : `${gap.toFixed(3)}s`}</strong><i /></div></div></div>;
+  return <div className="tv-battle">
+    <header><span>{mode.toUpperCase()} BATTLE</span><strong>{left.code ?? left.number} · {gap == null ? "—" : `${gap.toFixed(3)}s`} · {right.code ?? right.number}</strong></header>
+    <div className="tv-battle-grid" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "1rem", alignItems: "center" }}>
+      <section key={left.number} style={{ "--team": `#${left.team_colour ?? "77808f"}`, borderRight: "1px solid var(--line-subtle)", paddingRight: "1rem" } as React.CSSProperties}><header><b>P{left.position ?? "—"}</b><strong>{left.code ?? left.number}</strong><span>#{left.number}</span></header><p>{left.name ?? "Driver"} · {left.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={left.compound} compact /> {left.tyre_age == null ? "—" : `${left.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{left.last_lap ?? "—"} · {analytics?.drivers[left.number]?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div><div><span>STRATEGY WINDOW</span><strong>{analytics?.drivers[left.number]?.strategy.pitWindow.value ? `L${analytics.drivers[left.number].strategy.pitWindow.value[0]}–${analytics.drivers[left.number].strategy.pitWindow.value[1]}` : "—"}</strong></div></section>
+      
+      <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+         <span>CURRENT GAP</span><strong style={{ fontSize: "1.2rem" }}>{gap == null ? "—" : `${gap.toFixed(3)}s`}</strong>
+         <div style={{ height: "60px", width: "60px", border: "1px dashed #444", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6rem", color: "#666", margin: "0 auto" }}>MAP</div>
+      </div>
+      
+      <section key={right.number} style={{ "--team": `#${right.team_colour ?? "77808f"}`, borderLeft: "1px solid var(--line-subtle)", paddingLeft: "1rem" } as React.CSSProperties}><header><b>P{right.position ?? "—"}</b><strong>{right.code ?? right.number}</strong><span>#{right.number}</span></header><p>{right.name ?? "Driver"} · {right.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={right.compound} compact /> {right.tyre_age == null ? "—" : `${right.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{right.last_lap ?? "—"} · {analytics?.drivers[right.number]?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div><div><span>STRATEGY WINDOW</span><strong>{analytics?.drivers[right.number]?.strategy.pitWindow.value ? `L${analytics.drivers[right.number].strategy.pitWindow.value[0]}–${analytics.drivers[right.number].strategy.pitWindow.value[1]}` : "—"}</strong></div></section>
+    </div>
+  </div>;
 }
 
 function TVTrack({ state, drivers, analytics, positionMode, replayAvailable }: { state: RaceState; drivers: Driver[]; analytics: AnalyticsSnapshot | null; positionMode: PositionMode; replayAvailable: boolean }) {
-  return <div className="tv-track-composed"><div className="tv-track-map"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div><div className="tv-mini-tower"><TimingTower drivers={drivers.slice(0, 10)} variant="race" replayAvailable={replayAvailable} analytics={analytics} /></div></div>;
+  return <div className="tv-track-composed"><div className="tv-track-map"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div><div className="tv-mini-tower"><TimingTower drivers={drivers} variant="race" replayAvailable={replayAvailable} analytics={analytics} compact={true} /></div></div>;
 }
 export function TVModeView({ state, analytics, recommendedBattle, sessionLayout, sessionKind, replayAvailable, positionMode, preferences, onPreferencesChange, onExit }: {
   state: RaceState;

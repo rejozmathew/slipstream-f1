@@ -17,6 +17,7 @@ type TimingTowerProps = {
   replayAvailable: boolean;
   toolbar?: ReactNode;
   onSelectDriver?: (driverNumber: string) => void;
+  compact?: boolean;
 };
 
 function DriverIdentity({ driver }: { driver: Driver }) {
@@ -103,10 +104,10 @@ const raceModeHeaders = {
   strategy: ["P", "DRIVER", "INT", "TYRE", "AGE", "STINT", "PIT", "PLAN", "WINDOW"],
 };
 
-export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, toolbar, onSelectDriver }: TimingTowerProps) {
+export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, toolbar, onSelectDriver, compact = false }: TimingTowerProps) {
   const headersForView = variant === "race" ? raceModeHeaders[mode] : headers[variant];
   const rowClass = variant === "race" && mode !== "standard" ? `race-${mode}` : variant;
-  return <Panel eyebrow={variant === "race" ? "CLASSIFICATION" : variant === "qualifying" ? "SESSION CLASSIFICATION" : "RUN CLASSIFICATION"} title="Timing tower" action={<div className="panel-actions"><span className="panel-badge">{drivers.length} DRIVERS</span>{toolbar}</div>} className="timing-panel">
+  return <Panel eyebrow={variant === "race" ? "CLASSIFICATION" : variant === "qualifying" ? "SESSION CLASSIFICATION" : "RUN CLASSIFICATION"} title="Timing tower" action={<div className="panel-actions"><span className="panel-badge">{drivers.length} DRIVERS</span>{toolbar}</div>} className={`timing-panel${compact ? " timing-panel-compact" : ""}`}>
     {!replayAvailable && <div className="panel-empty">TIMING DATA - UNAVAILABLE</div>}
     {replayAvailable && drivers.length === 0 && <div className="panel-empty">TIMING DATA - UNKNOWN AT THIS SESSION TIME</div>}
     <div className={`timing-table timing-${rowClass}`} role="table">

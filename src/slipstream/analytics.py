@@ -28,7 +28,7 @@ from .weekend import ContextAvailability
 
 ANALYTICS_SCHEMA_VERSION = 1
 # v2.1 contract surface (Phase A). Bump on every model/contract change.
-ANALYTICS_MODEL_VERSION = "race-intelligence-v2.1"
+ANALYTICS_MODEL_VERSION = "race-intelligence-v2.2"
 
 
 def metric(
@@ -331,7 +331,7 @@ def build_analytics_snapshot(
     # v2.1 Phase C: race-level strategy validity + active-runner field
     # distributions (deterministic, cursor-scoped).
     strategy_validity = _strategy_validity(state, stage)
-    field_distributions = _field_distributions(state)
+    field_distributions = _field_distributions(state, evidence_by_driver)
     # v2.1 §15: per-driver dry-tyre requirement state, computed from each
     # driver's compound history at the cursor + the rule profile.
     dry_tyre_per_driver: dict[str, str] = {}
@@ -350,6 +350,15 @@ def build_analytics_snapshot(
         "sequence": sequence,
         "asOf": as_of,
         "stage": stage,
+        "raceRead": _race_read(
+            state, 
+            field_distributions["activeRunnerCount"],
+            field_distributions["stopDistribution"],
+            field_distributions["startingTyreDistribution"],
+            field_distributions["currentTyreDistribution"],
+            dry_tyre_per_driver,
+            driver_models
+        ),
         **field_distributions,
         # v2.1 §11: strategy validity is a first-class state, not an implicit
         # property of the published window. Phase C computes it from the
@@ -882,7 +891,7 @@ def _driver_strategy(
         # The UI shows this directly so a retired row reads as terminal, not active.
         "terminalState": terminal_state(driver),
         # v2.1 §12: disposition + windowState are first-class per-driver states.
-        "disposition": _driver_disposition(driver, state, pit_window),
+        "disposition": _driver_disposition(driver, state, pit_window, stop_count),
         "windowState": _window_state(driver, state, pit_window),
         # v2.1 §15: per-driver dry-tyre requirement state.
         "dryTyreRequirement": (
@@ -918,12 +927,14 @@ def _driver_strategy(
             else "Tyre legality is not inferred without event-specific allocation evidence"
         ),
     }
-    # v2.1 §4.3 / §4.4: a terminal driver (RETIRED / DNF / DNS / DSQ) has no
-    # future at the cursor. Suppress its *projective* strategy fields so the row
-    # reads as a factual terminal state — no future pit window, no likely next
-    # compound, no primary/alternate plan, and never classified TO_FINISH (the
-    # UI renders TO_FINISH as "TO FLAG"). Factual / retrospective fields above
-    # (compound, tyre age, pit events, degradation, tyre stress) are preserved.
+
+    if result["disposition"] == "TO_FINISH":
+        reason = "future strategy is suppressed for drivers expected to finish"
+        result["pitWindow"] = unknown(reason)
+        result["likelyNextCompound"] = unknown(reason)
+        result["primaryStrategy"] = unknown(reason)
+        result["alternateStrategy"] = unknown(reason)
+
     suppression = _terminal_suppression(driver, state)
     if suppression is not None:
         result.update(suppression)
@@ -1175,6 +1186,57 @@ def _race_strategy(
             if state.session.session_kind == "sprint"
             else "Race-wide legality remains UNKNOWN without event tyre-allocation evidence"
         ),
+    }
+def _race_read(
+    state: RaceState, 
+    active_runner_count: int, 
+    stop_distribution: dict[str, int],
+    starting_tyre_distribution: dict[str, int],
+    current_tyre_distribution: dict[str, int],
+    dry_tyre_per_driver: dict[str, str],
+    driver_models: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """v2.1 §11: Construct the structured RaceRead payload."""
+    dry_counts = Counter(dry_tyre_per_driver.values())
+    
+    # Pace trend distribution
+    pace_trends: Counter[str] = Counter()
+    comparable_count = 0
+    for d in driver_models.values():
+        if d.get("terminalState") is not None:
+            continue
+        stress = d.get("tyreStress", {}).get("value")
+        if stress:
+            comparable_count += 1
+            if stress == "HIGH":
+                pace_trends["highFade"] += 1
+            elif stress == "MEDIUM":
+                pace_trends["moderateFade"] += 1
+            elif stress == "LOW":
+                pace_trends["lowOrStable"] += 1
+            else:
+                pace_trends["unknown"] += 1
+                
+    return {
+        "raceLifecycle": str(state.session.status or "").upper(),
+        "activeRunnerCount": active_runner_count,
+        "completedStopDistribution": stop_distribution,
+        "startingTyreDistribution": starting_tyre_distribution,
+        "currentTyreDistribution": current_tyre_distribution,
+        "paceTrendDistribution": {
+            "comparableDrivers": comparable_count,
+            "highFade": pace_trends["highFade"],
+            "moderateFade": pace_trends["moderateFade"],
+            "lowOrStable": pace_trends["lowOrStable"],
+            "unknown": pace_trends["unknown"]
+        },
+        "dryRequirementLandscape": {
+            "satisfied": dry_counts["SATISFIED"],
+            "unsatisfied": dry_counts["UNSATISFIED"],
+            "notApplicable": dry_counts["NOT_APPLICABLE"],
+            "unknown": dry_counts["UNKNOWN"],
+            "denominator": active_runner_count
+        }
     }
 
 
@@ -1644,22 +1706,42 @@ def _active_runner_numbers(state: RaceState) -> list[str]:
     return list(_canonical_active_participants(state))
 
 
-def _field_distributions(state: RaceState) -> dict[str, Any]:
+def _field_distributions(
+    state: RaceState,
+    evidence_by_driver: dict[str, tuple[LapObservation, ...]]
+) -> dict[str, Any]:
     """v2.1 §18: field distributions over active runners at the cursor."""
     active = _active_runner_numbers(state)
     starting_tyres: Counter[str] = Counter()
+    current_tyres: Counter[str] = Counter()
+    
     for number in active:
+        # Current tyre from state
         compound = state.drivers[number].compound
         if compound:
-            starting_tyres[str(compound).upper()] += 1
+            current_tyres[str(compound).upper()] += 1
+            
+        # Starting tyre from the first stint in evidence, fallback to state
+        evidence = evidence_by_driver.get(number, ())
+        starting_compound = compound
+        for obs in evidence:
+            if obs.compound:
+                starting_compound = obs.compound
+                break
+                
+        if starting_compound:
+            starting_tyres[str(starting_compound).upper()] += 1
+
     stops: Counter[int] = Counter()
     for number in active:
         pit_count = state.drivers[number].pit_count
         if pit_count is not None:
             stops[int(pit_count)] += 1
+            
     return {
         "activeRunnerCount": len(active),
         "startingTyreDistribution": dict(sorted(starting_tyres.items())),
+        "currentTyreDistribution": dict(sorted(current_tyres.items())),
         "stopDistribution": {str(k): v for k, v in sorted(stops.items())},
         "observedSequences": [],
         "evidenceBasis": [
@@ -1684,23 +1766,42 @@ def _strategy_validity(state: RaceState, stage: str) -> str:
 
 
 def _driver_disposition(
-    driver: DriverState, state: RaceState, pit_window: dict[str, Any]
+    driver: DriverState, state: RaceState, pit_window: dict[str, Any], stop_count: dict[str, Any]
 ) -> str:
     """v2.1 §12: PIT_EXPECTED | TO_FINISH | UNKNOWN for a driver at the cursor."""
     if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"} or str(state.session.track_status).upper() == "CHEQUERED":
         return "TO_FINISH" if driver.pit_count else "UNKNOWN"
     window_value = pit_window.get("value")
-    if not isinstance(window_value, list) or len(window_value) != 2:
-        return "UNKNOWN"
-    # v2.1 §4.2: race clock is authoritative for window-passed reasoning; a
-    # retired/lapped driver's own driver.lap lags and must not drive TO_FINISH.
     current_lap = state.session.lap or driver.lap or 0
     total_laps = state.session.total_laps or 0
+    
+    if not isinstance(window_value, list) or len(window_value) != 2:
+        # If no valid future pit window exists, are they expected to finish?
+        if total_laps > 0 and current_lap > 0:
+            progress = current_lap / total_laps
+            expected_stops = stop_count.get("value")
+            # If they have completed all expected stops and we're late in the race
+            if expected_stops is not None and driver.pit_count is not None and driver.pit_count >= expected_stops:
+                return "TO_FINISH"
+            if progress >= 0.85 and (driver.tyre_age or 0) < (total_laps - current_lap) * 1.5:
+                return "TO_FINISH"
+        return "UNKNOWN"
+
     window_start, window_end = int(window_value[0]), int(window_value[1])
     if window_end < current_lap:
-        return "TO_FINISH"
+        # v2.1 §12: Do not infer TO_FINISH *merely* because a window passed.
+        # It's an extending stint, meaning they are STILL expected to pit.
+        return "PIT_EXPECTED"
     if total_laps and window_start > total_laps:
         return "UNKNOWN"
+        
+    expected_stops = stop_count.get("value")
+    if expected_stops is not None and driver.pit_count is not None and driver.pit_count >= expected_stops:
+        # If they've made their stops but a window was generated, it might be an anomaly unless they pit again.
+        # We err on TO_FINISH if the race is late.
+        if total_laps and (current_lap / total_laps) > 0.8:
+             return "TO_FINISH"
+
     return "PIT_EXPECTED"
 
 

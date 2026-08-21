@@ -741,6 +741,22 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     },
                 )
             )
+            driver_number = message.get("driver_number")
+            if driver_number is not None:
+                text = str(message["message"]).upper().strip()
+                new_status = None
+                if "RETIRED" in text:
+                    new_status = "RETIRED"
+                elif "STOPPED" in text:
+                    new_status = "STOPPED"
+                if new_status:
+                    events.append(
+                        _timing_event(
+                            message["date"],
+                            driver_number,
+                            status=new_status,
+                        )
+                    )
     weather_fields = (
         "air_temperature",
         "track_temperature",

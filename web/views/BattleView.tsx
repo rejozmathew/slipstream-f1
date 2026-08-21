@@ -47,9 +47,22 @@ export function BattleView({ state, stateHistory, analytics, recommendedPair }: 
   return <div className="battle-view">
     <header className="experience-heading"><div><span>RACE INTELLIGENCE</span><h1>Battle</h1><p>One deterministic recommendation shared by desktop and TV.</p></div><div className="battle-modes">{(["recommended", "leader", "pinned"] as const).map((item) => <button className={mode === item ? "active" : ""} key={item} onClick={() => setMode(item)}>{item.toUpperCase()}</button>)}</div></header>
     <div className="battle-selectors"><label><span>DRIVER A</span><select value={left?.number ?? pinned[0]} onChange={(event) => { setPinned([event.target.value, pinned[1]]); setMode("pinned"); }}>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "-"} · {driver.code ?? driver.number}</option>)}</select></label><div><span>OBSERVED GAP</span><strong>{gap == null ? "-" : `${gap.toFixed(3)}s`}</strong><small className={`trend trend-${trend.toLowerCase().split(" ")[0]}`}>{trend}</small></div><label><span>DRIVER B</span><select value={right?.number ?? pinned[1]} onChange={(event) => { setPinned([pinned[0], event.target.value]); setMode("pinned"); }}>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "-"} · {driver.code ?? driver.number}</option>)}</select></label></div>
-    <div className="battle-symmetric"><BattleDriverCard driver={left} side="left" /><div className="battle-axis"><i /><span>TRACK ORDER</span></div><BattleDriverCard driver={right} side="right" /></div>
+    
+    <div className="battle-symmetric">
+      <BattleDriverCard driver={left} side="left" />
+      <div className="battle-axis">
+        <div style={{ height: "120px", width: "120px", border: "1px dashed #444", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: "#666", textAlign: "center" }}>
+          TWO-DRIVER<br/>TRACK MAP
+        </div>
+      </div>
+      <BattleDriverCard driver={right} side="right" />
+    </div>
+    
     <div className="battle-lower">
-      <Panel eyebrow="OBSERVED" title="Gap history"><GapHistory samples={samples} /></Panel>
+      <Panel eyebrow="LAST 5 COMPLETED LAPS" title="Gap history">
+         <GapHistory samples={samples} />
+      </Panel>
+      
       {battleValid ? (
         <Panel eyebrow="BATTLE SCORE" title={battleCandidate ? `${battleCandidate.score.toFixed(1)} / 100` : "—"}>
           <div className="battle-score-factors">{battleCandidate?.factors.map((factor) => <div key={factor.name}><span>{factor.name.replaceAll("_", " ").toUpperCase()}</span><strong>{factor.weight >= 0 ? "+" : ""}{factor.weight.toFixed(1)}</strong></div>) ?? <div className="panel-empty">INSUFFICIENT COMPARABLE EVIDENCE</div>}</div>
@@ -59,10 +72,31 @@ export function BattleView({ state, stateHistory, analytics, recommendedPair }: 
           <div className="panel-empty">SELECTED DRIVERS ARE NOT ADJACENT ON TRACK — BATTLE RECOMMENDATION NOT APPLICABLE</div>
         </Panel>
       )}
+      
       <Panel eyebrow="SHARED STRATEGY" title="Interaction">
-        <div className="battle-strategy-compare">
-          <div><span>{left?.code ?? "DRIVER A"}</span><strong>{leftStrategy?.pitWindow.value ? `L${leftStrategy.pitWindow.value[0]}–${leftStrategy.pitWindow.value[1]}` : "—"}</strong><small>{leftStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div>
-          <div><span>{right?.code ?? "DRIVER B"}</span><strong>{rightStrategy?.pitWindow.value ? `L${rightStrategy.pitWindow.value[0]}–${rightStrategy.pitWindow.value[1]}` : "—"}</strong><small>{rightStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div>
+        <div className="battle-strategy-compare" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+          {leftStrategy && rightStrategy && left && right ? (
+             <div style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                  <span style={{ color: "var(--text-muted)", width: "120px" }}>TYRE OFFSET</span>
+                  <strong style={{ flex: 1, textAlign: "center" }}>{(left.tyre_age ?? 0) - (right.tyre_age ?? 0)} laps</strong>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                  <span style={{ color: "var(--text-muted)", width: "120px" }}>PACE DIFFERENCE</span>
+                  <strong style={{ flex: 1, textAlign: "center" }}>{((leftStrategy.degradation?.value ?? 0) - (rightStrategy.degradation?.value ?? 0)).toFixed(3)} s/lap</strong>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                  <span style={{ color: "var(--text-muted)", width: "120px" }}>RULE STATE</span>
+                  <strong style={{ flex: 1, textAlign: "center" }}>{leftStrategy.dryTyreRequirement} vs {rightStrategy.dryTyreRequirement}</strong>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                  <span style={{ color: "var(--text-muted)", width: "120px" }}>DISPOSITION</span>
+                  <strong style={{ flex: 1, textAlign: "center" }}>{leftStrategy.disposition} vs {rightStrategy.disposition}</strong>
+                </div>
+             </div>
+          ) : (
+             <div className="panel-empty" style={{ gridColumn: "1 / -1" }}>NO MATERIAL STRATEGIC DIFFERENCE</div>
+          )}
         </div>
       </Panel>
     </div>

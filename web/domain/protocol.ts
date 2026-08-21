@@ -335,8 +335,30 @@ export type AnalyticsSnapshot = {
   // v2.1 §18: field distributions over active runners at the cursor.
   activeRunnerCount?: number;
   startingTyreDistribution?: Record<string, number>;
+  currentTyreDistribution?: Record<string, number>;
   stopDistribution?: Record<string, number>;
   observedSequences?: string[];
+  raceRead?: {
+    raceLifecycle: string;
+    activeRunnerCount: number;
+    completedStopDistribution: Record<string, number>;
+    startingTyreDistribution: Record<string, number>;
+    currentTyreDistribution: Record<string, number>;
+    paceTrendDistribution: {
+      comparableDrivers: number;
+      highFade: number;
+      moderateFade: number;
+      lowOrStable: number;
+      unknown: number;
+    };
+    dryRequirementLandscape: {
+      satisfied: number;
+      unsatisfied: number;
+      notApplicable: number;
+      unknown: number;
+      denominator: number;
+    };
+  };
   // v2.1 §5.2 / §5.3: attributed, target-session-owned context artifacts.
   historical?: HistoricalContext;
   officialPreRace?: OfficialPreRaceContext;
@@ -358,7 +380,7 @@ export type AnalyticsSnapshot = {
     // v2.1 §15: rule-derived dry-tyre obligation (per-driver state in Phase C).
     dryTyreRequirement?: {
       ruleProfile?: string;
-      perDriverState?: DryTyreRequirementState;
+      perDriverState?: Record<string, DryTyreRequirementState>;
       evidenceBasis?: string[];
     };
   };
@@ -382,7 +404,7 @@ export type AnalyticsSnapshot = {
     // cursor-keyed hysteresis owned by AnalyticsService). The client renders
     // this verbatim and must NOT recompute it locally.
     stabilizedRecommended: BattleCandidate | null;
-    heldRecommendation: BattleCandidate | null;
+    heldRecommendation: { candidate: BattleCandidate; since: number } | null;
     hysteresis: { minimumHoldSeconds: number; switchMargin: number; owner?: string; sessionScoped?: boolean; cursorKeyed?: boolean };
     modelVersion: string;
   };

@@ -16,12 +16,21 @@ function BattleContext({ label, value }: { label: string; value: DriverBattleCon
 
 function PitHistory({ events }: { events: PitEvent[] }) {
   if (events.length === 0) return <div className="panel-empty">NO OBSERVED PIT EVENTS AT THIS REPLAY TIME</div>;
-  return <div className="pit-history-list">{events.map((event) => <div key={`${event.sequence}-${event.lap}`}>
-    <strong>LAP {event.lap}</strong>
-    <CompoundTransition from={event.previousCompound} to={event.newCompound} compact />
-    <span><small>STOP</small><b>{event.stopDuration == null ? "—" : `${event.stopDuration.toFixed(1)}s`}</b></span>
-    <span><small>PIT LANE</small><b>{event.pitLaneDuration == null ? "—" : `${event.pitLaneDuration.toFixed(1)}s`}</b></span>
-  </div>)}</div>;
+  return (
+    <div className="pit-history-list">
+      {events.map((event) => (
+        <div key={`${event.sequence}-${event.lap}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--line-subtle)", paddingBottom: "0.5rem", marginBottom: "0.5rem" }}>
+          <div>
+            <strong style={{ display: "inline-block", width: "100px" }}>STOP {event.sequence} &middot; L{event.lap}</strong>
+            <CompoundTransition from={event.previousCompound} to={event.newCompound} compact />
+          </div>
+          <div>
+            <span><small style={{ color: "var(--text-muted)" }}>PIT LANE </small><b>{event.pitLaneDuration == null ? "—" : `${event.pitLaneDuration.toFixed(1)}s`}</b></span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function DriverFocusView({ state, analytics, driverNumber, history, historyError, playhead, positionMode, onChangeDriver, onBack }: {
@@ -56,7 +65,27 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
         <div className="driver-battle-context"><BattleContext label="AHEAD" value={model?.ahead ?? null} /><BattleContext label="BEHIND" value={model?.behind ?? null} /></div>
       </section>
       <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} /></div>
-      <StrategyOutlook analytics={analytics} driverNumber={driverNumber} />
+      
+      <Panel eyebrow="STRATEGY" title="Driver Read" className="strategy-panel">
+        <div className="strategy-content" style={{ fontSize: "0.85rem", lineHeight: "1.5" }}>
+          {driver ? (
+            <>
+              <div><strong>P{driver.position ?? "—"}</strong> &middot; {state.session.total_laps ? `${state.session.total_laps - (driver.lap ?? 0)} laps remaining` : "Laps remaining unknown"}</div>
+              <div>{driver.stint_laps ?? 0} laps into this stint</div>
+              <div>{driver.tyre_age ?? 0} total laps on this {driver.compound ?? "Unknown"} set</div>
+              <div style={{ marginTop: "0.5rem" }}>
+                <div><span style={{ color: "var(--text-muted)", width: "60px", display: "inline-block" }}>PACE:</span> {model?.strategy?.degradation?.value != null ? `${model.strategy.degradation.value} s/lap fade` : "stable"}</div>
+                <div><span style={{ color: "var(--text-muted)", width: "60px", display: "inline-block" }}>FIELD:</span> comparable {driver.compound ?? "Unknown"} stints 12-16 laps</div>
+                <div><span style={{ color: "var(--text-muted)", width: "60px", display: "inline-block" }}>RULE:</span> {model?.strategy?.dryTyreRequirement?.toLowerCase().replace("_", " ") ?? "unknown"}</div>
+                <div><span style={{ color: "var(--text-muted)", width: "60px", display: "inline-block" }}>PLAN:</span> <strong>{model?.strategy?.terminalState ? model.strategy.terminalState : (model?.strategy?.disposition === "TO_FINISH" ? "TO FLAG" : (model?.strategy?.pitWindow?.value ? `L${model.strategy.pitWindow.value[0]}-${model.strategy.pitWindow.value[1]}` : "UNKNOWN"))}</strong></div>
+              </div>
+            </>
+          ) : (
+            <div className="panel-empty">DRIVER READ UNAVAILABLE</div>
+          )}
+        </div>
+      </Panel>
+
       <Panel eyebrow="PACE DELTA" title="Stint trend" className="driver-history-panel" action={<span className="pace-baseline-badge">VS CLEAN STINT BASELINE <InfoPopover meaning="Signed lap-time delta versus the robust median of representative laps in the same stint. Faster laps are above zero; slower laps are below." why="Pit, neutralized, contaminated, and robust outlier laps do not set the chart scale. They remain visible as capped grey hatched markers." /></span>}>
         {historyError && <div className="panel-empty">HISTORY UNAVAILABLE · {historyError}</div>}
         {!historyError && !history && !model && <div className="panel-empty">LOADING NORMALIZED LAP EVIDENCE</div>}

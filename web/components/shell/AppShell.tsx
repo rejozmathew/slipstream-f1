@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { classifySession } from "../../domain/sessionLayout";
 import { useDriverHistory } from "../../hooks/useDriverHistory";
@@ -54,6 +54,13 @@ export function AppShell() {
     setView("settings");
   };
 
+  // Redirect if current view is invalid for the new session layout
+  useEffect(() => {
+    if (layout !== "race" && (view === "strategy" || view === "battle")) {
+      setView("session");
+    }
+  }, [layout, view]);
+
   if (view === "tv") return <div {...rootProps}><TVModeView state={session.state} analytics={session.analytics} recommendedBattle={recommendedBattle} sessionLayout={layout} sessionKind={classification.kind} replayAvailable={replayAvailable} positionMode={positionMode} preferences={preferences.tv} onPreferencesChange={preferences.setTV} onExit={() => setView("session")} /></div>;
 
   return <div {...rootProps}>
@@ -62,7 +69,7 @@ export function AppShell() {
       <nav aria-label="Product navigation">
         <button className={view === "session" ? "active" : ""} onClick={() => setView("session")}>SESSION</button>
         <button className={view === "driver" ? "active" : ""} onClick={() => setView("driver")}>DRIVER</button>
-        <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>BATTLE</button>
+        {layout === "race" && <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>BATTLE</button>}
         {layout === "race" && <button className={view === "strategy" ? "active" : ""} onClick={() => setView("strategy")}>STRATEGY</button>}
         <button className="tv-nav-item" onClick={() => setView("tv")}>TV MODE</button>
         <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>SETTINGS</button>

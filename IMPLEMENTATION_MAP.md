@@ -143,7 +143,7 @@ Per v2.1 §17 (terminology corrections) + §15 (dry-tyre rule) + §12 (dispositi
 - `context.officialPreRace`: `OfficialPreRaceContext` block (source, publishedAt, retrievedAt, sourceUrl, expectedStopCount, primarySequence, alternateSequence, statedPitWindows, caveats, providerVersion).
 - `netPitLoss`: explicit `null` marker + `dependency` note.
 - `projectionGate`: `{hardValidity:{violations:0,...}, plausibility, stability}` provenance block.
-- Bump `modelVersion` to a new value (e.g. `race-intelligence-v2.1`) — additive, not a schema break.
+- Bump `modelVersion` to a new value (e.g. `race-intelligence-v2.2`) — additive, not a schema break.
 
 **Semantically breaking (must NOT be hidden behind `schemaVersion: 1` without caller migration):**
 - Changing `pitWindow` value semantics from "likely stop" to "gated, horizon-bounded, may be `TO_FINISH`/`WINDOW_PASSED`". Consumers that assume a `[lo,hi]` number must handle null. **Mitigation:** keep `pitWindow.value: [lo,hi] | null` type (already `null`-able in protocol.ts) and add `windowState` so callers branch explicitly.

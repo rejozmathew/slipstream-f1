@@ -10,6 +10,6 @@ This folder contains the authoritative documentation for the server-side analyti
 
 ## Model Registry
 - [race-intelligence-v1](analytics/race-intelligence-v1.md): Initial strategy model (pre-v2.1).
-- (Pending documentation will include `race-intelligence-v2.1` detailing enhanced gating, net pit-loss, and external contexts).
+- [race-intelligence-v2.2](analytics/race-intelligence-v2.2.md): v2.2 with enhanced gating, strategy archetype, net pit-loss, and external contexts.
 
 See the [CHANGELOG](../CHANGELOG.md) for recent updates.
