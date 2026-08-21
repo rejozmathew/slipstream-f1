@@ -1798,6 +1798,8 @@ def _terminal_suppression(
     )
     return {
         "disposition": "UNKNOWN",
+        "windowState": "UNKNOWN",
+        "terminalState": term,
         "pitWindow": unknown(reason),
         "likelyNextCompound": unknown(reason),
         "primaryStrategy": unknown(reason),

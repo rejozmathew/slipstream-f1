@@ -826,8 +826,24 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
     events = sorted(events, key=lambda event: parse_timestamp(event.occurred_at))
     final_events = []
     driver_status: dict[str, str] = {}
+    driver_progress: dict[str, tuple[int, int]] = {}
+    stopped_at: dict[str, tuple[int, int]] = {}
+
     for event in events:
         final_events.append(event)
+        
+        if event.kind in ("timing", "lap", "pit"):
+            num = str(event.payload.get("number") or event.payload.get("driver_number") or "")
+            if num:
+                curr = driver_progress.get(num, (0, 0))
+                lap = event.payload.get("lap")
+                lap = int(lap) if lap is not None else curr[0]
+                sectors = sum(1 for k in ("sector_1", "sector_2", "sector_3") if event.payload.get(k) is not None)
+                if lap > curr[0]:
+                    driver_progress[num] = (lap, sectors)
+                else:
+                    driver_progress[num] = (lap, max(curr[1], sectors))
+
         if event.kind == "driver":
             number = str(event.payload.get("number"))
             if number:
@@ -838,14 +854,16 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 continue
             if "status" in event.payload:
                 driver_status[number] = str(event.payload["status"])
-            elif driver_status.get(number) == "STOPPED" and any(k in event.payload for k in ("lap", "sector_1", "sector_2", "sector_3")):
-                driver_status[number] = "RUNNING"
-                final_events.append(_timing_event(event.occurred_at, number, status="RUNNING"))
+            elif driver_status.get(number) == "STOPPED":
+                if driver_progress.get(number, (0, 0)) > stopped_at.get(number, (0, 0)):
+                    driver_status[number] = "RUNNING"
+                    final_events.append(_timing_event(event.occurred_at, number, status="RUNNING"))
         elif event.kind in ("lap", "pit"):
             number = str(event.payload.get("number") or event.payload.get("driver_number"))
             if number and driver_status.get(number) == "STOPPED":
-                driver_status[number] = "RUNNING"
-                final_events.append(_timing_event(event.occurred_at, number, status="RUNNING"))
+                if driver_progress.get(number, (0, 0)) > stopped_at.get(number, (0, 0)):
+                    driver_status[number] = "RUNNING"
+                    final_events.append(_timing_event(event.occurred_at, number, status="RUNNING"))
         elif event.kind == "race_control":
             number_val = event.payload.get("driver_number")
             if not number_val:
@@ -859,9 +877,10 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             elif "STOPPED" in message:
                 if driver_status.get(number) not in ("RETIRED", "STOPPED"):
                     driver_status[number] = "STOPPED"
+                    stopped_at[number] = driver_progress.get(number, (0, 0))
                     final_events.append(_timing_event(event.occurred_at, number, status="STOPPED"))
 
-    return sorted(final_events, key=lambda event: parse_timestamp(event.occurred_at))
+    return sorted(final_events, key=lambda e: parse_timestamp(e.occurred_at))
 
 
 def _first(

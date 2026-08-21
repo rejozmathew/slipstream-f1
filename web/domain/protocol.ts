@@ -25,6 +25,7 @@ export type Driver = {
   sector_3: number | null;
   availability: Record<string, AvailabilityStatus>;
   status: string;
+  display_status: string | null;
 };
 
 export type RaceState = {

@@ -40,28 +40,6 @@ def test_retired_excluded_from_battle():
     assert not is_active_participant(driver)
     assert not is_battle_eligible(driver)
 
-def test_retired_never_resumes():
-    recording = _fake_recording({
-        "drivers": [{"driver_number": 1, "name_acronym": "MAX"}],
-        "race_control": [
-            {"date": "2023-01-01T12:10:00Z", "driver_number": 1, "message": "RETIRED"}
-        ],
-        "laps": [
-            {"date_start": "2023-01-01T12:15:00Z", "driver_number": 1, "lap_number": 5, "lap_duration": 90.0}
-        ],
-        "session_result": [
-            {"date": "2023-01-01T14:00:00Z", "driver_number": 1, "status": "RETIRED"}
-        ]
-    })
-    events = recording_to_events(recording)
-    has_running = False
-    saw_retired = False
-    for e in events:
-        if e.kind == "driver" and e.payload.get("status") == "RETIRED":
-            saw_retired = True
-        if saw_retired and e.kind == "timing" and e.payload.get("status") == "RUNNING":
-            has_running = True
-    assert not has_running, "RETIRED should not resume even with lap event"
 
 def test_stopped_remains_stopped_after_noise():
     recording = _fake_recording({
@@ -69,17 +47,21 @@ def test_stopped_remains_stopped_after_noise():
         "race_control": [
             {"date": "2023-01-01T12:10:00Z", "driver_number": 1, "message": "STOPPED ON TRACK"}
         ],
-        "session_result": [
-            {"date": "2023-01-01T12:15:00Z", "driver_number": 1, "position": 2},
-            {"date": "2023-01-01T14:00:00Z", "driver_number": 1, "status": "STOPPED"}
+        "position": [
+            {"date": "2023-01-01T12:15:00Z", "driver_number": 1, "position": 2}
+        ],
+        "laps": [
+            {"date_start": "2023-01-01T12:05:00Z", "driver_number": 1, "lap_number": 5, "duration_sector_1": 25.1},
+            {"date_start": "2023-01-01T12:16:00Z", "driver_number": 1, "lap_number": 5, "duration_sector_1": 25.1},
+            {"date_start": "2023-01-01T12:17:00Z", "driver_number": 1, "lap_number": 5, "duration_sector_1": 25.1}
         ]
     })
     events = recording_to_events(recording)
     has_running = False
     for e in events:
-        if e.kind == "timing" and e.payload.get("status") == "RUNNING":
+        if e.kind == "timing" and e.payload.get("status") == "RUNNING" and e.occurred_at > "2023-01-01T12:10:00Z":
             has_running = True
-    assert not has_running, "STOPPED should not resume on pure position noise"
+    assert not has_running, "STOPPED should not resume on duplicate lap timing or position noise"
 
 def test_stopped_resumes_after_genuine_progress():
     recording = _fake_recording({
@@ -88,22 +70,19 @@ def test_stopped_resumes_after_genuine_progress():
             {"date": "2023-01-01T12:10:00Z", "driver_number": 1, "message": "STOPPED ON TRACK"}
         ],
         "laps": [
-            {"date_start": "2023-01-01T12:15:00Z", "driver_number": 1, "lap_number": 5, "lap_duration": 90.0}
-        ],
-        "position": [
-            {"date": "2023-01-01T14:00:00Z", "driver_number": 1, "status": "FINISHED"}
+            {"date_start": "2023-01-01T12:05:00Z", "driver_number": 1, "lap_number": 5},
+            {"date_start": "2023-01-01T12:15:00Z", "driver_number": 1, "lap_number": 6}
         ]
     })
     events = recording_to_events(recording)
     has_running = False
     for e in events:
-        if e.kind == "timing" and e.payload.get("status") == "RUNNING":
+        if e.kind == "timing" and e.payload.get("status") == "RUNNING" and e.occurred_at > "2023-01-01T12:10:00Z":
             has_running = True
     assert has_running, "STOPPED should resume on genuine progress (lap completed)"
 
-
 def test_retired_receives_no_future_strategy():
-    driver = _make_driver("RETIRED")
+    driver = DriverState(number="1", status="RETIRED", position=1, pit_count=1)
     state = RaceState(
         session=SessionState(key="1", name="Race", session_kind="race", status="STARTED"),
         circuit=CircuitState(key="1", name="Monza"),
@@ -115,7 +94,34 @@ def test_retired_receives_no_future_strategy():
     assert strategy["primaryStrategy"]["status"] == "UNKNOWN"
     assert strategy["alternateStrategy"]["status"] == "UNKNOWN"
     assert strategy["terminalState"] == "RETIRED"
+    assert strategy["windowState"] == "UNKNOWN"
+    assert strategy["disposition"] == "UNKNOWN"
 
+def test_cursor_retirement_leak():
+    # test_retired_never_resumes fixes the event.kind == "timing" check for RETIRED
+    recording = _fake_recording({
+        "drivers": [{"driver_number": 1, "name_acronym": "MAX"}],
+        "race_control": [
+            {"date": "2023-01-01T12:10:00Z", "driver_number": 1, "message": "RETIRED"}
+        ],
+        "timing_data": [
+            {"date": "2023-01-01T12:15:00Z", "driver_number": 1, "lap": 6}
+        ],
+        "session_result": [
+            {"date": "2023-01-01T14:00:00Z", "driver_number": 1, "status": "DNF"}
+        ]
+    })
+    events = recording_to_events(recording)
+    # Cursor immediately before retirement
+    before = [e for e in events if e.occurred_at < "2023-01-01T12:10:00Z"]
+    # Check that final DNF result did not leak to earlier events
+    assert not any(e.payload.get("status") in ("RETIRED", "DNF") for e in before)
+    # Cursor at/after retirement
+    after = [e for e in events if e.occurred_at >= "2023-01-01T12:10:00Z"]
+    # It emits RETIRED timing event
+    assert any(e.kind == "timing" and e.payload.get("status") == "RETIRED" for e in after)
+    # It does not resume RUNNING even with lap timing
+    assert not any(e.kind == "timing" and e.payload.get("status") == "RUNNING" for e in after)
 
 def test_chequered_race_no_future_strategy():
     driver = _make_driver("FINISHED")
@@ -127,10 +133,7 @@ def test_chequered_race_no_future_strategy():
     race_strat = _race_strategy({}, {}, None, {}, state, "LIVE_OUTLOOK")
     assert race_strat["pitWindow"]["status"] == "UNKNOWN"
 
-
 def test_chequered_driver_no_to_flag():
-    # If a race is FINISHED, window_state shouldn't return TO_FINISH.
-    # Wait, the prompt says "CHEQUERED driver table cannot show TO_FLAG", which comes from _driver_disposition / _window_state returning UNKNOWN.
     from slipstream.analytics import _window_state, _driver_disposition
     driver = _make_driver("FINISHED")
     state = RaceState(
@@ -141,7 +144,6 @@ def test_chequered_driver_no_to_flag():
     assert _window_state(driver, state, {}) == "UNKNOWN"
     assert _driver_disposition(driver, state, {}) == "UNKNOWN"
 
-
 def test_vocabularies_aligned():
     import json
     from pathlib import Path
@@ -149,7 +151,6 @@ def test_vocabularies_aligned():
     
     protocol_ts = Path("web/domain/protocol.ts").read_text()
     
-    # Asserting elements exist in the typescript file
     for val in STRATEGY_VALIDITY_STATES:
         assert f'"{val}"' in protocol_ts, f"{val} missing from protocol.ts validity"
     for val in WINDOW_STATES:

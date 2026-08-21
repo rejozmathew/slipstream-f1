@@ -56,9 +56,9 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
         <div className="driver-battle-context"><BattleContext label="AHEAD" value={model?.ahead ?? null} /><BattleContext label="BEHIND" value={model?.behind ?? null} /></div>
       </section>
       <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} /></div>
-      {model?.strategy?.terminalState ? (
-        <Panel eyebrow="STRATEGY OUTLOOK" title="Terminal state" className="strategy-outlook-panel">
-          <div className="panel-empty" style={{ fontSize: "1.5rem", fontWeight: "bold", color: "var(--zinc-400)" }}>{model.strategy.terminalState}</div>
+      {driver.display_status ? (
+        <Panel eyebrow="STRATEGY OUTLOOK" title={driver.display_status === "STOPPED" ? "Session status" : "Terminal state"} className="strategy-outlook-panel">
+          <div className="panel-empty" style={{ fontSize: "1.5rem", fontWeight: "bold", color: "var(--zinc-400)" }}>{driver.display_status}</div>
         </Panel>
       ) : (
         <StrategyOutlook analytics={analytics} driverNumber={driverNumber} />

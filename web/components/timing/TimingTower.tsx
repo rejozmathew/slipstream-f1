@@ -34,15 +34,13 @@ function RaceCore({ driver }: { driver: Driver }) {
   </>;
 }
 
-function getTerminalLabel(driver: Driver, analytics?: AnalyticsSnapshot | null): string | null {
-  const terminalState = analytics?.drivers[driver.number]?.strategy?.terminalState;
-  if (terminalState) return terminalState;
-  if (driver.status?.toUpperCase() === "STOPPED") return "STOPPED";
+function getTerminalLabel(driver: Driver): string | null {
+  if (driver.display_status) return driver.display_status;
   return null;
 }
 
-function RaceRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
-  const terminalLabel = getTerminalLabel(driver, analytics);
+function RaceRow({ driver, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+  const terminalLabel = getTerminalLabel(driver);
   if (terminalLabel) {
     return <button type="button" className="timing-row timing-race" role="row" onClick={() => onSelect?.(driver.number)}>
       <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
@@ -58,8 +56,8 @@ function RaceRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: 
   </button>;
 }
 
-function RaceTimingRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
-  const terminalLabel = getTerminalLabel(driver, analytics);
+function RaceTimingRow({ driver, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+  const terminalLabel = getTerminalLabel(driver);
   if (terminalLabel) {
     return <button type="button" className="timing-row timing-race-timing" role="row" onClick={() => onSelect?.(driver.number)}>
       <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
@@ -77,7 +75,7 @@ function RaceTimingRow({ driver, analytics, onSelect }: { driver: Driver; analyt
 }
 
 function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
-  const terminalLabel = getTerminalLabel(driver, analytics);
+  const terminalLabel = getTerminalLabel(driver);
   if (terminalLabel) {
     return <button type="button" className="timing-row timing-race-strategy" role="row" onClick={() => onSelect?.(driver.number)}>
       <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
