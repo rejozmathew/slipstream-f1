@@ -927,7 +927,7 @@ def _driver_strategy(
     suppression = _terminal_suppression(driver, state)
     if suppression is not None:
         result.update(suppression)
-    elif stage == "FINAL":
+    elif str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"} or str(state.session.track_status).upper() == "CHEQUERED":
         result.update({
             "pitWindow": unknown("race is FINAL; no future strategy"),
             "likelyNextCompound": unknown("race is FINAL; no future strategy"),
@@ -1183,7 +1183,7 @@ def _race_strategy(
             else "Race-wide legality remains UNKNOWN without event tyre-allocation evidence"
         ),
     }
-    if stage == "FINAL":
+    if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"} or str(state.session.track_status).upper() == "CHEQUERED":
         result.update({
             "pitWindow": unknown("race is FINAL; no future strategy"),
             "likelyNextCompound": unknown("race is FINAL; no future strategy"),

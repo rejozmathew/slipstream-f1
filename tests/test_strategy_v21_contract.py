@@ -147,12 +147,14 @@ def test_v21_enum_vocabulary_is_closed_and_stable() -> None:
         "WINDOW_PASSED_EXTENDING",
         "TO_FINISH",
         "RESETTING",
+        "UNKNOWN",
     )
     assert STRATEGY_VALIDITY_STATES == (
         "VALID",
         "RESETTING",
         "RECALCULATING",
         "UNAVAILABLE",
+        "FINAL",
     )
     assert DRY_TYRE_REQUIREMENT_STATES == (
         "UNSATISFIED",

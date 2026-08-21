@@ -6,7 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 3345 --strictPort",
+    "dev": "vite --host 127.0.0.1 --port 3344 --strictPort",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",

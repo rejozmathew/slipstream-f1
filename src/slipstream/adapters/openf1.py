@@ -838,7 +838,12 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 continue
             if "status" in event.payload:
                 driver_status[number] = str(event.payload["status"])
-            elif driver_status.get(number) == "STOPPED":
+            elif driver_status.get(number) == "STOPPED" and any(k in event.payload for k in ("lap", "sector_1", "sector_2", "sector_3")):
+                driver_status[number] = "RUNNING"
+                final_events.append(_timing_event(event.occurred_at, number, status="RUNNING"))
+        elif event.kind in ("lap", "pit"):
+            number = str(event.payload.get("number") or event.payload.get("driver_number"))
+            if number and driver_status.get(number) == "STOPPED":
                 driver_status[number] = "RUNNING"
                 final_events.append(_timing_event(event.occurred_at, number, status="RUNNING"))
         elif event.kind == "race_control":

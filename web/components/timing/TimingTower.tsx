@@ -37,9 +37,7 @@ function RaceCore({ driver }: { driver: Driver }) {
 function getTerminalLabel(driver: Driver, analytics?: AnalyticsSnapshot | null): string | null {
   const terminalState = analytics?.drivers[driver.number]?.strategy?.terminalState;
   if (terminalState) return terminalState;
-  if (driver.status === "STOPPED") return "STOPPED";
-  const status = driver.status?.toUpperCase() || "";
-  if (["RETIRED", "DNF", "DSQ", "DNS", "WITHDRAWN"].includes(status)) return status;
+  if (driver.status?.toUpperCase() === "STOPPED") return "STOPPED";
   return null;
 }
 

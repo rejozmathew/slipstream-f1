@@ -39,6 +39,7 @@ TERMINAL_DRIVER_STATUSES = frozenset(
         "SCRATCHED",
         "WITHDRAWN",
         "EXCLUDED",
+        "FINISHED",
         # Deliberately NOT here: STOPPED (can resume), RACING, RUNNING, LIVE,
         # STARTED, UNKNOWN (unknown is treated as active, never dropped).
     }
@@ -59,6 +60,7 @@ _TERMINAL_LABELS = {
     "SCRATCHED": "DNS",
     "WITHDRAWN": "WITHDRAWN",
     "EXCLUDED": "WITHDRAWN",
+    "FINISHED": "FINISHED",
     "STOPPED": "STOPPED",
 }
 
