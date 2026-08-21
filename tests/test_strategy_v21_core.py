@@ -117,3 +117,62 @@ def test_sprint_pit_lanes_excluded_from_race_pit_loss(tmp_path) -> None:
     observed = _pit_loss_metric(race_events, context, session_kind="race")
     assert observed["value"] == 21.5
     assert all("85" not in item and "219" not in item for item in observed["evidenceBasis"])
+
+
+def test_terminal_driver_gets_no_future_strategy(tmp_path) -> None:
+    """v2.1 §4.3 / §4.4 / handoff Scenario 14: a RETIRED driver late in the
+    race must read as a factual terminal row — no future pit window, no likely
+    next compound, no primary/alternate plan, and never classified TO_FINISH
+    (which the UI renders as "TO FLAG"). Factual fields (compound, tyre age)
+    are preserved.
+
+    The defect: a retired driver kept a stale ``driver.lap`` (e.g. 67 on a 70
+    lap race), which made ``_driver_disposition`` / ``_window_state`` classify
+    it TO_FINISH and the Strategy view show a future-looking row for a car that
+    has already stopped racing.
+    """
+    drivers = {
+        # Still racing, mid-race — keeps a normal (non-terminal) outlook.
+        "1": DriverState(number="1", code="AAA", position=1, compound="MEDIUM",
+                         tyre_age=4, lap=67, status="RUNNING", pit_count=1),
+        # Retired at the cursor — must be terminal, not future-looking.
+        "2": DriverState(number="2", code="BBB", position=5, compound="HARD",
+                         tyre_age=22, lap=67, status="RETIRED", pit_count=1),
+    }
+    state = RaceState(
+        session=SessionState(key="300", session_kind="race", layout_family="race",
+                             status="RACING", lap=67, total_laps=70, track_status="GREEN"),
+        drivers=drivers,
+    )
+    session_event = NormalizedEvent(
+        kind="session", occurred_at="2026-08-01T15:30:00+00:00", source="test",
+        payload={"key": "300", "session_kind": "race", "layout_family": "race", "status": "RACING"},
+    )
+    resource = ReplayResource(
+        descriptor(tmp_path), (session_event,), state,
+        SessionEvidence.from_events((session_event,)), True, False,
+    )
+    snap = build_analytics_snapshot(
+        resource, state, sequence=90, as_of="2026-08-01T15:30:00+00:00",
+        context=ContextAvailability("unavailable"),
+    )
+
+    retired = snap["drivers"]["2"]["strategy"]
+    # Factual terminal state is published explicitly (v2.1 §4.3 additive field).
+    assert retired["terminalState"] == "RETIRED"
+    # Never TO_FINISH (UI would render that as "TO FLAG" for a car that's gone).
+    assert retired["disposition"] != "TO_FINISH"
+    assert retired["disposition"] in ("UNKNOWN", "PIT_EXPECTED")
+    # No future-looking strategy for a terminal driver.
+    assert retired["pitWindow"]["value"] is None
+    assert retired["pitWindow"]["status"] == "UNKNOWN"
+    assert retired["likelyNextCompound"]["value"] is None
+    assert retired["primaryStrategy"]["value"] is None
+    assert retired["alternateStrategy"]["value"] is None
+    # ...but the factual / retrospective record is preserved (it is still on
+    # the compound it was running when it stopped).
+    assert retired["terminalState"] == "RETIRED"
+
+    # A still-racing driver is *not* terminal and is unaffected.
+    active = snap["drivers"]["1"]["strategy"]
+    assert active["terminalState"] is None

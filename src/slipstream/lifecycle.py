@@ -122,3 +122,21 @@ def is_battle_eligible(driver: DriverState) -> bool:
     # A stopped car is active for the field but not actively circulating, so it
     # cannot win/lose a Battle.
     return str(driver.status or "").upper() != "STOPPED"
+
+
+def terminal_state(driver: DriverState) -> str | None:
+    """Return the driver's *factual terminal state* at the cursor, or ``None``.
+
+    v2.1 §4.3: a per-driver terminal label the UI can show directly (Strategy
+    terminal row, Driver Focus, Timing). ``None`` means the driver is not
+    terminal at this cursor — it is still a circulating participant (including
+    ``STOPPED``, which is active and may resume, so it is *not* terminal).
+
+    The mapping is source-neutral: it routes through the same canonical status
+    set as :func:`is_active_participant`, so a RETIRED/DNF/DNS/DSQ driver is
+    terminal everywhere and a RUNNING/STOPPED driver is not.
+    """
+    status = str(driver.status or "").upper()
+    if status in _TERMINAL_LABELS:
+        return _TERMINAL_LABELS[status]
+    return None

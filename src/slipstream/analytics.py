@@ -15,8 +15,13 @@ from .context_types import absent_historical, absent_official_pre_race
 from .events import parse_timestamp
 from .evidence import LapObservation, PitEvent
 from .library import ReplayResource
-from .lifecycle import active_participants as _canonical_active_participants
-from .lifecycle import is_battle_eligible
+from .lifecycle import (
+    active_participants as _canonical_active_participants,
+)
+from .lifecycle import (
+    is_battle_eligible,
+    terminal_state,
+)
 from .state import DriverState, RaceState
 from .strategy_rules import strategy_rule_profile
 from .weekend import ContextAvailability
@@ -840,10 +845,13 @@ def _driver_strategy(
             changes.append("DEGRADATION ABOVE WEEKEND REFERENCE")
         elif in_session_value <= weekend_value - 0.05:
             changes.append("DEGRADATION BELOW WEEKEND REFERENCE")
-    return {
+    result: dict[str, Any] = {
         "scope": "DRIVER",
         "driverNumber": driver.number,
         "stage": stage,
+        # v2.1 §4.3: factual terminal state (RETIRED / DNF / DNS / DSQ) or None.
+        # The UI shows this directly so a retired row reads as terminal, not active.
+        "terminalState": terminal_state(driver),
         # v2.1 §12: disposition + windowState are first-class per-driver states.
         "disposition": _driver_disposition(driver, state, pit_window),
         "windowState": _window_state(driver, state, pit_window),
@@ -881,6 +889,16 @@ def _driver_strategy(
             else "Tyre legality is not inferred without event-specific allocation evidence"
         ),
     }
+    # v2.1 §4.3 / §4.4: a terminal driver (RETIRED / DNF / DNS / DSQ) has no
+    # future at the cursor. Suppress its *projective* strategy fields so the row
+    # reads as a factual terminal state — no future pit window, no likely next
+    # compound, no primary/alternate plan, and never classified TO_FINISH (the
+    # UI renders TO_FINISH as "TO FLAG"). Factual / retrospective fields above
+    # (compound, tyre age, pit events, degradation, tyre stress) are preserved.
+    suppression = _terminal_suppression(driver, state)
+    if suppression is not None:
+        result.update(suppression)
+    return result
 
 
 
@@ -1694,7 +1712,42 @@ def _dry_tyre_state(
             
     if len(compounds_used) >= 2:
         return "SATISFIED"
-        
+    
     if not evidence and not driver.compound:
         return "UNKNOWN"
     return "UNSATISFIED"
+
+
+def _terminal_suppression(
+    driver: DriverState, state: RaceState
+) -> dict[str, Any] | None:
+    """v2.1 §4.3: projective strategy overrides for a *terminal* driver.
+
+    A RETIRED / DNF / DNS / DSQ driver has no future at the cursor. The
+    strategy core must NOT publish a future pit window, a likely next compound,
+    or a primary / alternate plan for them — and must NOT classify them
+    ``TO_FINISH`` (which the UI renders as ``TO FLAG``).
+
+    Factual / retrospective fields (current compound, tyre age, pit events,
+    degradation, tyre stress) are *preserved* by the caller. This returns only
+    the *projective* overrides to ``UNKNOWN`` with provenance naming the
+    terminal state, so the driver table reads as a factual terminal row rather
+    than an impressive-looking outlook (v2.1 §4.3 / §4.4).
+
+    ``None`` means the driver is not terminal — no suppression.
+    """
+    term = terminal_state(driver)
+    if term is None:
+        return None
+    reason = (
+        f"driver is {term} at the cursor (v2.1 §4.3): no future strategy is "
+        "defensible, so projective fields are suppressed and the row reads as a "
+        "factual terminal state (UNKNOWN, not a future plan)"
+    )
+    return {
+        "disposition": "UNKNOWN",
+        "pitWindow": unknown(reason),
+        "likelyNextCompound": unknown(reason),
+        "primaryStrategy": unknown(reason),
+        "alternateStrategy": unknown(reason),
+    }
