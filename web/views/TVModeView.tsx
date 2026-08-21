@@ -7,7 +7,7 @@ import { TrackMap } from "../components/analysis/TrackMap";
 import { CompoundBadge, CompoundTransition } from "../components/shared/CompoundBadge";
 import { Panel } from "../components/shared/Panel";
 import { TimingTower } from "../components/timing/TimingTower";
-import { gapBetween } from "../domain/battle";
+import { currentPairGap } from "../domain/battle";
 import type { AnalyticsSnapshot, Driver, PositionMode, RaceState, SessionKind } from "../domain/protocol";
 import type { SessionLayout } from "../domain/sessionLayout";
 import { isCriticalTrackStatus, nextAuthoredState } from "../domain/tvMode.mjs";
@@ -48,7 +48,7 @@ function TVBattle({ drivers, analytics, mode }: { drivers: readonly [Driver | un
   const left = drivers?.[0] ?? null;
   const right = drivers?.[1] ?? null;
   if (!left || !right) return <div className="unknown-block"><strong>BATTLE · NOT AVAILABLE</strong><p>No adjacent comparable pair is available.</p></div>;
-  const gap = gapBetween(left, right);
+  const gap = currentPairGap(analytics, left, right);
   const cards = [left, right];
   return <div className="tv-battle"><header><span>{mode.toUpperCase()} BATTLE</span><strong>{left.code ?? left.number} · {gap == null ? "—" : `${gap.toFixed(3)}s`} · {right.code ?? right.number}</strong></header><div className="tv-battle-grid">{cards.map((driver) => {
     const model = analytics?.drivers[driver.number];

@@ -303,6 +303,11 @@ export type BattleCandidate = {
   behindDriverNumber: string;
   score: number;
   gapSeconds: number;
+  // v2.1 §15.2: one server-provided gap truth. gapBasis names the source
+  // (interval-to-ahead); comparisonState is the eligibility verdict so a
+  // non-comparable pair is explained rather than shown as an empty gap.
+  gapBasis?: string;
+  comparisonState?: "COMPARABLE" | "NOT_COMPARABLE";
   factors: Array<{ name: string; value: number | null; weight: number }>;
 };
 

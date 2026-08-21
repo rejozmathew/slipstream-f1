@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import { BattleDriverCard } from "../components/battle/BattleDriverCard";
 import { Panel } from "../components/shared/Panel";
-import { gapBetween } from "../domain/battle";
+import { currentPairGap, gapBetween } from "../domain/battle";
 import type { AnalyticsSnapshot, Driver, RaceState } from "../domain/protocol";
 
 type BattleMode = "recommended" | "leader" | "pinned";
@@ -28,7 +28,7 @@ export function BattleView({ state, stateHistory, analytics, recommendedPair }: 
   const pair = mode === "recommended" ? recommended?.[0] && recommended[1] ? [recommended[0], recommended[1]] as [Driver, Driver] : null : mode === "leader" ? leaderPair : pinnedPair[0] && pinnedPair[1] ? [pinnedPair[0], pinnedPair[1]] as [Driver, Driver] : null;
   const left = pair?.[0] ?? null;
   const right = pair?.[1] ?? null;
-  const gap = gapBetween(left, right);
+  const gap = currentPairGap(analytics, left, right);
   const samples: GapSample[] = !left || !right ? [] : stateHistory.flatMap((snapshot) => {
       const value = gapBetween(snapshot.drivers[left.number] ?? null, snapshot.drivers[right.number] ?? null);
       return snapshot.updated_at && value != null ? [{ at: snapshot.updated_at, value }] : [];

@@ -173,3 +173,67 @@ def test_delayed_viewer_held_state_is_order_independent(tmp_path) -> None:
     assert a_held is not None and b_held is not None
     assert a_held == b_held
     assert a_held["since"] == b_held["since"]
+
+
+# ---------------------------------------------------------------------------
+# v2.1 §15.1 / §15.2 / regression 32: Battle eligibility precedes scoring,
+# and the visible gap is ONE server-provided truth (interval-to-ahead), not a
+# client recompute from gap-to-leader.
+# ---------------------------------------------------------------------------
+
+def test_battle_candidate_publishes_server_gap_truth() -> None:
+    """A comparable adjacent pair publishes gapSeconds (the scored
+    interval-to-ahead) plus an explicit comparisonState, so the client
+    renders the server truth instead of recomputing from gap-to-leader."""
+    from slipstream.analytics import battle_recommendation
+
+    drivers = _drivers()
+    # Minimal per-driver models (pace + strategy) as battle_recommendation reads.
+    def _model():
+        return {
+            "pace": {"degradation": {"value": None, "status": "UNKNOWN"},
+                     "currentStintBaseline": 1.0},
+            "strategy": {"pitWindow": {"value": None}},
+        }
+    models = {number: _model() for number in drivers}
+    result = battle_recommendation(
+        list(drivers.values()), models, layout_family="race"
+    )
+    assert result["available"] is True
+    recommended = result["recommended"]
+    assert recommended is not None
+    # The visible gap is the server-scored interval-to-ahead (1.500), not a
+    # client-derived gap-to-leader delta.
+    assert recommended["gapSeconds"] == 1.5
+    assert recommended["gapBasis"] == "interval_to_ahead"
+    assert recommended["comparisonState"] == "COMPARABLE"
+
+
+def test_battle_lapped_pair_gets_no_false_gap() -> None:
+    """Regression 32: a lapped driver's interval-to-ahead carries 'LAP' and
+    is not a comparable car-to-car gap — the pair must NOT be scored as a
+    battle and must NOT carry a false current gap."""
+    from slipstream.analytics import battle_recommendation
+
+    drivers = {
+        "1": DriverState(number="1", code="AAA", position=1, compound="MEDIUM",
+                         tyre_age=5, lap=40, status="RUNNING"),
+        # Lapped: one lap down, so the feed reports the interval to the car
+        # ahead as "+1 LAP 2.1" (not a clean car-to-car gap).
+        "2": DriverState(number="2", code="BBB", position=2, compound="HARD",
+                         tyre_age=12, lap=39, status="RUNNING",
+                         interval_to_ahead="+1 LAP 2.1"),
+    }
+    def _model():
+        return {
+            "pace": {"degradation": {"value": None, "status": "UNKNOWN"},
+                     "currentStintBaseline": 1.0},
+            "strategy": {"pitWindow": {"value": None}},
+        }
+    models = {number: _model() for number in drivers}
+    result = battle_recommendation(
+        list(drivers.values()), models, layout_family="race"
+    )
+    # The lapped pair is non-comparable: no candidate, no false current gap.
+    assert result["candidates"] == []
+    assert result["recommended"] is None

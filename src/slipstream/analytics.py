@@ -616,7 +616,16 @@ def battle_recommendation(
                 "aheadDriverNumber": ahead.number,
                 "behindDriverNumber": behind.number,
                 "score": round(max(0.0, min(100.0, score)), 2),
+                # v2.1 §15.2: ONE server-provided gap truth. gapSeconds is the
+                # interval-to-ahead value the recommendation was scored on — the
+                # client renders THIS verbatim rather than recomputing from
+                # gap-to-leader (a different basis that yields "OBSERVED GAP —"
+                # for a live battle). gapBasis names the source; comparisonState
+                # is the explicit eligibility verdict so a non-comparable pair
+                # is explained, not shown as an empty gap.
                 "gapSeconds": gap,
+                "gapBasis": "interval_to_ahead",
+                "comparisonState": "COMPARABLE",
                 "factors": factors,
             }
         )
