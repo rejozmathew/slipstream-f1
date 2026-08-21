@@ -185,7 +185,7 @@ export type PaceSample = {
 // v2.1 contract vocabulary (single source of truth; mirror Python context_types.py).
 export type Disposition = "PIT_EXPECTED" | "TO_FINISH" | "UNKNOWN";
 export type WindowState = "ACTIVE" | "WINDOW_PASSED_EXTENDING" | "TO_FINISH" | "RESETTING";
-export type StrategyValidity = "VALID" | "RESETTING" | "RECALCULATING" | "UNAVAILABLE";
+export type StrategyValidity = "VALID" | "RESETTING" | "RECALCULATING" | "UNAVAILABLE" | "FINAL";
 export type DryTyreRequirementState = "UNSATISFIED" | "SATISFIED" | "NOT_APPLICABLE" | "UNKNOWN";
 export type HistoricalComparability = "NORMAL" | "LIMITED" | "INCOMPATIBLE";
 
@@ -262,6 +262,7 @@ export type StrategyAnalytics = {
   windowState?: WindowState;
   strategyValidity?: StrategyValidity;
   dryTyreRequirement?: DryTyreRequirementState;
+  terminalState?: string | null;
 };
 
 export type DriverAnalytics = {

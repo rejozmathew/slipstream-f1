@@ -137,6 +137,8 @@ def terminal_state(driver: DriverState) -> str | None:
     terminal everywhere and a RUNNING/STOPPED driver is not.
     """
     status = str(driver.status or "").upper()
+    if status == "STOPPED":
+        return None
     if status in _TERMINAL_LABELS:
         return _TERMINAL_LABELS[status]
     return None

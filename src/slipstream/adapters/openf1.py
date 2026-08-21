@@ -823,7 +823,40 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
     )
     from slipstream.events import parse_timestamp
 
-    return sorted(events, key=lambda event: parse_timestamp(event.occurred_at))
+    events = sorted(events, key=lambda event: parse_timestamp(event.occurred_at))
+    final_events = []
+    driver_status: dict[str, str] = {}
+    for event in events:
+        final_events.append(event)
+        if event.kind == "driver":
+            number = str(event.payload.get("number"))
+            if number:
+                driver_status[number] = str(event.payload.get("status", "RUNNING"))
+        elif event.kind == "timing":
+            number = str(event.payload.get("number"))
+            if not number:
+                continue
+            if "status" in event.payload:
+                driver_status[number] = str(event.payload["status"])
+            elif driver_status.get(number) == "STOPPED":
+                driver_status[number] = "RUNNING"
+                final_events.append(_timing_event(event.occurred_at, number, status="RUNNING"))
+        elif event.kind == "race_control":
+            number_val = event.payload.get("driver_number")
+            if not number_val:
+                continue
+            number = str(number_val)
+            message = str(event.payload.get("message", "")).upper()
+            if "RETIRED" in message:
+                if driver_status.get(number) != "RETIRED":
+                    driver_status[number] = "RETIRED"
+                    final_events.append(_timing_event(event.occurred_at, number, status="RETIRED"))
+            elif "STOPPED" in message:
+                if driver_status.get(number) not in ("RETIRED", "STOPPED"):
+                    driver_status[number] = "STOPPED"
+                    final_events.append(_timing_event(event.occurred_at, number, status="STOPPED"))
+
+    return sorted(final_events, key=lambda event: parse_timestamp(event.occurred_at))
 
 
 def _first(

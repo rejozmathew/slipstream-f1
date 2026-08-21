@@ -56,7 +56,7 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
         <div className="driver-battle-context"><BattleContext label="AHEAD" value={model?.ahead ?? null} /><BattleContext label="BEHIND" value={model?.behind ?? null} /></div>
       </section>
       <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} /></div>
-      <StrategyOutlook analytics={analytics} driverNumber={driverNumber} />
+      {!(model?.strategy?.terminalState || ["RETIRED", "DNF", "DSQ", "DNS", "WITHDRAWN"].includes(driver.status?.toUpperCase() || "")) && <StrategyOutlook analytics={analytics} driverNumber={driverNumber} />}
       <Panel eyebrow="PACE DELTA" title="Stint trend" className="driver-history-panel" action={<span className="pace-baseline-badge">VS CLEAN STINT BASELINE <InfoPopover meaning="Signed lap-time delta versus the robust median of representative laps in the same stint. Faster laps are above zero; slower laps are below." why="Pit, neutralized, contaminated, and robust outlier laps do not set the chart scale. They remain visible as capped grey hatched markers." /></span>}>
         {historyError && <div className="panel-empty">HISTORY UNAVAILABLE · {historyError}</div>}
         {!historyError && !history && !model && <div className="panel-empty">LOADING NORMALIZED LAP EVIDENCE</div>}

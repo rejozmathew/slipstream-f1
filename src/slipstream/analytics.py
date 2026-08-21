@@ -927,6 +927,13 @@ def _driver_strategy(
     suppression = _terminal_suppression(driver, state)
     if suppression is not None:
         result.update(suppression)
+    elif stage == "FINAL":
+        result.update({
+            "pitWindow": unknown("race is FINAL; no future strategy"),
+            "likelyNextCompound": unknown("race is FINAL; no future strategy"),
+            "primaryStrategy": unknown("race is FINAL; no future strategy"),
+            "alternateStrategy": unknown("race is FINAL; no future strategy"),
+        })
     return result
 
 
@@ -1145,7 +1152,7 @@ def _race_strategy(
             for change in model["strategy"].get("changes", [])
         }
     )
-    return {
+    result = {
         "scope": "RACE",
         "stage": stage,
         "changes": changes,
@@ -1176,6 +1183,14 @@ def _race_strategy(
             else "Race-wide legality remains UNKNOWN without event tyre-allocation evidence"
         ),
     }
+    if stage == "FINAL":
+        result.update({
+            "pitWindow": unknown("race is FINAL; no future strategy"),
+            "likelyNextCompound": unknown("race is FINAL; no future strategy"),
+            "primaryStrategy": unknown("race is FINAL; no future strategy"),
+            "alternateStrategy": unknown("race is FINAL; no future strategy"),
+        })
+    return result
 
 
 def _likely_stop_count(
@@ -1670,12 +1685,10 @@ def _field_distributions(state: RaceState) -> dict[str, Any]:
 
 
 def _strategy_validity(state: RaceState, stage: str) -> str:
-    """v2.1 §11: VALID | RESETTING | RECALCULATING | UNAVAILABLE.
-
-    A Safety Car / VSC / Red at or after the current cursor invalidates any
-    prior published window → RESETTING. Before any live evidence → UNAVAILABLE.
-    """
+    """v2.1 §11: VALID | RESETTING | RECALCULATING | UNAVAILABLE."""
     track_status = str(state.session.track_status or "").upper()
+    if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"} or track_status == "CHEQUERED":
+        return "FINAL"
     if track_status in {"SAFETY CAR", "VSC", "RED", "YELLOW"}:
         return "RESETTING"
     if not stage or stage == "BASELINE_AVAILABLE":
@@ -1688,7 +1701,7 @@ def _driver_disposition(
 ) -> str:
     """v2.1 §12: PIT_EXPECTED | TO_FINISH | UNKNOWN for a driver at the cursor."""
     if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"} or str(state.session.track_status).upper() == "CHEQUERED":
-        return "TO_FINISH" if driver.pit_count else "UNKNOWN"
+        return "UNKNOWN"
     window_value = pit_window.get("value")
     if not isinstance(window_value, list) or len(window_value) != 2:
         return "UNKNOWN"
@@ -1709,6 +1722,8 @@ def _window_state(
 ) -> str:
     """v2.1 §12: ACTIVE | WINDOW_PASSED_EXTENDING | TO_FINISH | RESETTING."""
     track_status = str(state.session.track_status or "").upper()
+    if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"} or track_status == "CHEQUERED":
+        return "UNKNOWN"
     if track_status in {"SAFETY CAR", "VSC", "RED", "YELLOW"}:
         return "RESETTING"
     window_value = pit_window.get("value")

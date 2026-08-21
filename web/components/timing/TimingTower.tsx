@@ -34,7 +34,23 @@ function RaceCore({ driver }: { driver: Driver }) {
   </>;
 }
 
-function RaceRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
+function getTerminalLabel(driver: Driver, analytics?: AnalyticsSnapshot | null): string | null {
+  const terminalState = analytics?.drivers[driver.number]?.strategy?.terminalState;
+  if (terminalState) return terminalState;
+  if (driver.status === "STOPPED") return "STOPPED";
+  const status = driver.status?.toUpperCase() || "";
+  if (["RETIRED", "DNF", "DSQ", "DNS", "WITHDRAWN"].includes(status)) return status;
+  return null;
+}
+
+function RaceRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+  const terminalLabel = getTerminalLabel(driver, analytics);
+  if (terminalLabel) {
+    return <button type="button" className="timing-row timing-race" role="row" onClick={() => onSelect?.(driver.number)}>
+      <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
+      <span className="terminal-status" style={{ gridColumn: "3 / -1", color: "var(--theme-error, #f05252)", fontWeight: "bold", display: "flex", alignItems: "center" }}>{terminalLabel}</span>
+    </button>;
+  }
   return <button type="button" className="timing-row timing-race" role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} />
     <DataValue compact value={driver.position === 1 ? "—" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} />
@@ -44,7 +60,14 @@ function RaceRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumbe
   </button>;
 }
 
-function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
+function RaceTimingRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+  const terminalLabel = getTerminalLabel(driver, analytics);
+  if (terminalLabel) {
+    return <button type="button" className="timing-row timing-race-timing" role="row" onClick={() => onSelect?.(driver.number)}>
+      <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
+      <span className="terminal-status" style={{ gridColumn: "3 / -1", color: "var(--theme-error, #f05252)", fontWeight: "bold", display: "flex", alignItems: "center" }}>{terminalLabel}</span>
+    </button>;
+  }
   return <button type="button" className="timing-row timing-race-timing" role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} />
     <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} />
@@ -56,6 +79,13 @@ function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (drive
 }
 
 function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+  const terminalLabel = getTerminalLabel(driver, analytics);
+  if (terminalLabel) {
+    return <button type="button" className="timing-row timing-race-strategy" role="row" onClick={() => onSelect?.(driver.number)}>
+      <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
+      <span className="terminal-status" style={{ gridColumn: "3 / -1", color: "var(--theme-error, #f05252)", fontWeight: "bold", display: "flex", alignItems: "center" }}>{terminalLabel}</span>
+    </button>;
+  }
   const strategy = analytics?.drivers[driver.number]?.strategy;
   const window = strategy?.pitWindow.value;
   return <button type="button" className="timing-row timing-race-strategy" role="row" onClick={() => onSelect?.(driver.number)}>
@@ -112,11 +142,11 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
     <div className={`timing-table timing-${rowClass}`} role="table">
       <div className={`timing-header timing-${rowClass}`} role="row">{headersForView.map((header) => <span key={header}>{header}</span>)}</div>
       {drivers.map((driver) => variant === "race" && mode === "timing"
-        ? <RaceTimingRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
+        ? <RaceTimingRow driver={driver} analytics={analytics} onSelect={onSelectDriver} key={driver.number} />
         : variant === "race" && mode === "strategy"
           ? <RaceStrategyRow driver={driver} analytics={analytics} onSelect={onSelectDriver} key={driver.number} />
           : variant === "race"
-            ? <RaceRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
+            ? <RaceRow driver={driver} analytics={analytics} onSelect={onSelectDriver} key={driver.number} />
             : variant === "qualifying"
               ? <QualifyingRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
               : <PracticeRow driver={driver} onSelect={onSelectDriver} key={driver.number} />)}

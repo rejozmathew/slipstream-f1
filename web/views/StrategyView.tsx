@@ -101,8 +101,12 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
                   const winValue = s?.pitWindow?.value;
                   const windowText = Array.isArray(winValue) ? `L${winValue[0]}-${winValue[1]}` : "—";
                   
+                  const terminalState = s?.terminalState;
+                  
                   let planText = "—";
-                  if (disposition === "TO_FINISH") planText = "TO FLAG";
+                  if (terminalState) planText = terminalState;
+                  else if (d.status === "STOPPED") planText = "STOPPED";
+                  else if (disposition === "TO_FINISH") planText = "TO FLAG";
                   else if (windowState === "WINDOW_PASSED_EXTENDING") planText = "EXTENDING STINT";
                   else if (windowText !== "—") planText = windowText;
 
