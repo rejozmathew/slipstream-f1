@@ -33,7 +33,10 @@ export function PaceDeltaChart({ samples, compact = false, serverScale }: { samp
       <div className="pace-samples">{samples.map((sample) => {
         const rawMagnitude = sample.delta == null ? 0 : Math.abs(sample.delta) / scale;
         const magnitude = sample.quality === "representative" ? Math.min(1, rawMagnitude) : Math.min(.82, rawMagnitude || .16);
-        const direction = sample.delta != null && sample.delta < 0 ? "faster" : "slower";
+        // v2.1 §18: four-way direction. A null delta is "unknown" (centered,
+        // hatched), NOT "slower" — the old ternary classified missing data as
+        // a slow lap. delta<0 faster, >0 slower, ==0 neutral.
+        const direction = sample.delta == null ? "unknown" : sample.delta < 0 ? "faster" : sample.delta > 0 ? "slower" : "neutral";
         const style = { "--pace-magnitude": `${Math.max(8, magnitude * 45)}%` } as CSSProperties;
         const explanation = `Lap ${sample.lap} · ${formatDelta(sample.delta)} · ${sample.compound ?? "compound unavailable"} · age ${sample.tyreAge ?? "—"} · ${sample.quality}${sample.contaminationReasons.length ? ` · ${sample.contaminationReasons.join(", ")}` : ""}`;
         return <div className={`pace-sample pace-${direction} quality-${sample.quality} compound-bar-${(sample.compound ?? "unknown").toLowerCase()}`} key={`${sample.lap}-${sample.stintNumber}`} aria-label={explanation} style={style}>

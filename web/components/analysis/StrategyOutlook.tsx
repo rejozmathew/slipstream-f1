@@ -18,9 +18,8 @@ const meanings: Record<string, string> = {
   "PIT WINDOW": "The future lap range projected from comparable stint life and the current stint start.",
   NEXT: "The next compound supported by comparable race-like transitions.",
   DEGRADATION: "Representative clean-lap pace change per lap.",
-  "PIT LOSS": "Comparable race-like pit-lane time observed in the current meeting.",
+  "PIT-LANE DURATION": "Comparable race-like pit-lane time observed in the current meeting (raw observed lane time, not net loss).",
   "TYRE STRESS": "A categorical reading of clean-lap degradation evidence.",
-  REJOIN: "Estimated classification position after applying observed pit loss to current factual gaps.",
 };
 
 function metricText(item: AnalyticsMetric | undefined) {
@@ -65,9 +64,8 @@ export function StrategyOutlook({ analytics, driverNumber, compact = false, acti
         <StrategyMetric label="PIT WINDOW" item={strategy.pitWindow} />
         <StrategyMetric label="NEXT" item={strategy.likelyNextCompound} display="compound" />
         <StrategyMetric label="DEGRADATION" item={strategy.degradation} />
-        <StrategyMetric label="PIT LOSS" item={strategy.pitLoss} />
+        <StrategyMetric label="PIT-LANE DURATION" item={strategy.pitLoss} />
         {!compact && <StrategyMetric label="TYRE STRESS" item={strategy.tyreStress} />}
-        {!compact && selectedDriver && <StrategyMetric label="REJOIN" item={strategy.projectedRejoinPosition} />}
       </div><p className="strategy-rules-note">{strategy.rulesNote}</p></>}
     </div>
   </Panel>;
