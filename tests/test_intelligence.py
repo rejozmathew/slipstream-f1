@@ -7,6 +7,8 @@ from slipstream.adapters.openf1 import OpenF1Client, recording_to_events
 from slipstream.analytics import (
     _driver_transition_outlook,
     _pit_loss_metric,
+    _race_strategy,
+    _transition_samples,
     build_analytics_snapshot,
     pace_model,
 )
@@ -389,3 +391,88 @@ def test_projected_pit_window_cannot_be_wholly_in_the_past() -> None:
     assert window["status"] == "ESTIMATE"
     assert window["value"][0] >= 60
     assert window["value"][1] >= 60
+
+
+def _same_compound_field() -> dict[str, tuple[LapObservation, ...]]:
+    """Three drivers each pit MEDIUM -> MEDIUM (worn rubber swapped for fresh)."""
+    def obs(number: str, lap: int, age: int) -> LapObservation:
+        return LapObservation(
+            lap=lap,
+            started_at=f"2026-08-01T15:{number}:00Z",
+            compound="MEDIUM",
+            tyre_age=age,
+            pit_in=True,
+            previous_compound="MEDIUM",
+            new_compound="MEDIUM",
+            quality="contaminated",
+        )
+
+    return {
+        "1": (obs("1", 20, 18),),
+        "2": (obs("2", 25, 22),),
+        "3": (obs("3", 30, 25),),
+    }
+
+
+def test_same_compound_stops_are_retained_not_discarded() -> None:
+    """v2.1 §4.6: a MEDIUM->MEDIUM swap is valid evidence, not dropped.
+
+    Swapping worn mediums for fresh ones is a real stop; the driver still owes
+    a future stop to run another compound. So the sample must be RETAINED (and
+    carry compoundChange=False), and it must not be deleted from the pool.
+    """
+    evidence = _same_compound_field()
+    samples = _transition_samples(evidence)
+
+    assert len(samples) == 3, "same-compound stops must not be discarded"
+    assert all(item["compoundChange"] is False for item in samples)
+    assert all(item["previousCompound"] == "MEDIUM" for item in samples)
+
+
+def test_same_compound_stops_do_not_fabricate_a_next_compound() -> None:
+    """v2.1 §4.6: MEDIUM->MEDIUM is not a 'next compound' signal.
+
+    A field of fresh-medium swaps gives no evidence about WHICH compound comes
+    next, so the next-compound call must stay UNKNOWN rather than echo MEDIUM.
+    The stops are still real (they count toward stint-life), they just do not
+    point at a future compound.
+    """
+    evidence = _same_compound_field()
+    driver = DriverState(number="1", compound="MEDIUM", tyre_age=15, lap=40)
+    state = RaceState(
+        session=SessionState(lap=40, total_laps=70, session_kind="race"),
+        drivers={"1": driver},
+    )
+
+    next_compound, _window, _common = _driver_transition_outlook(driver, evidence, state)
+    assert next_compound["status"] == "UNKNOWN", (
+        "same-compound stops must not fabricate a next compound"
+    )
+
+
+def test_same_compound_stops_do_not_become_a_primary_strategy() -> None:
+    """v2.1 §4.6: race-wide 'primary strategy' needs a genuine compound change.
+
+    A field of MEDIUM->MEDIUM swaps must not surface as the 'primary strategy'
+    pair (there is no next compound to run) — the race-wide call stays UNKNOWN.
+    """
+    evidence = _same_compound_field()
+    state = RaceState(
+        session=SessionState(lap=40, total_laps=70, session_kind="race"),
+        drivers={},
+    )
+
+    race = _race_strategy(
+        driver_models={},
+        evidence_by_driver=evidence,
+        context=None,
+        pit_loss={"value": None, "status": "UNKNOWN"},
+        state=state,
+        stage="IN_PROGRESS",
+    )
+
+    assert race["primaryStrategy"]["status"] == "UNKNOWN", (
+        "same-compound swaps must not become the primary strategy"
+    )
+    assert race["likelyNextCompound"]["status"] == "UNKNOWN"
+    assert race["alternateStrategy"]["status"] == "UNKNOWN"

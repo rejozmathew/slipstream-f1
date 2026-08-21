@@ -637,6 +637,13 @@ def battle_recommendation(
 def _transition_samples(
     evidence_by_driver: dict[str, tuple[LapObservation, ...]],
 ) -> list[dict[str, Any]]:
+    """All factual pit stops (PIT_EVENT_EVIDENCE / STINT_LIFE_EVIDENCE).
+
+    v2.1 §4.6: same-compound stops (e.g. MEDIUM → MEDIUM) are kept. They are
+    not a compound-choice signal, but they ARE stint-life evidence. Each sample
+    carries ``compoundChange`` so consumers can separate the two evidence
+    domains instead of globally deleting same-compound stops.
+    """
     samples: list[dict[str, Any]] = []
     for driver_number, observations in evidence_by_driver.items():
         for observation in observations:
@@ -644,7 +651,6 @@ def _transition_samples(
                 observation.pit_in is not True
                 or not observation.previous_compound
                 or not observation.new_compound
-                or observation.previous_compound == observation.new_compound
                 or observation.tyre_age is None
             ):
                 continue
@@ -655,6 +661,8 @@ def _transition_samples(
                     "newCompound": observation.new_compound,
                     "stintLife": observation.tyre_age,
                     "lap": observation.lap,
+                    "compoundChange": observation.previous_compound
+                    != observation.new_compound,
                 }
             )
     return samples
@@ -675,32 +683,37 @@ def _driver_transition_outlook(
     if not driver.compound or current_lap is None or current_age is None:
         reason = "current compound, lap, and tyre age are required"
         return unknown(reason), unknown(reason), []
+    # v2.1 §4.6: separate the evidence domains. COMPOUND_CHOICE_EVIDENCE is
+    # only transitions where the compound actually changed; STINT_LIFE_EVIDENCE
+    # is every comparable stop (same-compound stops are still real stint data).
     comparable = [
         item
         for item in _transition_samples(evidence_by_driver)
         if item["previousCompound"] == driver.compound
         and item["stintLife"] >= max(2, current_age - 2)
     ]
-    counts = Counter(str(item["newCompound"]) for item in comparable)
+    choice_evidence = [item for item in comparable if item["compoundChange"]]
+    counts = Counter(str(item["newCompound"]) for item in choice_evidence)
     common = counts.most_common()
     supported = bool(
-        len(comparable) >= 3
+        len(choice_evidence) >= 3
         and common
         and common[0][1] >= 2
-        and common[0][1] / len(comparable) >= 0.6
+        and common[0][1] / len(choice_evidence) >= 0.6
     )
     next_compound = (
         metric(
             common[0][0],
             status="ESTIMATE",
             evidence=[
-                f"field consensus from {common[0][1]} of {len(comparable)} current-Race transitions",
+                f"field consensus from {common[0][1]} of {len(choice_evidence)} genuine compound-change transitions",
                 "only transitions at comparable or later tyre life are included",
+                "same-compound stops are excluded here but retained as stint-life evidence (§4.6)",
             ],
-            quality="medium" if len(comparable) >= 5 else "low",
+            quality="medium" if len(choice_evidence) >= 5 else "low",
         )
         if supported
-        else unknown("no clear same-compound consensus at comparable tyre life")
+        else unknown("no clear next-compound consensus at comparable tyre life")
     )
     lives = sorted(
         int(item["stintLife"])
@@ -957,18 +970,24 @@ def _race_strategy(
         for item in _transition_samples(evidence_by_driver)
     ]
     samples = current_samples
+    # v2.1 §4.6: COMPOUND_CHOICE_EVIDENCE for the race-wide primary/alternate
+    # pair is only transitions where the compound actually changed. Same-compound
+    # stops (e.g. M→M) stay in `samples` for stint-life but never form a "primary
+    # strategy" pair — they don't point at a next compound.
+    choice_samples = [item for item in samples if item["compoundChange"]]
     pairs = Counter(
         (str(item["previousCompound"]), str(item["newCompound"]))
-        for item in samples
+        for item in choice_samples
     ).most_common()
     supported = bool(
-        len(samples) >= 3
+        len(choice_samples) >= 3
         and pairs
         and pairs[0][1] >= 2
-        and pairs[0][1] / len(samples) >= 0.5
+        and pairs[0][1] / len(choice_samples) >= 0.5
     )
     evidence_scope = [
-        f"{len(current_samples)} current-Race field transitions",
+        f"{len(current_samples)} current-Race field pit stops",
+        f"{len(choice_samples)} of them were genuine compound-change transitions (choice evidence)",
         "v2.1 §13: Sprint transitions excluded (not GP-comparable)",
         "Practice and Qualifying pit/garage activity is excluded",
     ]
