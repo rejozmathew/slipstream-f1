@@ -228,21 +228,10 @@ export type HistoricalContext = {
   reason?: string;
 };
 
-export type OfficialPreRaceContext = {
-  status: "PRESENT" | "ABSENT";
-  source?: string | null;
-  publishedAt?: string | null;
-  retrievedAt?: string | null;
-  sourceUrl?: string | null;
+export type OfficialPreRaceContext = PublishedStrategyBaseline & {
   expectedStopCount?: number | null;
   primarySequence?: string | null;
   alternateSequence?: string | null;
-  statedPitWindows?: unknown[];
-  caveats?: string[];
-  providerVersion?: string | null;
-  acquisition?: "MANUAL" | "AUTOMATED";
-  targetSessionKey?: string | null;
-  reason?: string;
 };
 
 export type ProjectionGate = {
@@ -376,6 +365,65 @@ export type RaceRead = {
   recentPitActivity: Array<{ driverNumber: string; lap: number; previousCompound: string | null; newCompound: string | null }>;
   summaryFacts: string[];
 };
+export type PublishedStrategyRank = "FASTEST_PUBLISHED" | "EQUIVALENT_FASTEST" | "ALTERNATIVE" | "CONDITIONAL" | "UNRANKED";
+export type PublishedStrategyOrder = "ORDERED" | "ANY_ORDER" | "PARTIALLY_ORDERED" | "UNKNOWN";
+export type PublishedPitWindow = { startLap: number; endLap: number };
+export type PublishedStrategyOption = {
+  id: string;
+  rank: PublishedStrategyRank;
+  order: PublishedStrategyOrder;
+  stopCount: number;
+  compounds: string[];
+  pitWindows: Array<PublishedPitWindow | null>;
+  publishedDeltaSeconds: number | null;
+  publishedDeltaSecondsRange: [number, number] | null;
+  conditions: string[];
+  caveats: string[];
+};
+export type PublishedTyreBankDriver = {
+  driverNumber: string;
+  driverCode: string | null;
+  hard: { new: number; used: number };
+  medium: { new: number; used: number };
+  soft: { new: number; used: number };
+};
+export type PublishedTyreBank = {
+  status: "PRESENT" | "ABSENT";
+  coverage: "COMPLETE" | "PARTIAL" | "UNKNOWN";
+  asOf: string | null;
+  drivers: Record<string, PublishedTyreBankDriver>;
+};
+export type PublishedStrategyBaseline = {
+  status: "PRESENT" | "ABSENT";
+  source: "PIRELLI" | null;
+  publishedAt: string | null;
+  retrievedAt: string | null;
+  sourceUrl: string | null;
+  evidenceCutoff: string;
+  options: PublishedStrategyOption[];
+  compoundSelection: { hard: string; medium: string; soft: string } | null;
+  tyreBank: PublishedTyreBank;
+  contextFacts: Array<{ category: string; statement: string }>;
+  reason: string | null;
+};
+export type PublishedWindowState = "BEFORE" | "ACTIVE" | "PASSED" | "COMPLETED" | "UNKNOWN";
+export type PublishedDriverRelation = "MATCHING_ONE" | "MATCHING_MULTIPLE" | "DIVERGED" | "NOT_COMPARABLE" | "TERMINAL" | "UNKNOWN";
+export type DriverPublishedStrategy = {
+  driverNumber: string;
+  observedCompounds: string[];
+  relation: PublishedDriverRelation;
+  compatibleOptionIds: string[];
+  windows: Array<{ optionId: string; stopIndex: number; startLap: number; endLap: number; state: PublishedWindowState }>;
+  facts: string[];
+};
+export type PublishedStrategyIntelligence = {
+  status: "PRESENT" | "ABSENT";
+  lifecycle: StrategyLifecycle;
+  baseline: PublishedStrategyBaseline;
+  fieldFacts: string[];
+  drivers: Record<string, DriverPublishedStrategy>;
+  modelVersion: string;
+};
 export type AnalyticsSnapshot = {
   v: 1;
   type: "analytics.snapshot";
@@ -387,6 +435,7 @@ export type AnalyticsSnapshot = {
   sequence: number;
   asOf: string | null;
   stage: AnalyticsStage;
+  publishedStrategy: PublishedStrategyIntelligence;
   // v2.1 §11: race-level strategy validity (SC/VSC/Red resets this).
   strategyValidity?: StrategyValidity;
   strategyLifecycle?: StrategyLifecycle;
@@ -526,3 +575,5 @@ export type ReplayCommand =
   | { type: "seek"; seq: number }
   | { type: "seek_relative"; seconds: number }
   | { type: "delay"; seconds: number };
+
+

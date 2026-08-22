@@ -10,10 +10,12 @@ from math import sqrt
 from statistics import median
 from typing import Any
 
-from .context_types import absent_historical, absent_official_pre_race
+from .context_types import absent_historical
 from .events import parse_timestamp
 from .evidence import LapObservation, PitEvent
 from .library import ReplayResource
+from .pirelli.store import PirelliAvailability
+from .published_strategy import build_published_strategy
 from .lifecycle import (
     active_participants as _canonical_active_participants,
 )
@@ -87,8 +89,9 @@ class AnalyticsService:
         sequence: int,
         as_of: str | None,
         context: ContextAvailability,
+        pirelli: PirelliAvailability | None = None,
     ) -> dict[str, Any]:
-        signature = _signature(resource, state, context, sequence=sequence)
+        signature = _signature(resource, state, context, pirelli, sequence=sequence)
         cached = self._cache.get(signature)
         if cached is None:
             cached = build_analytics_snapshot(
@@ -97,6 +100,7 @@ class AnalyticsService:
                 sequence=sequence,
                 as_of=as_of,
                 context=context,
+                pirelli=pirelli,
             )
             self._cache[signature] = cached
             if len(self._cache) > 128:
@@ -111,6 +115,7 @@ def build_analytics_snapshot(
     sequence: int,
     as_of: str | None,
     context: ContextAvailability,
+    pirelli: PirelliAvailability | None = None,
 ) -> dict[str, Any]:
     evidence_by_driver = {
         number: resource.evidence.laps_for_driver(number, event_limit=sequence)
@@ -242,6 +247,13 @@ def build_analytics_snapshot(
         strategy_lifecycle,
         distributions,
     )
+    published_strategy = build_published_strategy(
+        availability=pirelli,
+        evidence_cutoff=resource.descriptor.date_start,
+        state=state,
+        evidence_by_driver=evidence_by_driver,
+        lifecycle=strategy_lifecycle,
+    )
     return {
         "v": 1,
         "type": "analytics.snapshot",
@@ -309,6 +321,7 @@ def build_analytics_snapshot(
         "pitLoss": pit_loss,
         "raceStrategy": race_strategy,
         "raceRead": race_read_payload,
+        "publishedStrategy": published_strategy,
         "dryRequirementLandscape": race_read_payload["dryRequirementLandscape"],
         # v2.1 §18: field distributions are over *active runners* at the cursor
         # (retired/DNS excluded, never hard-coded).
@@ -317,7 +330,7 @@ def build_analytics_snapshot(
         # target-session-owned context artifacts. Contract is Phase A;
         # acquisition is Phase F (manual path guaranteed, automated is a spike).
         "historical": absent_historical(reason="no_compatible_context_ingested"),
-        "officialPreRace": absent_official_pre_race(reason="no_attributed_pre_race_source_ingested"),
+        "officialPreRace": published_strategy["baseline"],
         "backtest": {
             "status": "NOT_IMPLEMENTED",
             "metrics": None,
@@ -1540,11 +1553,17 @@ def _signature(
     resource: ReplayResource,
     state: RaceState,
     context: ContextAvailability,
+    pirelli: PirelliAvailability | None,
     *,
     sequence: int,
 ) -> tuple[Any, ...]:
     context_revision = (
         context.context.get("generated_at") if context.context else context.status
+    )
+    pirelli_revision = (
+        tuple(pirelli.snapshot.release_ids)
+        if pirelli is not None and pirelli.snapshot is not None
+        else (pirelli.status if pirelli is not None else "ABSENT")
     )
     drivers = tuple(
         sorted(
@@ -1571,6 +1590,7 @@ def _signature(
         # too, or a cached cursor-50 snapshot would be returned for cursor-60.
         sequence,
         context_revision,
+        pirelli_revision,
         state.session.lap,
         state.session.status,
         state.session.track_status,
@@ -1965,3 +1985,5 @@ def _terminal_suppression(
         "projectedRejoinPosition": unknown(reason),
         "freeStopMargin": unknown(reason),
     }
+
+

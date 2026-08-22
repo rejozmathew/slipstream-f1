@@ -21,6 +21,10 @@ from .analytics import AnalyticsService
 from .events import parse_timestamp
 from .library import ReplayLibrary, ReplayResource
 from .live import PublicLiveSession
+from .pirelli.coordinator import PirelliRuntimeCoordinator
+from .pirelli.contracts import SessionScope
+from .pirelli.ingest import PirelliIngestionService
+from .pirelli.store import PirelliAvailability, PirelliEvidenceStore
 from .playback import ReplayController
 from .serialization import state_envelope
 from .weekend import (
@@ -54,6 +58,14 @@ def create_app(
     analytics_service = AnalyticsService()
     download_lock = asyncio.Lock()
     downloads_enabled = recording_path.is_dir() and os.access(recording_path, os.W_OK)
+    pirelli_store = PirelliEvidenceStore(recording_path) if downloads_enabled else None
+    pirelli_refresh_enabled = os.getenv("SLIPSTREAM_PIRELLI_REFRESH", "1").strip().lower() not in {"0", "false", "no", "off"}
+    pirelli_coordinator = (
+        PirelliRuntimeCoordinator(PirelliIngestionService(pirelli_store.archive))
+        if pirelli_store is not None and pirelli_refresh_enabled
+        else None
+    )
+    pirelli_refresh_task: list[asyncio.Task[None] | None] = [None]
     context_coordinator = (
         WeekendContextCoordinator(
             WeekendContextStore(recording_path),
@@ -89,6 +101,25 @@ def create_app(
             )
             return context_coordinator.ensure(selected.descriptor, inventory)
         return context_coordinator.current(selected.descriptor)
+
+    def pirelli_context(selected: ReplayResource) -> PirelliAvailability:
+        if pirelli_store is None:
+            return PirelliAvailability("ABSENT", error="operational Pirelli storage is not writable")
+        scope = (
+            SessionScope.SPRINT
+            if selected.descriptor.session_kind == "sprint"
+            else SessionScope.RACE
+            if selected.descriptor.session_kind == "race"
+            else None
+        )
+        if scope is None:
+            return PirelliAvailability("ABSENT", error="Pirelli strategy applies only to Race or Sprint")
+        return pirelli_store.load(
+            meeting_key=selected.descriptor.meeting_key,
+            target_session_key=selected.descriptor.key,
+            evidence_cutoff=selected.descriptor.date_start,
+            session_scope=scope,
+        )
 
     def current_live_descriptor():
         if not live_enabled:
@@ -153,9 +184,24 @@ def create_app(
     async def start_live_source() -> None:
         await reconcile_live_source()
         live_monitor_task[0] = asyncio.create_task(monitor_live_source())
+        if pirelli_coordinator is not None:
+            pirelli_refresh_task[0] = asyncio.create_task(
+                pirelli_coordinator.run_forever(
+                    lambda: dict(library_ref[0].descriptors),
+                    lambda: library_ref[0].default_key,
+                    library_ref[0].get,
+                    clock,
+                )
+            )
 
     @app.on_event("shutdown")
     async def stop_live_source() -> None:
+        pirelli_task = pirelli_refresh_task[0]
+        pirelli_refresh_task[0] = None
+        if pirelli_task is not None:
+            pirelli_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await pirelli_task
         task = live_monitor_task[0]
         live_monitor_task[0] = None
         if task is not None:
@@ -384,6 +430,7 @@ def create_app(
             sequence=controller.cursor,
             as_of=controller.playhead,
             context=context,
+            pirelli=pirelli_context(selected),
         )
 
     @app.websocket("/api/v1/stream")
@@ -433,6 +480,7 @@ def create_app(
                 sequence=controller.cursor,
                 as_of=controller.playhead,
                 context=meeting_context(selected, prepare=False),
+                pirelli=pirelli_context(selected),
             )
         send_lock = asyncio.Lock()
         playback_task: asyncio.Task[None] | None = None

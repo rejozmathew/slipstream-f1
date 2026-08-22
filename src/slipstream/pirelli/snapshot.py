@@ -18,7 +18,9 @@ from .contracts import (
 @dataclass(frozen=True)
 class StrategyReleaseView:
     release_id: str
+    source_url: str
     published_at: datetime | None
+    retrieved_at: datetime
     strategies: tuple[StrategyOption, ...]
 
 
@@ -93,7 +95,13 @@ def aggregate_releases(
         )
         if scoped_strategies:
             strategy_releases.append(
-                StrategyReleaseView(release.release_id, release.published_at, scoped_strategies)
+                StrategyReleaseView(
+                    release.release_id,
+                    release.source_url,
+                    release.published_at,
+                    release.retrieved_at,
+                    scoped_strategies,
+                )
             )
         selections.extend(
             selection
@@ -137,3 +145,5 @@ def aggregate_releases(
         tyre_bank_snapshots=tuple(banks),
         context_facts=tuple(facts),
     )
+
+
