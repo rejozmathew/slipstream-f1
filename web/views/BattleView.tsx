@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { BattleDriverCard } from "../components/battle/BattleDriverCard";
 import { Panel } from "../components/shared/Panel";
 import { currentPairGap, gapBetween } from "../domain/battle";
+import { driverLifecycle } from "../domain/lifecycle";
 import type { AnalyticsSnapshot, Driver, RaceState } from "../domain/protocol";
 
 type BattleMode = "recommended" | "leader" | "pinned";
@@ -19,7 +20,7 @@ function GapHistory({ samples }: { samples: GapSample[] }) {
 }
 
 export function BattleView({ state, stateHistory, analytics, recommendedPair }: { state: RaceState; stateHistory: RaceState[]; analytics: AnalyticsSnapshot | null; recommendedPair: [string, string] | null }) {
-  const drivers = useMemo(() => Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
+  const drivers = useMemo(() => Object.values(state.drivers).filter((driver) => driverLifecycle(driver).battleEligible).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
   const [mode, setMode] = useState<BattleMode>("recommended");
   const [pinned, setPinned] = useState<[string, string]>(["", ""]);
   const recommended = recommendedPair ? [drivers.find((driver) => driver.number === recommendedPair[0]), drivers.find((driver) => driver.number === recommendedPair[1])] as const : null;

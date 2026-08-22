@@ -324,3 +324,44 @@ def test_unclosed_neutralization_keeps_unproven_laps_unknown() -> None:
     assert laps[1].quality == "contaminated"
     assert laps[2].quality == "unknown"
     assert "neutralization_end_unknown" in laps[2].contamination_reasons
+
+
+def test_openf1_lifecycle_requires_explicit_timestamped_driver_evidence() -> None:
+    raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
+    raw["endpoints"]["race_control"] = [
+        {
+            "category": "Other",
+            "date": "2025-01-01T12:00:15Z",
+            "driver_number": 4,
+            "message": "CAR 4 STOPPED ON TRACK",
+        },
+        {
+            "category": "Other",
+            "date": "2025-01-01T12:02:15Z",
+            "message": "CAR 4 RETIRED",
+        },
+        {
+            "category": "Other",
+            "date": "2025-01-01T12:03:15Z",
+            "message": "CAR 4 OUTSIDE TRACK LIMITS",
+        },
+        {
+            "category": "Other",
+            "date": "2025-01-01T12:04:15Z",
+            "message": "DRIVER OUT OF THE RACE",
+        },
+    ]
+
+    lifecycle_events = [
+        event
+        for event in recording_to_events(raw)
+        if event.kind == "timing" and event.payload.get("status") in {"STOPPED", "RETIRED"}
+    ]
+
+    assert [
+        (event.occurred_at, event.payload["number"], event.payload["status"])
+        for event in lifecycle_events
+    ] == [
+        ("2025-01-01T12:00:15Z", "4", "STOPPED"),
+        ("2025-01-01T12:02:15Z", "4", "RETIRED"),
+    ]

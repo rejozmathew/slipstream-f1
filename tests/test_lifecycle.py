@@ -11,6 +11,9 @@ from slipstream.lifecycle import (
     display_status_label,
     is_active_participant,
     is_battle_eligible,
+    is_circulating,
+    terminal_state,
+    transition_driver_status,
 )
 from slipstream.state import DriverState, RaceState
 
@@ -77,3 +80,26 @@ def test_terminal_labels_are_human_readable() -> None:
 def test_case_insensitive_status_matching() -> None:
     assert is_active_participant(DriverState(number="1", position=1, status="retired")) is False
     assert is_active_participant(DriverState(number="1", position=1, status="racing")) is True
+
+
+def test_positionless_driver_remains_a_nonterminal_participant() -> None:
+    driver = DriverState(number="1", position=None, status="UNKNOWN")
+    assert is_active_participant(driver) is True
+    assert is_battle_eligible(driver) is False
+
+
+def test_stopped_is_resumable_but_terminal_status_is_not() -> None:
+    stopped = DriverState(number="1", position=1, status="STOPPED")
+    retired = DriverState(number="1", position=1, status="RETIRED")
+    assert terminal_state(stopped) is None
+    assert is_circulating(stopped) is False
+    assert transition_driver_status("STOPPED", "RUNNING") == "RUNNING"
+    assert transition_driver_status("RETIRED", "RUNNING") == "RETIRED"
+    assert terminal_state(retired) == "RETIRED"
+
+
+def test_finished_is_a_terminal_factual_state() -> None:
+    driver = DriverState(number="1", position=1, status="FINISHED")
+    assert is_active_participant(driver) is False
+    assert terminal_state(driver) == "FINISHED"
+    assert display_status_label(driver) == "FINISHED"

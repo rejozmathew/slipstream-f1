@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { driverLifecycle, lifecycleClassName } from "../../domain/lifecycle";
 import { buildTrackGeometry } from "../../domain/trackGeometry";
 import type { Driver, PositionMode, RaceState } from "../../domain/protocol";
 import { Panel } from "../shared/Panel";
@@ -27,7 +28,9 @@ export function TrackMap({ circuit, session, drivers, positionMode }: TrackMapPr
           <g className="car-markers">
             {positioned.map((driver) => {
               const point = positionMode === "precise_xy" ? geometry.project(driver.x ?? 0, driver.y ?? 0) : geometry.pointAt(driver.track_position ?? 0);
-              return <g className="car-marker" key={driver.number} transform={`translate(${point.x} ${point.y})`}>
+              const lifecycle = driverLifecycle(driver);
+              return <g className={"car-marker " + lifecycleClassName(driver)} key={driver.number} aria-label={[driver.code ?? driver.number, lifecycle.label].filter(Boolean).join(" ")} transform={`translate(${point.x} ${point.y})`}>
+                <title>{[driver.name ?? driver.code ?? driver.number, lifecycle.label].filter(Boolean).join(" · ")}</title>
                 <circle r="12" fill={`#${driver.team_colour ?? "ffffff"}`} />
                 <text textAnchor="middle" dominantBaseline="central">{driver.position ?? driver.code ?? driver.number}</text>
               </g>;

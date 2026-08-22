@@ -56,8 +56,8 @@ def test_snapshot_publishes_phase_c_contract_fields(tmp_path) -> None:
     # §17.1: NetPitLoss suppresses freeStopMargin + projectedRejoinPosition.
     for number in drivers:
         strategy = snap["drivers"][number]["strategy"]
-        assert strategy["disposition"] in {"CONTINUE", "STOP_NOW", "STOP_WINDOW_OPEN", "STOP_WINDOW_CLOSED", "UNKNOWN"}
-        assert strategy["windowState"] in {"OPEN", "CLOSED", "UNKNOWN"}
+        assert strategy["disposition"] in {"PIT_EXPECTED", "TO_FINISH", "UNKNOWN"}
+        assert strategy["windowState"] in {"ACTIVE", "WINDOW_PASSED_EXTENDING", "TO_FINISH", "RESETTING", "UNKNOWN", "FINAL"}
         assert strategy["dryTyreRequirement"] in {"UNSATISFIED", "SATISFIED", "NOT_APPLICABLE", "UNKNOWN"}
         # Suppressed until NetPitLoss exists.
         assert strategy["freeStopMargin"]["value"] is None

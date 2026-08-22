@@ -7,6 +7,7 @@ source-neutral :class:`NormalizedEvent` consumed by the canonical reducer.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable
 from dataclasses import asdict
@@ -17,7 +18,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from slipstream.events import NormalizedEvent
+from slipstream.events import NormalizedEvent, parse_timestamp
 from slipstream.evidence import SessionEvidence
 from slipstream.external import disabled_external_intelligence
 from slipstream.session import classify_session
@@ -516,7 +517,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     if initial_stint
                     else None,
                     "stint_laps": 0 if initial_stint else None,
-                    "status": "RUNNING",
+                    "status": "UNKNOWN",
                     "availability": {
                         "interval_to_ahead": "available"
                         if has_intervals
@@ -671,6 +672,10 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 sector_1=lap.get("duration_sector_1"),
                 sector_2=lap.get("duration_sector_2"),
                 sector_3=lap.get("duration_sector_3"),
+                # A completed lap row is positive evidence that a previously
+                # STOPPED car resumed. The reducer prevents terminal states
+                # from being resurrected by later packets.
+                status="RUNNING",
                 lap_observation=observation,
             )
         )
@@ -741,6 +746,10 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     },
                 )
             )
+        lifecycle = _race_control_driver_lifecycle(message)
+        if lifecycle is not None:
+            number, status = lifecycle
+            events.append(_timing_event(message["date"], number, status=status))
     weather_fields = (
         "air_temperature",
         "track_temperature",
@@ -821,8 +830,6 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             },
         )
     )
-    from slipstream.events import parse_timestamp
-
     return sorted(events, key=lambda event: parse_timestamp(event.occurred_at))
 
 
@@ -849,6 +856,45 @@ def _has_circuit_path(payload: object) -> bool:
         and len(x_values) == len(y_values)
         and all(isinstance(value, (int, float)) for value in (*x_values, *y_values))
     )
+
+
+def _race_control_driver_lifecycle(
+    message: dict[str, Any],
+) -> tuple[str, str] | None:
+    """Normalize only explicit driver lifecycle statements from OpenF1.
+
+    Broad substring inference is deliberately forbidden. A driver number must
+    be supplied by the source or by an exact ``CAR <number>`` phrase, and the
+    message must explicitly say STOPPED, RETIRED, or OUT OF THE RACE.
+    """
+
+    occurred_at = message.get("date")
+    raw_message = str(message.get("message") or "").strip()
+    if not occurred_at or not raw_message:
+        return None
+    text = " ".join(raw_message.upper().split())
+    explicit_number = message.get("driver_number")
+    car_match = re.search(r"\bCAR\s+#?(\d{1,3})\b", text)
+    number = (
+        str(explicit_number)
+        if explicit_number is not None
+        else car_match.group(1)
+        if car_match
+        else None
+    )
+    if number is None:
+        return None
+
+    category = str(message.get("category") or "").strip().upper()
+    if re.search(r"\bSTOPPED\b", text):
+        return number, "STOPPED"
+    if (
+        re.search(r"\bRETIRED\b", text)
+        or re.search(r"\bOUT OF THE RACE\b", text)
+        or category in {"RETIREMENT", "RETIRED"}
+    ):
+        return number, "RETIRED"
+    return None
 
 
 def _timing_event(

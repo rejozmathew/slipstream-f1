@@ -184,8 +184,9 @@ export type PaceSample = {
 
 // v2.1 contract vocabulary (single source of truth; mirror Python context_types.py).
 export type Disposition = "PIT_EXPECTED" | "TO_FINISH" | "UNKNOWN";
-export type WindowState = "ACTIVE" | "WINDOW_PASSED_EXTENDING" | "TO_FINISH" | "RESETTING";
+export type WindowState = "ACTIVE" | "WINDOW_PASSED_EXTENDING" | "TO_FINISH" | "RESETTING" | "UNKNOWN" | "FINAL";
 export type StrategyValidity = "VALID" | "RESETTING" | "RECALCULATING" | "UNAVAILABLE";
+export type StrategyLifecycle = "LIVE" | "RESETTING" | "RECALCULATING" | "FINAL" | "UNAVAILABLE";
 export type DryTyreRequirementState = "UNSATISFIED" | "SATISFIED" | "NOT_APPLICABLE" | "UNKNOWN";
 export type HistoricalComparability = "NORMAL" | "LIMITED" | "INCOMPATIBLE";
 
@@ -260,6 +261,8 @@ export type StrategyAnalytics = {
   // the dry-tyre requirement state. Phase C fills in real values.
   disposition?: Disposition;
   windowState?: WindowState;
+  lifecycle?: StrategyLifecycle;
+  terminalState?: string | null;
   strategyValidity?: StrategyValidity;
   dryTyreRequirement?: DryTyreRequirementState;
 };
@@ -326,6 +329,7 @@ export type AnalyticsSnapshot = {
   stage: AnalyticsStage;
   // v2.1 §11: race-level strategy validity (SC/VSC/Red resets this).
   strategyValidity?: StrategyValidity;
+  strategyLifecycle?: StrategyLifecycle;
   // v2.1 §17.1: NetPitLoss is a derived metric; until it exists, the fields
   // that depend on it are suppressed (freeStopMargin, projectedRejoinPosition,
   // quantified undercut).

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { formatSector } from "../../domain/format";
+import { driverLifecycle, lifecycleClassName } from "../../domain/lifecycle";
 import type { TowerView } from "../../domain/layout";
 import type { AnalyticsSnapshot, Driver } from "../../domain/protocol";
 import { CompoundBadge, StrategyCompoundTransition } from "../shared/CompoundBadge";
@@ -27,25 +28,32 @@ function DriverIdentity({ driver }: { driver: Driver }) {
   </span>;
 }
 
+function LifecycleValue({ driver }: { driver: Driver }) {
+  const lifecycle = driverLifecycle(driver);
+  if (lifecycle.label) return <span className="driver-lifecycle-label">{lifecycle.label}</span>;
+  return <DataValue compact value={driver.position === 1 ? "LEADER" : driver.interval_to_ahead} availability={driver.availability.interval_to_ahead} />;
+}
+
 function RaceCore({ driver }: { driver: Driver }) {
   return <><strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
-    <DataValue compact value={driver.position === 1 ? "LEADER" : driver.interval_to_ahead} availability={driver.availability.interval_to_ahead} />
+    <LifecycleValue driver={driver} />
     <CompoundBadge compound={driver.compound} compact />
   </>;
 }
 
 function RaceRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
-  return <button type="button" className="timing-row timing-race" role="row" onClick={() => onSelect?.(driver.number)}>
+  const lifecycle = driverLifecycle(driver);
+  return <button type="button" className={"timing-row timing-race " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} />
-    <DataValue compact value={driver.position === 1 ? "—" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} />
+    {lifecycle.terminal ? <span>—</span> : <DataValue compact value={driver.position === 1 ? "—" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} />}
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
-    <DataValue compact value={driver.last_lap ?? driver.best_lap} availability={driver.availability.last_lap} />
+    {lifecycle.terminal ? <span>—</span> : <DataValue compact value={driver.last_lap ?? driver.best_lap} availability={driver.availability.last_lap} />}
     <span>{driver.pit_count}</span>
   </button>;
 }
 
 function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
-  return <button type="button" className="timing-row timing-race-timing" role="row" onClick={() => onSelect?.(driver.number)}>
+  return <button type="button" className={"timing-row timing-race-timing " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} />
     <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} />
     <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} />
@@ -56,22 +64,24 @@ function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (drive
 }
 
 function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+  const lifecycle = driverLifecycle(driver);
   const strategy = analytics?.drivers[driver.number]?.strategy;
   const window = strategy?.pitWindow.value;
-  return <button type="button" className="timing-row timing-race-strategy" role="row" onClick={() => onSelect?.(driver.number)}>
+  return <button type="button" className={"timing-row timing-race-strategy " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
-    <StrategyCompoundTransition value={strategy?.primaryStrategy.value} compact />
-    <DataValue compact value={window ? `L${window[0]}–${window[1]}` : null} />
+    {lifecycle.terminal ? <span>—</span> : <StrategyCompoundTransition value={strategy?.primaryStrategy.value} compact />}
+    {lifecycle.terminal ? <span>—</span> : <DataValue compact value={window ? "L" + window[0] + "–" + window[1] : null} />}
   </button>;
 }
 
 function QualifyingRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
-  return <button type="button" className="timing-row timing-qualifying" role="row" onClick={() => onSelect?.(driver.number)}>
+  const lifecycle = driverLifecycle(driver);
+  return <button type="button" className={"timing-row timing-qualifying " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
-    <DataValue compact value={driver.status} />
+    <DataValue compact value={lifecycle.label ?? driver.status} />
     <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} />
     <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} />
     <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} />
@@ -81,7 +91,7 @@ function QualifyingRow({ driver, onSelect }: { driver: Driver; onSelect?: (drive
 }
 
 function PracticeRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
-  return <button type="button" className="timing-row timing-practice" role="row" onClick={() => onSelect?.(driver.number)}>
+  return <button type="button" className={"timing-row timing-practice " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
     <CompoundBadge compound={driver.compound} compact />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />

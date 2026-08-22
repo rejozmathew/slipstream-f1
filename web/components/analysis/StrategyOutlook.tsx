@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { driverLifecycle } from "../../domain/lifecycle";
 import type { AnalyticsMetric, AnalyticsSnapshot } from "../../domain/protocol";
 import { CompoundBadge, StrategyCompoundTransition } from "../shared/CompoundBadge";
 import { InfoPopover } from "../shared/InfoPopover";
@@ -8,6 +9,7 @@ import { Panel } from "../shared/Panel";
 type StrategyOutlookProps = {
   analytics?: AnalyticsSnapshot | null;
   driverNumber?: string | null;
+  driverStatus?: string | null;
   compact?: boolean;
   action?: ReactNode;
 };
@@ -47,8 +49,9 @@ function StrategyMetric({ label, item, display = "text" }: { label: string; item
   </div>;
 }
 
-export function StrategyOutlook({ analytics, driverNumber, compact = false, action }: StrategyOutlookProps) {
+export function StrategyOutlook({ analytics, driverNumber, driverStatus, compact = false, action }: StrategyOutlookProps) {
   const selectedDriver = driverNumber ? analytics?.drivers[driverNumber] : null;
+  const lifecycle = driverStatus ? driverLifecycle({ status: driverStatus, position: null }) : null;
   const strategy = selectedDriver?.strategy ?? (!driverNumber ? analytics?.raceStrategy : null);
   const contextStatus = analytics?.context.status ?? "unavailable";
   const stage = analytics?.stage ?? "BASELINE_AVAILABLE";
@@ -56,6 +59,9 @@ export function StrategyOutlook({ analytics, driverNumber, compact = false, acti
   return <Panel eyebrow="STRATEGY" title="Strategy Outlook" className={`strategy-panel${compact ? " strategy-panel-compact" : ""}`} action={action ?? <span className={`panel-badge context-${contextStatus}`}>WEEKEND CONTEXT · {contextStatus.toUpperCase()}</span>}>
     <div className="strategy-content">
       <div className="strategy-stage"><span>{stage.replaceAll("_", " ")}</span><strong>{scopeLabel}</strong></div>
+      {lifecycle?.terminal && <div className="strategy-lifecycle-notice terminal" role="status"><strong>{lifecycle.label}</strong><span>Factual terminal state at this session time. Future Strategy projections are suppressed.</span></div>}
+      {lifecycle?.stopped && <div className="strategy-lifecycle-notice stopped" role="status"><strong>STOPPED</strong><span>Explicit stopped evidence at this session time. This state may resume; it is not treated as retirement.</span></div>}
+      {!lifecycle?.terminal && analytics?.strategyLifecycle === "FINAL" && <div className="strategy-lifecycle-notice final" role="status"><strong>FINAL</strong><span>Session complete. Strategy is retrospective; future projections are suppressed.</span></div>}
       {strategy?.changes?.map((change) => <div className="strategy-change" key={change}>{change}</div>)}
       {!strategy && <div className="strategy-unavailable" role="status"><strong>—</strong><p>Strategy remains unavailable until normalized evidence supports this scope.</p></div>}
       {strategy && <><div className="strategy-grid">

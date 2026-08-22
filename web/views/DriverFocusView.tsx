@@ -7,6 +7,7 @@ import { CompoundBadge, CompoundTransition } from "../components/shared/Compound
 import { DataValue } from "../components/shared/DataValue";
 import { InfoPopover } from "../components/shared/InfoPopover";
 import { Panel } from "../components/shared/Panel";
+import { driverLifecycle } from "../domain/lifecycle";
 import type { AnalyticsSnapshot, DriverBattleContext, DriverHistory, PaceSample, PitEvent, PositionMode, RaceState } from "../domain/protocol";
 
 function BattleContext({ label, value }: { label: string; value: DriverBattleContext | null }) {
@@ -43,11 +44,12 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
   const pitEvents: PitEvent[] = model?.pitEvents ?? fallbackPits;
   if (!driver) return <div className="driver-focus-view"><header className="experience-heading"><button onClick={onBack}>BACK TO SESSION</button><div><span>DRIVER FOCUS</span><h1>Driver unavailable</h1></div></header><div className="service-unavailable"><strong>DRIVER STATE UNAVAILABLE</strong><p>This driver is not present at the current replay time.</p><button onClick={onChangeDriver}>CHOOSE DRIVER</button></div></div>;
   const allDrivers = Object.values(state.drivers);
+  const lifecycle = driverLifecycle(driver);
   return <div className="driver-focus-view">
     <header className="driver-hero" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as CSSProperties}>
       <div className="driver-hero-actions"><button onClick={onBack}>BACK</button><button onClick={onChangeDriver}>CHANGE DRIVER</button></div>
       <div className="driver-number">#{driver.number}</div>
-      <div className="driver-identity"><span>DRIVER FOCUS · LAP {driver.lap ?? state.session.lap ?? "—"}</span><h1>{driver.name ?? driver.code ?? `Driver ${driver.number}`}</h1><p>{driver.team ?? "Team unavailable"}</p></div>
+      <div className="driver-identity"><span>DRIVER FOCUS · LAP {driver.lap ?? state.session.lap ?? "—"}</span><h1>{driver.name ?? driver.code ?? `Driver ${driver.number}`}</h1><p>{driver.team ?? "Team unavailable"}</p>{lifecycle.label && <b className={"driver-status-badge " + (lifecycle.terminal ? "terminal" : "stopped")}>{lifecycle.label}</b>}</div>
       <div className="driver-hero-position"><span>CURRENT POSITION</span><strong>P{driver.position ?? "—"}</strong><DataValue compact value={driver.position === 1 ? "LEADER" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} /></div>
     </header>
     <div className="driver-focus-grid">
@@ -56,7 +58,7 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
         <div className="driver-battle-context"><BattleContext label="AHEAD" value={model?.ahead ?? null} /><BattleContext label="BEHIND" value={model?.behind ?? null} /></div>
       </section>
       <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} /></div>
-      <StrategyOutlook analytics={analytics} driverNumber={driverNumber} />
+      <StrategyOutlook analytics={analytics} driverNumber={driverNumber} driverStatus={driver.status} />
       <Panel eyebrow="PACE DELTA" title="Stint trend" className="driver-history-panel" action={<span className="pace-baseline-badge">VS CLEAN STINT BASELINE <InfoPopover meaning="Signed lap-time delta versus the robust median of representative laps in the same stint. Faster laps are above zero; slower laps are below." why="Pit, neutralized, contaminated, and robust outlier laps do not set the chart scale. They remain visible as capped grey hatched markers." /></span>}>
         {historyError && <div className="panel-empty">HISTORY UNAVAILABLE · {historyError}</div>}
         {!historyError && !history && !model && <div className="panel-empty">LOADING NORMALIZED LAP EVIDENCE</div>}

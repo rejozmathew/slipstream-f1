@@ -133,9 +133,14 @@ class RaceState:
         if event.kind == "driver":
             number = str(event.payload["number"])
             current = self.drivers.get(number, DriverState(number=number))
-            item = replace(
-                current, **{k: v for k, v in event.payload.items() if k != "number"}
-            )
+            updates = {k: v for k, v in event.payload.items() if k != "number"}
+            if "status" in updates:
+                from .lifecycle import transition_driver_status
+
+                updates["status"] = transition_driver_status(
+                    current.status, updates["status"]
+                )
+            item = replace(current, **updates)
             return replace(
                 self,
                 updated_at=event.occurred_at,
@@ -149,6 +154,12 @@ class RaceState:
             # Completed-lap evidence is retained by SessionEvidence, not repeated in
             # every high-frequency RaceState snapshot.
             updates.pop("lap_observation", None)
+            if "status" in updates:
+                from .lifecycle import transition_driver_status
+
+                updates["status"] = transition_driver_status(
+                    current.status, updates["status"]
+                )
             explicit_availability = updates.pop("availability", {})
             availability = {
                 **current.availability,

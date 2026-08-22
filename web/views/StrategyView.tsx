@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Panel } from "../components/shared/Panel";
+import { driverLifecycle, lifecycleClassName } from "../domain/lifecycle";
 import { CompoundBadge } from "../components/shared/CompoundBadge";
 import type { AnalyticsSnapshot, DryTyreRequirementState, RaceState } from "../domain/protocol";
 
@@ -28,6 +29,7 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
 
   // Outlook
   const validity = analytics?.strategyValidity ?? "UNAVAILABLE";
+  const strategyLifecycle = analytics?.strategyLifecycle ?? "UNAVAILABLE";
 
   return (
     <div className="strategy-view">
@@ -38,7 +40,7 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
           <p>Detailed field and race strategy lens.</p>
         </div>
         <div className="strategy-validity-state">
-          <strong>OUTLOOK: {validity}</strong>
+          <strong>OUTLOOK: {strategyLifecycle === "FINAL" ? "FINAL" : validity}</strong>
         </div>
       </header>
       
@@ -95,6 +97,7 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
             </thead>
             <tbody>
                {drivers.map(d => {
+                  const lifecycle = driverLifecycle(d);
                   const s = analytics?.drivers[d.number]?.strategy;
                   const disposition = s?.disposition;
                   const windowState = s?.windowState;
@@ -102,19 +105,21 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
                   const windowText = Array.isArray(winValue) ? `L${winValue[0]}-${winValue[1]}` : "—";
                   
                   let planText = "—";
-                  if (disposition === "TO_FINISH") planText = "TO FLAG";
+                  if (lifecycle.label) planText = lifecycle.label;
+                  else if (strategyLifecycle === "FINAL" || windowState === "FINAL") planText = "FINAL";
+                  else if (disposition === "TO_FINISH") planText = "TO FLAG";
                   else if (windowState === "WINDOW_PASSED_EXTENDING") planText = "EXTENDING STINT";
                   else if (windowText !== "—") planText = windowText;
 
                   return (
-                     <tr key={d.number} onClick={() => onSelectDriver(d.number)} className="clickable">
+                     <tr key={d.number} onClick={() => onSelectDriver(d.number)} className={"clickable " + lifecycleClassName(d)}>
                         <td>{d.position ?? "-"}</td>
                         <td>{d.code ?? d.number}</td>
                         <td><CompoundBadge compound={d.compound} compact /></td>
                         <td>{d.tyre_age ?? "-"}</td>
                         <td>{d.pit_count ?? 0}</td>
                         <td>{s?.dryTyreRequirement === "SATISFIED" ? "✓ satisfied" : s?.dryTyreRequirement === "UNSATISFIED" ? "! spec needed" : "-"}</td>
-                        <td>{s?.degradation?.value ? `${s.degradation.value}` : "stable"}</td>
+                        <td>{s?.degradation?.value != null ? `${s.degradation.value}` : "—"}</td>
                         <td>{planText}</td>
                      </tr>
                   );

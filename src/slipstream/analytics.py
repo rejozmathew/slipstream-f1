@@ -331,6 +331,28 @@ def build_analytics_snapshot(
     # v2.1 Phase C: race-level strategy validity + active-runner field
     # distributions (deterministic, cursor-scoped).
     strategy_validity = _strategy_validity(state, stage)
+    strategy_lifecycle = _strategy_lifecycle(state, strategy_validity)
+    race_strategy["lifecycle"] = strategy_lifecycle
+    for model in driver_models.values():
+        model["strategy"]["lifecycle"] = strategy_lifecycle
+    if strategy_lifecycle == "FINAL":
+        final_reason = (
+            "session is FINAL at the cursor: Strategy is retrospective and "
+            "future projections are suppressed"
+        )
+        final_suppression = {
+            "disposition": "UNKNOWN",
+            "windowState": "FINAL",
+            "primaryStrategy": unknown(final_reason),
+            "alternateStrategy": unknown(final_reason),
+            "likelyNextCompound": unknown(final_reason),
+            "pitWindow": unknown(final_reason),
+            "projectedRejoinPosition": unknown(final_reason),
+            "freeStopMargin": unknown(final_reason),
+        }
+        race_strategy.update(final_suppression)
+        for model in driver_models.values():
+            model["strategy"].update(final_suppression)
     field_distributions = _field_distributions(state)
     # v2.1 §15: per-driver dry-tyre requirement state, computed from each
     # driver's compound history at the cursor + the rule profile.
@@ -355,6 +377,7 @@ def build_analytics_snapshot(
         # property of the published window. Phase C computes it from the
         # track-control state at the cursor + the analytics stage.
         "strategyValidity": strategy_validity,
+        "strategyLifecycle": strategy_lifecycle,
         # v2.1 §17.1: NetPitLoss is not yet a defensible derived metric; the
         # fields that depend on it are suppressed until it exists.
         "netPitLoss": {
@@ -1669,12 +1692,28 @@ def _field_distributions(state: RaceState) -> dict[str, Any]:
     }
 
 
-def _strategy_validity(state: RaceState, stage: str) -> str:
-    """v2.1 §11: VALID | RESETTING | RECALCULATING | UNAVAILABLE.
+def _is_session_final(state: RaceState) -> bool:
+    return (
+        str(state.session.status or "").upper()
+        in {"FINISHED", "ENDED", "COMPLETE", "FINAL"}
+        or str(state.session.track_status or "").upper() == "CHEQUERED"
+    )
 
-    A Safety Car / VSC / Red at or after the current cursor invalidates any
-    prior published window → RESETTING. Before any live evidence → UNAVAILABLE.
-    """
+
+def _strategy_lifecycle(state: RaceState, validity: str) -> str:
+    if _is_session_final(state):
+        return "FINAL"
+    if validity in {"RESETTING", "RECALCULATING"}:
+        return validity
+    if validity == "UNAVAILABLE":
+        return "UNAVAILABLE"
+    return "LIVE"
+
+
+def _strategy_validity(state: RaceState, stage: str) -> str:
+    """Projection validity is separate from the Strategy lifecycle."""
+    if _is_session_final(state):
+        return "UNAVAILABLE"
     track_status = str(state.session.track_status or "").upper()
     if track_status in {"SAFETY CAR", "VSC", "RED", "YELLOW"}:
         return "RESETTING"
@@ -1686,9 +1725,9 @@ def _strategy_validity(state: RaceState, stage: str) -> str:
 def _driver_disposition(
     driver: DriverState, state: RaceState, pit_window: dict[str, Any]
 ) -> str:
-    """v2.1 §12: PIT_EXPECTED | TO_FINISH | UNKNOWN for a driver at the cursor."""
-    if str(state.session.status).upper() in {"FINISHED", "ENDED", "COMPLETE"} or str(state.session.track_status).upper() == "CHEQUERED":
-        return "TO_FINISH" if driver.pit_count else "UNKNOWN"
+    """PIT_EXPECTED | TO_FINISH | UNKNOWN for a live driver at the cursor."""
+    if terminal_state(driver) is not None or _is_session_final(state):
+        return "UNKNOWN"
     window_value = pit_window.get("value")
     if not isinstance(window_value, list) or len(window_value) != 2:
         return "UNKNOWN"
@@ -1707,7 +1746,11 @@ def _driver_disposition(
 def _window_state(
     driver: DriverState, state: RaceState, pit_window: dict[str, Any]
 ) -> str:
-    """v2.1 §12: ACTIVE | WINDOW_PASSED_EXTENDING | TO_FINISH | RESETTING."""
+    """Return the current future-window lifecycle without inventing a plan."""
+    if terminal_state(driver) is not None:
+        return "UNKNOWN"
+    if _is_session_final(state):
+        return "FINAL"
     track_status = str(state.session.track_status or "").upper()
     if track_status in {"SAFETY CAR", "VSC", "RED", "YELLOW"}:
         return "RESETTING"
@@ -1783,8 +1826,11 @@ def _terminal_suppression(
     )
     return {
         "disposition": "UNKNOWN",
+        "windowState": "UNKNOWN",
         "pitWindow": unknown(reason),
         "likelyNextCompound": unknown(reason),
         "primaryStrategy": unknown(reason),
         "alternateStrategy": unknown(reason),
+        "projectedRejoinPosition": unknown(reason),
+        "freeStopMargin": unknown(reason),
     }
