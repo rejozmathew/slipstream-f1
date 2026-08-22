@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["httpx2>=2.10", "pytest>=8.0", "ruff>=0.6"]
+pirelli-pdf = ["pypdf>=5.0"]
 
 [project.scripts]
 slipstream = "slipstream.cli:main"
@@ -28,3 +29,4 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/slipstream"]
+
