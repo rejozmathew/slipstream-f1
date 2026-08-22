@@ -168,6 +168,7 @@ export type DriverHistory = {
   driverNumber: string;
   available: boolean;
   observations: LapObservation[];
+  read: { status: "AVAILABLE" | "UNAVAILABLE"; headline: string; facts: string[]; modelVersion: string };
   pitEvents: PitEvent[];
 };
 
@@ -318,6 +319,7 @@ export type DriverAnalytics = {
     paceTrend: AnalyticsMetric<number>;
     degradation: AnalyticsMetric<number>;
   };
+  read: { status: "AVAILABLE" | "UNAVAILABLE"; headline: string; facts: string[]; modelVersion: string };
   pitEvents: PitEvent[];
   strategy: StrategyAnalytics;
   weekendEvidence: {

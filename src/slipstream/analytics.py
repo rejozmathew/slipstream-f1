@@ -212,6 +212,8 @@ def build_analytics_snapshot(
                 strategy,
                 "future projection withheld: hard validity, plausibility, and stability must all pass",
             )
+    for number, model in driver_models.items():
+        model["read"] = _driver_read(state.drivers[number], model)
     race_gate = _race_projection_gate(race_strategy, state, stage, driver_gates)
     race_strategy["projectionGate"] = race_gate
     if not race_gate["publishAllowed"]:
@@ -1464,6 +1466,42 @@ def _pit_event_payload(event: PitEvent) -> dict[str, Any]:
         "pitLaneDuration": payload["pit_lane_duration"],
     }
 
+
+def _driver_read(driver: DriverState, model: dict[str, Any]) -> dict[str, Any]:
+    """Concise deterministic commentary composed only from published facts."""
+
+    lifecycle = terminal_state(driver)
+    facts: list[str] = []
+    if lifecycle:
+        headline = f"{driver.code or driver.number} is {lifecycle} at this cursor."
+        facts.append("Future strategy fields are suppressed for this terminal state.")
+    elif str(driver.status or "").upper() == "STOPPED":
+        headline = f"{driver.code or driver.number} is explicitly STOPPED."
+        facts.append("STOPPED is resumable and is not treated as retirement.")
+    elif driver.position is not None:
+        headline = f"{driver.code or driver.number} is running P{driver.position}."
+    else:
+        headline = f"{driver.code or driver.number} has no classified position at this cursor."
+    if driver.compound and driver.tyre_age is not None:
+        facts.append(f"Current stint: {driver.compound} at {driver.tyre_age} laps of tyre age.")
+    facts.append(f"Observed completed pit stops: {driver.pit_count}.")
+    trend = model.get("pace", {}).get("paceTrend", {})
+    value = trend.get("value")
+    if isinstance(value, (int, float)):
+        facts.append(f"Current clean-stint Pace Trend: {value:.3f} seconds per lap.")
+    else:
+        facts.append("Current clean-stint Pace Trend is unknown.")
+    strategy = model.get("strategy", {})
+    if strategy.get("finishAssessment", {}).get("canFinish") is True:
+        facts.append("Same-race evidence supports reaching the flag on the current stint.")
+    elif strategy.get("projectionGate", {}).get("publishAllowed") is False:
+        facts.append("Future outlook is withheld because every projection gate has not passed.")
+    return {
+        "status": "AVAILABLE",
+        "headline": headline,
+        "facts": facts,
+        "modelVersion": ANALYTICS_MODEL_VERSION,
+    }
 
 def _driver_context(
     ahead: DriverState, behind: DriverState, relationship: str

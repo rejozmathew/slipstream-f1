@@ -19,9 +19,9 @@ const meanings: Record<string, string> = {
   ALTERNATE: "A secondary compound sequence with enough independent evidence to show.",
   "PIT WINDOW": "The future lap range projected from comparable stint life and the current stint start.",
   NEXT: "The next compound supported by comparable race-like transitions.",
-  DEGRADATION: "Representative clean-lap pace change per lap.",
+  "PACE TREND": "Raw representative clean-stint lap-time slope; fuel, traffic, and driver effects are not isolated.",
   "PIT-LANE DURATION": "Comparable race-like pit-lane time observed in the current meeting (raw observed lane time, not net loss).",
-  "TYRE STRESS": "A categorical reading of clean-lap degradation evidence.",
+  "TYRE STRESS": "A categorical reading of clean-lap Pace Trend evidence.",
 };
 
 function metricText(item: AnalyticsMetric | undefined) {
@@ -69,7 +69,7 @@ export function StrategyOutlook({ analytics, driverNumber, driverStatus, compact
         <StrategyMetric label="ALTERNATE" item={strategy.alternateStrategy} display="transition" />
         <StrategyMetric label="PIT WINDOW" item={strategy.pitWindow} />
         <StrategyMetric label="NEXT" item={strategy.likelyNextCompound} display="compound" />
-        <StrategyMetric label="DEGRADATION" item={strategy.degradation} />
+        <StrategyMetric label="PACE TREND" item={strategy.paceTrend ?? strategy.degradation} />
         <StrategyMetric label="PIT-LANE DURATION" item={strategy.pitLoss} />
         {!compact && <StrategyMetric label="TYRE STRESS" item={strategy.tyreStress} />}
       </div><p className="strategy-rules-note">{strategy.rulesNote}</p></>}

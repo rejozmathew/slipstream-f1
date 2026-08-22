@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { classifySession } from "../../domain/sessionLayout";
 import { useDriverHistory } from "../../hooks/useDriverHistory";
@@ -59,6 +59,18 @@ export function AppShell() {
     setSettingsSection("layouts");
     setView("settings");
   };
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (layout === "race" || (view !== "strategy" && view !== "battle")) return;
+    const frame = window.requestAnimationFrame(() => setView("session"));
+    return () => window.cancelAnimationFrame(frame);
+  }, [layout, view]);
+  useEffect(() => {
+    window.requestAnimationFrame(() => {
+      workspaceRef.current?.scrollTo({ top: 0, left: 0 });
+      workspaceRef.current?.querySelectorAll<HTMLElement>(".timing-table, .analysis-stack").forEach((element) => element.scrollTo({ top: 0, left: 0 }));
+    });
+  }, [view, preferences.towerView]);
   const goLive = () => {
     session.goLive();
     setView("session");
@@ -72,7 +84,7 @@ export function AppShell() {
       <nav aria-label="Product navigation">
         <button className={view === "session" ? "active" : ""} onClick={() => setView("session")}>SESSION</button>
         <button className={view === "driver" ? "active" : ""} onClick={() => setView("driver")}>DRIVER</button>
-        <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>BATTLE</button>
+        {layout === "race" && <button className={view === "battle" ? "active" : ""} onClick={() => setView("battle")}>BATTLE</button>}
         {layout === "race" && <button className={view === "strategy" ? "active" : ""} onClick={() => setView("strategy")}>STRATEGY</button>}
         <button className="tv-nav-item" onClick={() => setView("tv")}>TV MODE</button>
         <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>SETTINGS</button>
@@ -83,15 +95,15 @@ export function AppShell() {
       </div>
     </header>
     {view !== "settings" && <SessionStrip session={session.state.session} selected={session.selectedCatalogSession} viewingMode={session.viewingMode} liveStatus={session.liveStatus} liveNow={liveNow} onGoLive={goLive} />}
-    <main className={`workspace workspace-${layout} workspace-view-${view}`}>
+    <main ref={workspaceRef} className={`workspace workspace-${layout} workspace-view-${view}`}>
       {view !== "settings" && session.connectionError && <section className="service-unavailable"><strong>SLIPSTREAM DATA UNAVAILABLE</strong><p>{session.connectionError}</p><span>No sample race has been substituted.</span></section>}
       {view !== "settings" && !session.connectionError && session.viewingMode === "live" && session.liveStatus !== "LIVE" && <section className={`live-source-state live-source-${session.liveStatus.toLowerCase()}`}><strong>{connectionLabel}</strong><p>{session.liveStatus === "CONNECTING" ? "Connecting to the public Formula 1 timing source." : session.liveStatus === "STALE" ? "The last canonical state is retained while the source reconnects." : "Public live timing is currently unavailable. No replay or sample state has been substituted."}</p></section>}
       {view === "session" && !session.connectionError && layout === "race" && <RaceView state={session.state} analytics={session.analytics} replayAvailable={dataAvailable} positionMode={positionMode} layout={preferences.raceLayout} onLayoutChange={preferences.setRaceLayout} onOpenLayoutEditor={openLayoutEditor} onSelectDriver={openDriver} towerView={preferences.towerView} onTowerViewChange={preferences.setTowerView} onOpenStrategy={() => setView("strategy")} />}
       {view === "session" && !session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "practice" && <PracticeView state={session.state} replayAvailable={dataAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "unsupported" && <Panel eyebrow="SESSION LAYOUT" title="Session layout unavailable"><div className="unknown-block"><strong>LAYOUT - NOT AVAILABLE</strong><p>This session is present in the catalog but does not classify as Race, Qualifying, or Practice.</p></div></Panel>}
-      {view === "strategy" && !session.connectionError && <StrategyView state={session.state} analytics={session.analytics} onSelectDriver={openDriver} />}
-      {view === "battle" && !session.connectionError && <BattleView state={session.state} stateHistory={session.stateHistory} analytics={session.analytics} recommendedPair={recommendedBattle} />}
+      {view === "strategy" && layout === "race" && !session.connectionError && <StrategyView state={session.state} analytics={session.analytics} onSelectDriver={openDriver} />}
+      {view === "battle" && layout === "race" && !session.connectionError && <BattleView state={session.state} analytics={session.analytics} recommendedPair={recommendedBattle} positionMode={positionMode} />}
       {view === "driver" && !session.connectionError && (!focusedDriver || !session.state.drivers[focusedDriver]) && <DriverPickerView state={session.state} onSelect={openDriver} />}
       {view === "driver" && !session.connectionError && focusedDriver && session.state.drivers[focusedDriver] && <DriverFocusView state={session.state} analytics={session.analytics} driverNumber={focusedDriver} history={driverHistory.history} historyError={driverHistory.error} playhead={session.playhead} positionMode={positionMode} onChangeDriver={() => setFocusedDriver(null)} onBack={() => setView("session")} />}
       {view === "settings" && <SettingsView appearance={preferences.appearance} onAppearanceChange={preferences.setAppearance} raceLayout={preferences.raceLayout} onRaceLayoutChange={preferences.setRaceLayout} tvPreferences={preferences.tv} onTVPreferencesChange={preferences.setTV} drivers={Object.values(session.state.drivers)} section={settingsSection} onSectionChange={setSettingsSection} />}

@@ -77,3 +77,27 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(preferences, /alertOnCriticalStatus/);
   assert.doesNotMatch(packageJson, /vinext|wrangler|cloudflare|next/);
 });
+
+test("wires Strategy, Driver, Battle and navigation to canonical server contracts", async () => {
+  const [strategyView, snapshot, driverView, battleView, trackMap, shell] = await Promise.all([
+    readFile(new URL("../views/StrategyView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/analysis/SessionStrategySnapshot.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/DriverFocusView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/BattleView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/analysis/TrackMap.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/shell/AppShell.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(strategyView, /analytics\?\.raceRead/);
+  assert.match(strategyView, /dryRequirementLandscape/);
+  assert.doesNotMatch(strategyView, /dryRuleStates/);
+  assert.match(snapshot, /Race strategy snapshot/);
+  assert.match(driverView, /model\?\.read\.headline/);
+  assert.match(driverView, /focusedDriverNumbers=\{\[driverNumber\]\}/);
+  assert.match(battleView, /analytics\?\.battle\.histories/);
+  assert.doesNotMatch(battleView, /stateHistory/);
+  assert.match(battleView, /SHARED STRATEGY INTERACTION UNAVAILABLE/);
+  assert.match(trackMap, /car-deemphasized/);
+  assert.match(shell, /layout === "race" \|\| \(view !== "strategy" && view !== "battle"\)/);
+  assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
+});

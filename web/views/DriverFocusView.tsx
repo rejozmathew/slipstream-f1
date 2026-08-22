@@ -17,12 +17,12 @@ function BattleContext({ label, value }: { label: string; value: DriverBattleCon
 
 function PitHistory({ events }: { events: PitEvent[] }) {
   if (events.length === 0) return <div className="panel-empty">NO OBSERVED PIT EVENTS AT THIS REPLAY TIME</div>;
-  return <div className="pit-history-list">{events.map((event) => <div key={`${event.sequence}-${event.lap}`}>
+  return <><div className="pit-history-summary"><strong>{events.length}</strong><span>OBSERVED STOPS</span><small>Same-compound changes remain factual stops.</small></div><div className="pit-history-list">{events.map((event) => <div key={`${event.sequence}-${event.lap}`}>
     <strong>LAP {event.lap}</strong>
     <CompoundTransition from={event.previousCompound} to={event.newCompound} compact />
     <span><small>STOP</small><b>{event.stopDuration == null ? "—" : `${event.stopDuration.toFixed(1)}s`}</b></span>
     <span><small>PIT LANE</small><b>{event.pitLaneDuration == null ? "—" : `${event.pitLaneDuration.toFixed(1)}s`}</b></span>
-  </div>)}</div>;
+  </div>)}</div></>;
 }
 
 export function DriverFocusView({ state, analytics, driverNumber, history, historyError, playhead, positionMode, onChangeDriver, onBack }: {
@@ -55,9 +55,9 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
     <div className="driver-focus-grid">
       <section className="driver-current panel"><header className="panel-heading"><div className="panel-title"><h2>Current stint</h2><span className="eyebrow">FACTUAL</span></div></header>
         <div className="driver-current-metrics"><div><span>COMPOUND</span><strong><CompoundBadge compound={driver.compound} showLabel /></strong></div><div><span>TYRE AGE</span><strong>{driver.tyre_age == null ? "—" : `${driver.tyre_age} LAPS`}</strong></div><div><span>STINT LAPS</span><strong>{driver.stint_laps ?? "—"}</strong></div><div><span>PIT STOPS</span><strong>{driver.pit_count}</strong></div><div><span>LAST LAP</span><DataValue compact value={driver.last_lap} availability={driver.availability.last_lap} /></div><div><span>BEST LAP</span><DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} /></div></div>
-        <div className="driver-battle-context"><BattleContext label="AHEAD" value={model?.ahead ?? null} /><BattleContext label="BEHIND" value={model?.behind ?? null} /></div>
+        <div className="driver-battle-context"><BattleContext label="AHEAD" value={model?.ahead ?? null} /><BattleContext label="BEHIND" value={model?.behind ?? null} /></div><div className="driver-read"><span>DRIVER READ</span><strong>{model?.read.headline ?? "Driver Read unavailable at this cursor."}</strong>{model?.read.facts.map((fact) => <p key={fact}>{fact}</p>)}</div>
       </section>
-      <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} /></div>
+      <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} focusedDriverNumbers={[driverNumber]} focusLabel={driver.code ?? driver.number} /></div>
       <StrategyOutlook analytics={analytics} driverNumber={driverNumber} driverStatus={driver.status} />
       <Panel eyebrow="PACE DELTA" title="Stint trend" className="driver-history-panel" action={<span className="pace-baseline-badge">VS CLEAN STINT BASELINE <InfoPopover meaning="Signed lap-time delta versus the robust median of representative laps in the same stint. Faster laps are above zero; slower laps are below." why="Pit, neutralized, contaminated, and robust outlier laps do not set the chart scale. They remain visible as capped grey hatched markers." /></span>}>
         {historyError && <div className="panel-empty">HISTORY UNAVAILABLE · {historyError}</div>}

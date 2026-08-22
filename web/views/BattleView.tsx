@@ -1,25 +1,26 @@
 import { useMemo, useState } from "react";
 
+import { TrackMap } from "../components/analysis/TrackMap";
 import { BattleDriverCard } from "../components/battle/BattleDriverCard";
 import { Panel } from "../components/shared/Panel";
-import { currentPairGap, gapBetween } from "../domain/battle";
+import { currentPairGap } from "../domain/battle";
 import { driverLifecycle } from "../domain/lifecycle";
-import type { AnalyticsSnapshot, Driver, RaceState } from "../domain/protocol";
+import type { AnalyticsSnapshot, Driver, PositionMode, RaceState } from "../domain/protocol";
 
 type BattleMode = "recommended" | "leader" | "pinned";
-type GapSample = { at: string; value: number };
+type GapSample = { occurredAt: string; lap: number; gapSeconds: number };
 
 function GapHistory({ samples }: { samples: GapSample[] }) {
-  if (samples.length < 2) return <div className="battle-chart-empty">GAP HISTORY BUILDS FROM FACTUAL REPLAY OBSERVATIONS</div>;
-  const values = samples.map((sample) => sample.value);
+  if (samples.length < 2) return <div className="battle-chart-empty">COMPLETED-LAP GAP HISTORY IS NOT YET AVAILABLE FOR THIS PAIR</div>;
+  const values = samples.map((sample) => sample.gapSeconds);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(max - min, 0.1);
-  const points = samples.map((sample, index) => `${(index / Math.max(samples.length - 1, 1)) * 100},${38 - ((sample.value - min) / range) * 30}`).join(" ");
-  return <div className="battle-chart"><svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-label="Observed gap history"><line x1="0" y1="38" x2="100" y2="38" /><polyline points={points} /></svg><span>{min.toFixed(3)}s</span><strong>{max.toFixed(3)}s</strong></div>;
+  const points = samples.map((sample, index) => `${(index / Math.max(samples.length - 1, 1)) * 100},${34 - ((sample.gapSeconds - min) / range) * 27}`).join(" ");
+  return <div className="battle-chart"><div className="battle-chart-axis"><span>GAP (S)</span><small>{max.toFixed(2)}</small><small>{min.toFixed(2)}</small></div><svg viewBox="0 0 100 38" preserveAspectRatio="none" aria-label="Completed-lap interval history"><line x1="0" y1="34" x2="100" y2="34" /><polyline points={points} /></svg><footer><span>L{samples[0].lap}</span><strong>COMPLETED LAPS</strong><span>L{samples.at(-1)!.lap}</span></footer></div>;
 }
 
-export function BattleView({ state, stateHistory, analytics, recommendedPair }: { state: RaceState; stateHistory: RaceState[]; analytics: AnalyticsSnapshot | null; recommendedPair: [string, string] | null }) {
+export function BattleView({ state, analytics, recommendedPair, positionMode }: { state: RaceState; analytics: AnalyticsSnapshot | null; recommendedPair: [string, string] | null; positionMode: PositionMode }) {
   const drivers = useMemo(() => Object.values(state.drivers).filter((driver) => driverLifecycle(driver).battleEligible).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
   const [mode, setMode] = useState<BattleMode>("recommended");
   const [pinned, setPinned] = useState<[string, string]>(["", ""]);
@@ -30,42 +31,24 @@ export function BattleView({ state, stateHistory, analytics, recommendedPair }: 
   const left = pair?.[0] ?? null;
   const right = pair?.[1] ?? null;
   const gap = currentPairGap(analytics, left, right);
-  const samples: GapSample[] = !left || !right ? [] : stateHistory.flatMap((snapshot) => {
-      const value = gapBetween(snapshot.drivers[left.number] ?? null, snapshot.drivers[right.number] ?? null);
-      return snapshot.updated_at && value != null ? [{ at: snapshot.updated_at, value }] : [];
-    });
-  const trend = samples.length < 3 ? "INSUFFICIENT HISTORY" : samples.at(-1)!.value < samples[0].value - 0.05 ? "CLOSING" : samples.at(-1)!.value > samples[0].value + 0.05 ? "OPENING" : "STABLE";
-  const battleCandidate = analytics?.battle.candidates.find((item) => item.aheadDriverNumber === left?.number && item.behindDriverNumber === right?.number) ?? null;
+  const historyKey = left && right ? `${left.number}:${right.number}` : "";
+  const reverseKey = left && right ? `${right.number}:${left.number}` : "";
+  const samples = analytics?.battle.histories?.[historyKey] ?? analytics?.battle.histories?.[reverseKey] ?? [];
+  const trend = samples.length < 3 ? "INSUFFICIENT HISTORY" : samples.at(-1)!.gapSeconds < samples[0].gapSeconds - 0.05 ? "CLOSING" : samples.at(-1)!.gapSeconds > samples[0].gapSeconds + 0.05 ? "OPENING" : "STABLE";
+  const battleCandidate = analytics?.battle.candidates.find((item) => (item.aheadDriverNumber === left?.number && item.behindDriverNumber === right?.number) || (item.aheadDriverNumber === right?.number && item.behindDriverNumber === left?.number)) ?? null;
   const leftStrategy = left ? analytics?.drivers[left.number]?.strategy : null;
   const rightStrategy = right ? analytics?.drivers[right.number]?.strategy : null;
-  const battleValid = Boolean(
-    left?.position != null
-    && right?.position != null
-    && left.position != null && right.position != null
-    && Math.abs(right.position - left.position) === 1
-  );
+  const sharedStrategyAvailable = Boolean(leftStrategy?.projectionGate?.publishAllowed && rightStrategy?.projectionGate?.publishAllowed && leftStrategy.pitWindow.value && rightStrategy.pitWindow.value);
 
   return <div className="battle-view">
-    <header className="experience-heading"><div><span>RACE INTELLIGENCE</span><h1>Battle</h1><p>One deterministic recommendation shared by desktop and TV.</p></div><div className="battle-modes">{(["recommended", "leader", "pinned"] as const).map((item) => <button className={mode === item ? "active" : ""} key={item} onClick={() => setMode(item)}>{item.toUpperCase()}</button>)}</div></header>
-    <div className="battle-selectors"><label><span>DRIVER A</span><select value={left?.number ?? pinned[0]} onChange={(event) => { setPinned([event.target.value, pinned[1]]); setMode("pinned"); }}>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "-"} · {driver.code ?? driver.number}</option>)}</select></label><div><span>OBSERVED GAP</span><strong>{gap == null ? "-" : `${gap.toFixed(3)}s`}</strong><small className={`trend trend-${trend.toLowerCase().split(" ")[0]}`}>{trend}</small></div><label><span>DRIVER B</span><select value={right?.number ?? pinned[1]} onChange={(event) => { setPinned([pinned[0], event.target.value]); setMode("pinned"); }}>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "-"} · {driver.code ?? driver.number}</option>)}</select></label></div>
-    <div className="battle-symmetric"><BattleDriverCard driver={left} side="left" /><div className="battle-axis"><i /><span>TRACK ORDER</span></div><BattleDriverCard driver={right} side="right" /></div>
+    <header className="experience-heading"><div><span>RACE INTELLIGENCE</span><h1>Battle</h1><p>Recommended uses completed-lap source history; Leader and Pinned never change its server truth.</p></div><div className="battle-modes">{(["recommended", "leader", "pinned"] as const).map((item) => <button className={mode === item ? "active" : ""} key={item} onClick={() => setMode(item)}>{item.toUpperCase()}</button>)}</div></header>
+    <div className="battle-selectors"><label><span>DRIVER A</span><select value={left?.number ?? pinned[0]} onChange={(event) => { setPinned([event.target.value, pinned[1]]); setMode("pinned"); }}><option value="">SELECT</option>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "—"} · {driver.code ?? driver.number}</option>)}</select></label><div><span>OBSERVED INTERVAL</span><strong>{gap == null ? "—" : `${gap.toFixed(3)}s`}</strong><small className={`trend trend-${trend.toLowerCase().split(" ")[0]}`}>{trend}</small></div><label><span>DRIVER B</span><select value={right?.number ?? pinned[1]} onChange={(event) => { setPinned([pinned[0], event.target.value]); setMode("pinned"); }}><option value="">SELECT</option>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "—"} · {driver.code ?? driver.number}</option>)}</select></label></div>
+    {mode === "recommended" && !pair && <div className="service-unavailable battle-unavailable"><strong>NO STABILIZED MEANINGFUL BATTLE</strong><p>A recommendation appears only after an eligible pair remains within 12 seconds across completed-lap source history.</p></div>}
+    {pair && <div className="battle-focus-grid"><BattleDriverCard driver={left} side="left" /><div className="battle-focused-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[left!.number, right!.number]} focusLabel={`${left!.code ?? left!.number} · ${right!.code ?? right!.number}`} /></div><BattleDriverCard driver={right} side="right" /></div>}
     <div className="battle-lower">
-      <Panel eyebrow="OBSERVED" title="Gap history"><GapHistory samples={samples} /></Panel>
-      {battleValid ? (
-        <Panel eyebrow="BATTLE SCORE" title={battleCandidate ? `${battleCandidate.score.toFixed(1)} / 100` : "—"}>
-          <div className="battle-score-factors">{battleCandidate?.factors.map((factor) => <div key={factor.name}><span>{factor.name.replaceAll("_", " ").toUpperCase()}</span><strong>{factor.weight >= 0 ? "+" : ""}{factor.weight.toFixed(1)}</strong></div>) ?? <div className="panel-empty">INSUFFICIENT COMPARABLE EVIDENCE</div>}</div>
-        </Panel>
-      ) : (
-        <Panel eyebrow="BATTLE SCORE" title="NOT AVAILABLE">
-          <div className="panel-empty">SELECTED DRIVERS ARE NOT ADJACENT ON TRACK — BATTLE RECOMMENDATION NOT APPLICABLE</div>
-        </Panel>
-      )}
-      <Panel eyebrow="SHARED STRATEGY" title="Interaction">
-        <div className="battle-strategy-compare">
-          <div><span>{left?.code ?? "DRIVER A"}</span><strong>{leftStrategy?.pitWindow.value ? `L${leftStrategy.pitWindow.value[0]}–${leftStrategy.pitWindow.value[1]}` : "—"}</strong><small>{leftStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div>
-          <div><span>{right?.code ?? "DRIVER B"}</span><strong>{rightStrategy?.pitWindow.value ? `L${rightStrategy.pitWindow.value[0]}–${rightStrategy.pitWindow.value[1]}` : "—"}</strong><small>{rightStrategy?.undercutStrength.value ?? "UNKNOWN"}</small></div>
-        </div>
-      </Panel>
+      <Panel eyebrow="COMPLETED LAPS" title="Gap history"><GapHistory samples={samples} /></Panel>
+      <Panel eyebrow="BATTLE SCORE" title={battleCandidate ? `${battleCandidate.score.toFixed(1)} / 100` : "NOT AVAILABLE"}><div className="battle-score-factors">{battleCandidate?.factors.map((factor) => <div key={factor.name}><span>{factor.name.replaceAll("_", " ").toUpperCase()}</span><strong>{factor.weight >= 0 ? "+" : ""}{factor.weight.toFixed(1)}</strong></div>) ?? <div className="panel-empty">PAIR IS NOT A CURRENT MEANINGFUL BATTLE CANDIDATE</div>}</div></Panel>
+      <Panel eyebrow="SHARED STRATEGY" title="Interaction">{sharedStrategyAvailable ? <div className="battle-strategy-compare"><div><span>{left?.code ?? "DRIVER A"}</span><strong>{leftStrategy?.pitWindow.value ? `L${leftStrategy.pitWindow.value[0]}–${leftStrategy.pitWindow.value[1]}` : "—"}</strong><small>GATED WINDOW</small></div><div><span>{right?.code ?? "DRIVER B"}</span><strong>{rightStrategy?.pitWindow.value ? `L${rightStrategy.pitWindow.value[0]}–${rightStrategy.pitWindow.value[1]}` : "—"}</strong><small>GATED WINDOW</small></div></div> : <div className="panel-empty">SHARED STRATEGY INTERACTION UNAVAILABLE · BOTH DRIVERS NEED PUBLISHED GATED WINDOWS</div>}</Panel>
     </div>
   </div>;
 }

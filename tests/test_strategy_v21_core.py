@@ -53,6 +53,9 @@ def test_snapshot_publishes_phase_c_contract_fields(tmp_path) -> None:
     assert "startingTyreDistribution" in snap
     assert "stopDistribution" in snap
     assert "observedSequences" in snap
+    assert snap["raceRead"]["population"]["active"] == 2
+    assert snap["drivers"]["1"]["read"]["headline"] == "AAA is running P1."
+    assert snap["drivers"]["1"]["read"]["modelVersion"] == snap["modelVersion"]
     # §17.1: NetPitLoss suppresses freeStopMargin + projectedRejoinPosition.
     for number in drivers:
         strategy = snap["drivers"][number]["strategy"]
