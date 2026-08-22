@@ -101,3 +101,17 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(shell, /layout === "race" \|\| \(view !== "strategy" && view !== "battle"\)/);
   assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
 });
+test("keeps Packet E TV and analytics contracts truthful", async () => {
+  const [tvMode, protocol] = await Promise.all([
+    readFile(new URL("../views/TVModeView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../domain/protocol.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(tvMode, /drivers\.slice\(/);
+  assert.match(tvMode, /focusedDriverNumbers=\{\[left\.number, right\.number\]\}/);
+  assert.match(tvMode, /focusedDriverNumbers=\{\[driver\.number\]\}/);
+  assert.match(tvMode, /tv-status-chequered|return "chequered"/);
+  assert.match(protocol, /perDriverState\?: Record<string, DryTyreRequirementState>/);
+  assert.match(protocol, /status: "NOT_IMPLEMENTED"/);
+  assert.match(protocol, /metrics: null/);
+});

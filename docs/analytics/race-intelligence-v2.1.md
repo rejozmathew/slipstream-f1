@@ -113,3 +113,10 @@ The server publishes a stabilized recommendation only after the same ordered pai
 Analytics caches by source/session/cursor/context/model signature and returns copies. No request history, viewer state, future event, or frontend calculation changes the answer at a cursor.
 
 Not modelled: tyre-set inventory/condition, fuel correction, traffic simulation, warm-up, separate SC/VSC pit loss, probabilistic race simulation, prior-edition circuit baselines, and enabled external intelligence. These remain explicit `UNKNOWN`/`NOT_IMPLEMENTED` boundaries.
+## Historical, official, and backtest boundaries
+
+Prior-season same-circuit evidence, when deliberately ingested, is `HistoricalContext`: separately labelled context, never part of `WeekendContext` and never silently blended into current-meeting or current-session truth. No compatible ingested artifact yields `ABSENT`. The 2025→2026 regulation discontinuity is explicitly `LIMITED`; it is not upgraded by circuit identity alone.
+
+Official pre-race information is `OfficialPreRaceContext`, separately attributed with source, publication/retrieval time, URL, acquisition mode, caveats, and target-session ownership. The automated Pirelli acquisition spike is disabled because it cannot yet produce reliable source-derived records. Manual structured ingestion is the acceptable boundary; no sample values are substituted.
+
+Archived-session projection backtesting is `NOT_IMPLEMENTED`. Until a deterministic evaluator replays actual evidence at multiple cursors and scores against later factual outcomes, `metrics` is `null`. Hit rate, window error, stability, coverage, and similar quality numbers must never be canned or inferred from the live UI.

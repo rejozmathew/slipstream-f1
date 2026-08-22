@@ -200,4 +200,6 @@ Recordings are private operational inputs. Their formats may need migrations ind
 
 `battle.histories` contains only completed-lap interval samples. `battle.stabilizedRecommended` and `heldRecommendation` are functions of source history at the cursor and are request-order independent. A pair must remain eligible within the meaningful-gap threshold and have source history spanning the configured hold time.
 
+`sportingRules.dryTyreRequirement.perDriverState` is a map keyed by driver number, not a scalar. `historical` and `officialPreRace` are separately attributed, target-session-owned optional artifacts; absence is explicit and neither is silently blended into `WeekendContext`. `backtest.status` is `NOT_IMPLEMENTED` and `backtest.metrics` is `null` until a deterministic archived-session evaluator exists.
+
 `netPitLoss.status = NOT_IMPLEMENTED` blocks free-stop, projected-rejoin, and quantified-undercut claims. Raw pit-lane duration does not satisfy that dependency.

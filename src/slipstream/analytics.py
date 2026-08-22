@@ -226,6 +226,7 @@ def build_analytics_snapshot(
             "session is FINAL at the cursor: Strategy is retrospective and "
             "future projections are suppressed"
         )
+        race_strategy["disposition"] = "UNKNOWN"
         race_strategy["windowState"] = "FINAL"
         _suppress_future_projection(race_strategy, final_reason)
         for model in driver_models.values():
@@ -315,8 +316,13 @@ def build_analytics_snapshot(
         # v2.1 §5.2 / §5.3: Historical + OfficialPreRace are separate, attributed,
         # target-session-owned context artifacts. Contract is Phase A;
         # acquisition is Phase F (manual path guaranteed, automated is a spike).
-        "historical": absent_historical(reason="phase_f_pending"),
-        "officialPreRace": absent_official_pre_race(reason="phase_f_pending"),
+        "historical": absent_historical(reason="no_compatible_context_ingested"),
+        "officialPreRace": absent_official_pre_race(reason="no_attributed_pre_race_source_ingested"),
+        "backtest": {
+            "status": "NOT_IMPLEMENTED",
+            "metrics": None,
+            "reason": "No deterministic archived-session evaluator is implemented; no quality metrics are published.",
+        },
         # v2.1 §5.5 / §26: data-ownership contract (target-session-owned,
         # session-scoped, cursor-keyed; M4 downstream deletion is a non-goal
         # for v2.1).

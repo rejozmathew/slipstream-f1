@@ -23,7 +23,7 @@ The product supports historical replay and a minimum public live-timing slice. O
 | Outputs | Browser, API v1, WebSocket snapshots, and terminal output |
 | Deployment | One container, one process, and one internal port |
 
-Not yet implemented: authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status and source status remain separate: the UI distinguishes LIVE CONNECTING, LIVE, LIVE STALE, and LIVE SOURCE UNAVAILABLE.
+Not yet implemented: deterministic archived-session backtesting, ingested historical/official pre-race context, Net Pit Loss, authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status and source status remain separate: the UI distinguishes LIVE CONNECTING, LIVE, LIVE STALE, and LIVE SOURCE UNAVAILABLE.
 
 ## Run it with Docker
 

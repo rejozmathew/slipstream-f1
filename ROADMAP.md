@@ -41,6 +41,8 @@ Strategy calculations, Recommended Battle, authentication, Sync Groups, devices,
 
 Historical replay remains the development and regression harness for analytics. Unsupported or insufficient evidence remains `UNKNOWN`; no frontend strategy calculations or parallel factual model are introduced.
 
+Milestone 3.5 clean-restart work is a review candidate, not an accepted release. Historical/official context ingestion, Net Pit Loss, and deterministic archived-session backtesting remain explicit future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
+
 ## Milestone 4 - persistent control plane and access
 
 - SQLite migrations under `/data`

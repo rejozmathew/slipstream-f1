@@ -197,3 +197,5 @@ def test_historical_and_official_blocks_present_even_when_absent() -> None:
     assert "officialPreRace" in snap
     assert snap["historical"]["status"] in ("PRESENT", "ABSENT")
     assert snap["officialPreRace"]["status"] in ("PRESENT", "ABSENT")
+    assert snap["backtest"]["status"] == "NOT_IMPLEMENTED"
+    assert snap["backtest"]["metrics"] is None

@@ -923,3 +923,49 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
   .strategy-overview-grid, .battle-focus-grid { grid-template-columns: 1fr; }
   .battle-focused-map { grid-column: auto; grid-row: auto; }
 }
+/* M3.5 Packet E: authored TV composition and strong track-status treatment */
+.tv-mode-view { grid-template-rows: 70px 38px minmax(0, 1fr) 56px; }
+.tv-header { border-top: 4px solid var(--tv-status-color, #55616e); background: linear-gradient(90deg, color-mix(in srgb, var(--tv-status-color, #55616e), transparent 88%), rgba(4,7,9,.97) 35%); }
+.tv-mode-view[data-track-tone="green"] { --tv-status-color: #20bd7a; }
+.tv-mode-view[data-track-tone="yellow"] { --tv-status-color: #f1d22f; }
+.tv-mode-view[data-track-tone="safety"] { --tv-status-color: #ff9d1c; }
+.tv-mode-view[data-track-tone="red"] { --tv-status-color: #f0444d; }
+.tv-mode-view[data-track-tone="chequered"] { --tv-status-color: #f2f4f7; }
+.tv-mode-view[data-track-tone="unknown"] { --tv-status-color: #647180; }
+.tv-status { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; }
+.tv-status strong { min-width: 120px; padding-left: 14px; border-left: 1px solid color-mix(in srgb, var(--tv-status-color), transparent 45%); color: var(--tv-status-color); text-align: center; }
+.tv-status-rail { height: 38px; background: var(--tv-status-color); transition: filter .2s ease; }
+.tv-status-rail span { opacity: 1; color: #050607; font-size: 14px; }
+.tv-status-rail.critical-transition { height: 38px; animation: status-pulse .55s ease 3; }
+.tv-status-chequered { background: repeating-linear-gradient(90deg, #f2f4f7 0 28px, #15191e 28px 56px); }
+.tv-status-chequered span { padding: 5px 18px; background: #050607; color: #f2f4f7; }
+.tv-mini-tower > .panel { overflow: hidden; }
+.tv-mini-tower .timing-table { min-height: 0; overflow-y: auto; }
+.tv-mini-tower .timing-row { min-height: 33px; }
+.tv-mini-tower .timing-race { grid-template-columns: 30px minmax(105px,1fr) 65px 40px 65px; }
+.tv-battle-grid { grid-template-columns: minmax(230px,.75fr) minmax(440px,1.5fr) minmax(230px,.75fr) !important; align-items: stretch; }
+.tv-battle-card { display: grid; grid-template-columns: 1fr; align-content: start; gap: 8px; padding: 16px; border: 1px solid var(--line); border-top: 4px solid var(--team); background: var(--surface); }
+.tv-battle-card header { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 14px; }
+.tv-battle-card header strong { font: 850 28px/1 var(--mono); }
+.tv-battle-card p { margin: 0 0 8px; color: var(--muted); }
+.tv-battle-card > div { min-height: 58px; display: grid; align-content: center; gap: 7px; padding: 9px; border: 1px solid var(--line-soft); }
+.tv-battle-card span { color: var(--quiet); font: 650 8px/1 var(--mono); }
+.tv-battle-card strong { font: 750 14px/1 var(--mono); }
+.tv-battle-map { position: relative; min-width: 0; min-height: 0; }
+.tv-battle-map > .panel { height: 100%; }
+.tv-battle-trend { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 2; min-width: 170px; padding: 10px 14px; border: 1px solid var(--line); background: #070b10ed; text-align: center; }
+.tv-battle-trend span { color: var(--quiet); font: 650 8px/1 var(--mono); }
+.tv-battle-trend strong { display: block; margin-top: 5px; font: 800 18px/1 var(--mono); }
+.tv-driver-zones { grid-template-columns: minmax(260px,.72fr) minmax(430px,1.35fr) minmax(320px,.93fr); }
+.tv-driver-map, .tv-driver-map > .panel { min-height: 0; height: 100%; }
+.tv-driver-analysis { min-height: 0; display: grid; grid-template-rows: minmax(180px,.7fr) minmax(280px,1.3fr); gap: 10px; }
+.tv-driver-analysis > * { min-height: 0; }
+.tv-driver-analysis .strategy-panel { height: 100%; overflow: auto; }
+.tv-driver-pace { padding: 0; }
+.tv-insight-note { align-content: start; overflow: auto; }
+.tv-insight-note p { margin: 0; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+@media (max-width: 1280px) {
+  .tv-battle-grid { grid-template-columns: minmax(190px,.8fr) minmax(360px,1.25fr) minmax(190px,.8fr) !important; }
+  .tv-driver-zones { grid-template-columns: minmax(220px,.75fr) minmax(350px,1.2fr) minmax(280px,1fr); }
+  .tv-battle-card { padding: 10px; }
+}

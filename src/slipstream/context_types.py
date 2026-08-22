@@ -132,6 +132,19 @@ class OfficialPreRaceContext:
         }
 
 
+def historical_comparability(source_season: int, target_season: int) -> str:
+    """Classify prior-season context without asserting that evidence exists.
+
+    The 2025→2026 regulation discontinuity is explicitly LIMITED. Same-season
+    evidence is NORMAL, while other cross-season comparisons remain
+    INCOMPATIBLE until a versioned rule profile proves otherwise.
+    """
+    if source_season == target_season:
+        return "NORMAL"
+    if source_season == 2025 and target_season == 2026:
+        return "LIMITED"
+    return "INCOMPATIBLE"
+
 # --- Absent placeholders (contract present, no data yet) ----------------------
 
 

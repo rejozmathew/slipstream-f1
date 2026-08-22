@@ -284,9 +284,9 @@ def test_driver_context_and_recommended_battle_share_one_model(tmp_path: Path) -
     state = RaceState(
         session=SessionState(key="300", session_kind="race", layout_family="race", status="STARTED"),
         drivers={
-            "1": DriverState(number="1", code="AAA", position=1, gap_to_leader=None),
-            "2": DriverState(number="2", code="BBB", position=2, gap_to_leader="+1.250", interval_to_ahead="+1.250"),
-            "3": DriverState(number="3", code="CCC", position=3, gap_to_leader="+9.000", interval_to_ahead="+7.750"),
+            "1": DriverState(number="1", code="AAA", position=1, gap_to_leader=None, status="RUNNING"),
+            "2": DriverState(number="2", code="BBB", position=2, gap_to_leader="+1.250", interval_to_ahead="+1.250", status="RUNNING"),
+            "3": DriverState(number="3", code="CCC", position=3, gap_to_leader="+9.000", interval_to_ahead="+7.750", status="RUNNING"),
         },
     )
     resource = ReplayResource(descriptor(tmp_path), events, state, SessionEvidence.from_events(events), True, False)
@@ -297,7 +297,9 @@ def test_driver_context_and_recommended_battle_share_one_model(tmp_path: Path) -
     assert snapshot["drivers"]["2"]["behind"]["driverNumber"] == "3"
     assert snapshot["battle"]["recommended"]["aheadDriverNumber"] == "1"
     assert snapshot["battle"]["recommended"]["behindDriverNumber"] == "2"
-    assert snapshot["battle"]["hysteresis"] == {"minimumHoldSeconds": 20, "switchMargin": 8}
+    assert snapshot["battle"]["hysteresis"]["minimumHoldSeconds"] == 20
+    assert snapshot["battle"]["hysteresis"]["switchMargin"] == 8
+    assert snapshot["battle"]["hysteresis"]["owner"] == "server"
 
 
 def test_pit_event_keeps_compound_transition_and_distinct_durations() -> None:

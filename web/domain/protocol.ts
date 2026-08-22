@@ -409,6 +409,11 @@ export type AnalyticsSnapshot = {
   // v2.1 §5.2 / §5.3: attributed, target-session-owned context artifacts.
   historical?: HistoricalContext;
   officialPreRace?: OfficialPreRaceContext;
+  backtest?: {
+    status: "NOT_IMPLEMENTED";
+    metrics: null;
+    reason: string;
+  };
   // v2.1 §5.5 / §26: data-ownership contract (target-session-owned,
   // session-scoped, cursor-keyed; M4 downstream deletion is a non-goal).
   dataOwnership: {
@@ -427,7 +432,7 @@ export type AnalyticsSnapshot = {
     // v2.1 §15: rule-derived dry-tyre obligation (per-driver state in Phase C).
     dryTyreRequirement?: {
       ruleProfile?: string;
-      perDriverState?: DryTyreRequirementState;
+      perDriverState?: Record<string, DryTyreRequirementState>;
       evidenceBasis?: string[];
     };
   };
