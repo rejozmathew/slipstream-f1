@@ -20,6 +20,7 @@ from .adapters.openf1 import OpenF1Client, write_recording
 from .analytics import AnalyticsService
 from .events import parse_timestamp
 from .library import ReplayLibrary, ReplayResource
+from .live import PublicLiveSession
 from .playback import ReplayController
 from .serialization import state_envelope
 from .weekend import (
@@ -36,9 +37,19 @@ def create_app(
     capture_session: Callable[[int], dict[str, Any]] | None = None,
     prepare_weekend_context: Callable[..., dict[str, Any]] | None = None,
     web_dir: Path | None = None,
+    public_live: bool | None = None,
+    live_session: PublicLiveSession | None = None,
 ) -> FastAPI:
     clock = now or (lambda: datetime.now(UTC))
+    live_enabled = (
+        public_live
+        if public_live is not None
+        else os.getenv("SLIPSTREAM_PUBLIC_LIVE", "1").strip().lower()
+        not in {"0", "false", "no", "off"}
+    )
     library_ref = [ReplayLibrary(recording_path, now=clock)]
+    live = live_session or PublicLiveSession(now=clock)
+    live_monitor_task: list[asyncio.Task[None] | None] = [None]
     downloader = capture_session or OpenF1Client().capture_session
     analytics_service = AnalyticsService()
     download_lock = asyncio.Lock()
@@ -79,12 +90,83 @@ def create_app(
             return context_coordinator.ensure(selected.descriptor, inventory)
         return context_coordinator.current(selected.descriptor)
 
+    def current_live_descriptor():
+        if not live_enabled:
+            return None
+        current = [
+            descriptor
+            for descriptor in library_ref[0].descriptors.values()
+            if descriptor.is_live(clock())
+        ]
+        return max(current, key=lambda item: item.date_start) if current else None
+
+    def live_payload(session_key: str | None) -> dict[str, Any]:
+        view = live.view(session_key)
+        return {
+            "status": view.status,
+            "connected": view.connected,
+            "stale": view.stale,
+            "sequence": view.sequence,
+            "lastReceivedAt": view.last_received_at,
+            "error": view.error,
+        }
+
+    def catalog_payload() -> dict[str, Any]:
+        payload = library_ref[0].catalog()
+        live_descriptor = current_live_descriptor()
+        for session in payload["sessions"]:
+            scheduled_live = bool(session["isLive"])
+            source = live.view(session["sessionKey"])
+            session.update(
+                {
+                    "liveAvailable": bool(live_enabled and scheduled_live),
+                    "liveConnected": scheduled_live and source.connected,
+                    "liveStale": scheduled_live and source.stale,
+                    "liveStatus": source.status if scheduled_live else "OFFLINE",
+                }
+            )
+        return {
+            **payload,
+            "downloadsEnabled": downloads_enabled,
+            "liveSessionKey": live_descriptor.key if live_descriptor else None,
+            "liveStatus": (
+                live.view(live_descriptor.key).status
+                if live_descriptor is not None
+                else "OFFLINE"
+            ),
+        }
+
+    async def reconcile_live_source() -> None:
+        selected = current_live_descriptor()
+        if selected is None:
+            if live.target_session_key is not None:
+                await live.stop()
+            return
+        await live.start(selected.key)
+
+    async def monitor_live_source() -> None:
+        while True:
+            await reconcile_live_source()
+            await asyncio.sleep(15)
+
+    @app.on_event("startup")
+    async def start_live_source() -> None:
+        await reconcile_live_source()
+        live_monitor_task[0] = asyncio.create_task(monitor_live_source())
+
+    @app.on_event("shutdown")
+    async def stop_live_source() -> None:
+        task = live_monitor_task[0]
+        live_monitor_task[0] = None
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        await live.stop()
+
     @app.get("/api/v1/catalog")
     def get_catalog() -> dict[str, Any]:
-        return {
-            **library_ref[0].catalog(),
-            "downloadsEnabled": downloads_enabled,
-        }
+        return catalog_payload()
 
     @app.post("/api/v1/download")
     async def download_session(session_key: str) -> dict[str, Any]:
@@ -121,31 +203,82 @@ def create_app(
             "v": 1,
             "sessionKey": session_key,
             "status": "available",
-            "catalog": {
-                **library_ref[0].catalog(),
-                "downloadsEnabled": True,
-            },
+            "catalog": catalog_payload(),
         }
 
+    def live_state_envelope(selected: ReplayResource) -> dict[str, Any]:
+        source = live.view(selected.descriptor.key)
+        has_live_state = (
+            source.target_session_key == selected.descriptor.key
+            and source.sequence > 0
+        )
+        state = live.state if has_live_state else selected.final_state
+        envelope = state_envelope(
+            state,
+            sequence=source.sequence if has_live_state else len(selected.events),
+            session_time=state.updated_at,
+        )
+        envelope["mode"] = "live"
+        envelope["live"] = live_payload(selected.descriptor.key)
+        return envelope
+
     @app.get("/api/v1/state")
-    def get_state(session_key: str | None = None) -> dict[str, Any]:
+    def get_state(
+        session_key: str | None = None, mode: str = "auto"
+    ) -> dict[str, Any]:
         selected = resource(session_key)
-        return state_envelope(
+        if mode not in {"auto", "live", "replay"}:
+            raise HTTPException(status_code=422, detail="mode must be auto, live, or replay")
+        wants_live = mode == "live" or (mode == "auto" and selected.is_live)
+        if wants_live:
+            if not selected.is_live:
+                raise HTTPException(
+                    status_code=409, detail="Selected session is not currently live"
+                )
+            return live_state_envelope(selected)
+        envelope = state_envelope(
             selected.final_state,
             sequence=len(selected.events),
             session_time=selected.events[-1].occurred_at if selected.events else None,
         )
+        envelope["mode"] = "replay"
+        return envelope
 
     @app.get("/api/v1/capabilities")
     def get_capabilities(session_key: str | None = None) -> dict[str, Any]:
         selected = resource(session_key)
+        source = live.view(selected.descriptor.key)
+        live_available = bool(live_enabled and selected.is_live)
+        capabilities = dict(selected.descriptor.capabilities)
+        if live_available:
+            capabilities.update(
+                {
+                    "live_timing": True,
+                    "positions": False,
+                    "intervals": True,
+                    "location_xy": False,
+                    "race_control": True,
+                    "weather": True,
+                    "authenticated": False,
+                }
+            )
         return {
             "v": 1,
-            "source": selected.descriptor.source,
-            "capabilities": selected.descriptor.capabilities,
+            "source": (
+                "f1-signalr-public" if live_available else selected.descriptor.source
+            ),
+            "capabilities": capabilities,
             "replayAvailable": selected.replay_available,
+            "liveAvailable": live_available,
+            "liveConnected": source.connected,
+            "liveStale": source.stale,
+            "liveStatus": source.status if live_available else "OFFLINE",
             "isLive": selected.is_live,
-            "positionMode": selected.descriptor.position_mode,
+            "positionMode": (
+                "unavailable"
+                if live_available
+                else selected.descriptor.position_mode
+            ),
         }
 
     @app.get("/api/v1/replay")
@@ -158,6 +291,8 @@ def create_app(
             if start_time and end_time
             else 0
         )
+        source = live.view(selected.descriptor.key)
+        live_available = bool(live_enabled and selected.is_live)
         return {
             "v": 1,
             "sessionKey": selected.descriptor.key,
@@ -166,8 +301,17 @@ def create_app(
             "endTime": end_time,
             "durationSeconds": duration,
             "available": selected.replay_available,
+            "replayAvailable": selected.replay_available,
+            "liveAvailable": live_available,
+            "liveConnected": source.connected,
+            "liveStale": source.stale,
+            "liveStatus": source.status if live_available else "OFFLINE",
             "isLive": selected.is_live,
-            "positionMode": selected.descriptor.position_mode,
+            "positionMode": (
+                "unavailable"
+                if live_available
+                else selected.descriptor.position_mode
+            ),
         }
 
     @app.get("/api/v1/driver-history")
@@ -251,6 +395,29 @@ def create_app(
             await websocket.send_json({"v": 1, "type": "error", "error": str(error)})
             await websocket.close(code=1008)
             return
+        requested_mode = websocket.query_params.get("mode", "auto")
+        wants_live = requested_mode == "live" or (
+            requested_mode == "auto" and selected.is_live
+        )
+        if wants_live:
+            if not selected.is_live:
+                await websocket.send_json(
+                    {
+                        "v": 1,
+                        "type": "error",
+                        "error": "Selected session is not currently live",
+                    }
+                )
+                await websocket.close(code=1008)
+                return
+            try:
+                while True:
+                    await websocket.send_json(live_state_envelope(selected))
+                    await asyncio.sleep(0.5)
+            except (WebSocketDisconnect, RuntimeError):
+                pass
+            return
+
         controller = ReplayController(
             selected.events,
             start_time=selected.descriptor.date_start,

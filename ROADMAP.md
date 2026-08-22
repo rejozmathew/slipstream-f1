@@ -62,13 +62,12 @@ Existing recordings and catalog data must be preserved. There is no anonymous mi
 
 V1 does not use controller leases or locks.
 
-## Milestone 6 - normalized public live timing
+## Milestone 6 - expanded live-source coverage
 
-- validate a complete public real-session capture
-- normalize the proven public topics through the existing adapter/event/`RaceState` path
-- one upstream connection per instance with reconnect and bounded delay behavior
-- same normalized viewer presentation for replay and live
-- explicit stale/unavailable capability states
+- extend the M3.5 minimum public live slice from additional complete real-session captures
+- add source-neutral live evidence needed by analytics without leaking provider payloads
+- retain one upstream connection per instance and explicit stale/unavailable capability states
+- add optional authenticated source adapters when configured at runtime
 
 Authenticated sources remain optional adapters configured only at runtime. Credentials and protected captures never belong in the repository.
 

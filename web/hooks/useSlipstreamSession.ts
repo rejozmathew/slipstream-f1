@@ -5,12 +5,14 @@ import { connectReplaySocket, type ReplaySocket } from "../api/replaySocket";
 import {
   EMPTY_RACE_STATE,
   type AnalyticsSnapshot,
+  type LiveConnectionStatus,
   type RaceState,
   type ReplayCatalog,
   type ReplayCommand,
   type ReplayMetadata,
   type SourceCapabilities,
   type StateEnvelope,
+  type ViewingMode,
 } from "../domain/protocol";
 
 export type TransportState = "connecting" | "stream" | "rest" | "disconnected";
@@ -24,6 +26,8 @@ export function useSlipstreamSession() {
   const [capabilities, setCapabilities] = useState<SourceCapabilities | null>(null);
   const [catalog, setCatalog] = useState<ReplayCatalog | null>(null);
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
+  const [viewingMode, setViewingMode] = useState<ViewingMode>("replay");
+  const [liveStatus, setLiveStatus] = useState<LiveConnectionStatus>("OFFLINE");
   const [playhead, setPlayhead] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [transport, setTransport] = useState<TransportState>("connecting");
@@ -41,23 +45,35 @@ export function useSlipstreamSession() {
 
   useEffect(() => {
     let active = true;
-    void slipstreamApi.catalog()
-      .then((result) => {
+    let initialized = false;
+    const refreshCatalog = async () => {
+      try {
+        const result = await slipstreamApi.catalog();
         if (!active) return;
         setCatalog(result);
-        setSelectedSessionKey((current) => current ?? result.defaultSessionKey);
+        if (!initialized) {
+          initialized = true;
+          const defaultSession = result.sessions.find((item) => item.sessionKey === result.defaultSessionKey);
+          setSelectedSessionKey(result.defaultSessionKey);
+          setViewingMode(defaultSession?.liveAvailable ? "live" : "replay");
+        }
         setConnectionError(null);
-      })
-      .catch((error: unknown) => {
+      } catch (error) {
         if (!active) return;
         setTransport("disconnected");
         setConnectionError(error instanceof Error ? error.message : "Slipstream service unavailable");
-      });
-    return () => { active = false; };
+      }
+    };
+    void refreshCatalog();
+    const timer = window.setInterval(() => void refreshCatalog(), 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
-    if (!selectedSessionKey || !selectedCatalogSession) return;
+    if (!selectedSessionKey) return;
     let active = true;
     let pollTimer: number | undefined;
     let socket: ReplaySocket | null = null;
@@ -68,13 +84,18 @@ export function useSlipstreamSession() {
       setStateHistory((current) => current.at(-1)?.updated_at === envelope.data.updated_at ? current : [...current, envelope.data].slice(-90));
       setSequence(envelope.seq);
       setPlayhead(envelope.sessionTime ?? envelope.data.updated_at);
-      setIsPlaying(envelope.playback?.playing ?? false);
-      if (envelope.analytics) setAnalytics(envelope.analytics);
+      setIsPlaying(viewingMode === "replay" && (envelope.playback?.playing ?? false));
+      if (viewingMode === "live") {
+        setLiveStatus(envelope.live?.status ?? "UNAVAILABLE");
+        setAnalytics(null);
+      } else if (envelope.analytics) {
+        setAnalytics(envelope.analytics);
+      }
     };
 
     const refreshState = async () => {
       try {
-        const envelope = await slipstreamApi.state(selectedSessionKey);
+        const envelope = await slipstreamApi.state(selectedSessionKey, viewingMode);
         applyEnvelope(envelope);
         if (active) {
           setTransport("rest");
@@ -95,27 +116,31 @@ export function useSlipstreamSession() {
 
     void Promise.all([
       slipstreamApi.replay(selectedSessionKey),
-      slipstreamApi.state(selectedSessionKey),
+      slipstreamApi.state(selectedSessionKey, viewingMode),
       slipstreamApi.capabilities(selectedSessionKey),
     ]).then(([replay, envelope, sourceCapabilities]) => {
       if (!active) return;
       setMetadata(replay);
       setCapabilities(sourceCapabilities);
       applyEnvelope(envelope);
-      void slipstreamApi.analytics(selectedSessionKey, envelope.seq).then((result) => {
-        if (active) setAnalytics(result);
-      }).catch(() => {
-        // Factual replay remains usable when analytics are unavailable.
-      });
-      if (!replay.available) {
+      if (viewingMode === "replay") {
+        void slipstreamApi.analytics(selectedSessionKey, envelope.seq).then((result) => {
+          if (active) setAnalytics(result);
+        }).catch(() => {
+          // Factual replay remains usable when analytics are unavailable.
+        });
+      }
+      const streamAvailable = viewingMode === "live" ? replay.liveAvailable : replay.replayAvailable;
+      if (!streamAvailable) {
         setTransport("rest");
+        setCommandAvailable(false);
         return;
       }
-      socket = connectReplaySocket(slipstreamApi.streamUrl(selectedSessionKey), {
+      socket = connectReplaySocket(slipstreamApi.streamUrl(selectedSessionKey, viewingMode), {
         onOpen: () => {
           if (!active) return;
           setTransport("stream");
-          setCommandAvailable(true);
+          setCommandAvailable(viewingMode === "replay");
           setConnectionError(null);
           if (pollTimer !== undefined) {
             window.clearInterval(pollTimer);
@@ -143,9 +168,9 @@ export function useSlipstreamSession() {
       if (socketRef.current === socket) socketRef.current = null;
       if (pollTimer !== undefined) window.clearInterval(pollTimer);
     };
-  }, [selectedSessionKey, selectedCatalogSession, libraryRevision]);
+  }, [selectedSessionKey, viewingMode, libraryRevision]);
 
-  const chooseSession = (sessionKey: string) => {
+  const resetSessionView = () => {
     setDownloadState("idle");
     setDownloadError(null);
     setTransport("connecting");
@@ -159,7 +184,24 @@ export function useSlipstreamSession() {
     setSequence(0);
     setPlayhead(null);
     setIsPlaying(false);
+  };
+
+  const chooseSession = (sessionKey: string, mode?: ViewingMode) => {
+    const selected = catalog?.sessions.find((item) => item.sessionKey === sessionKey);
+    resetSessionView();
     setSelectedSessionKey(sessionKey);
+    setViewingMode(mode ?? (selected?.liveAvailable ? "live" : "replay"));
+    setLiveStatus(selected?.liveStatus ?? "OFFLINE");
+  };
+
+  const goLive = () => {
+    if (!catalog?.liveSessionKey) return;
+    chooseSession(catalog.liveSessionKey, "live");
+  };
+
+  const watchReplay = () => {
+    if (!selectedSessionKey) return;
+    chooseSession(selectedSessionKey, "replay");
   };
 
   const downloadReplay = async () => {
@@ -170,17 +212,8 @@ export function useSlipstreamSession() {
       const result = await slipstreamApi.download(selectedSessionKey);
       setCatalog(result.catalog);
       setDownloadState("idle");
-      setTransport("connecting");
-      setCommandAvailable(false);
-      setConnectionError(null);
-      setMetadata(null);
-      setCapabilities(null);
-      setState(EMPTY_RACE_STATE);
-      setAnalytics(null);
-      setStateHistory([]);
-      setSequence(0);
-      setPlayhead(null);
-      setIsPlaying(false);
+      resetSessionView();
+      setViewingMode("replay");
       setLibraryRevision((value) => value + 1);
     } catch (error) {
       setDownloadState("error");
@@ -189,10 +222,10 @@ export function useSlipstreamSession() {
   };
 
   const sendReplayCommand = (command: ReplayCommand) =>
-    commandAvailable && socketRef.current?.send(command) === true;
+    viewingMode === "replay" && commandAvailable && socketRef.current?.send(command) === true;
 
   useEffect(() => {
-    if (!selectedSessionKey || analytics?.context.status !== "preparing") return;
+    if (viewingMode !== "replay" || !selectedSessionKey || analytics?.context.status !== "preparing") return;
     let active = true;
     const timer = window.setInterval(() => {
       void slipstreamApi.analytics(selectedSessionKey, sequence).then((result) => {
@@ -205,7 +238,7 @@ export function useSlipstreamSession() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [analytics?.context.status, selectedSessionKey, sequence]);
+  }, [analytics?.context.status, selectedSessionKey, sequence, viewingMode]);
 
   return {
     state,
@@ -217,6 +250,8 @@ export function useSlipstreamSession() {
     catalog,
     selectedSessionKey,
     selectedCatalogSession,
+    viewingMode,
+    liveStatus,
     playhead,
     isPlaying,
     transport,
@@ -224,6 +259,8 @@ export function useSlipstreamSession() {
     downloadState,
     downloadError,
     chooseSession,
+    goLive,
+    watchReplay,
     downloadReplay,
     commandAvailable,
     sendReplayCommand,

@@ -18,9 +18,9 @@ Circuit geometry is static track shape. It must not be represented as driver GPS
 
 ### Public Formula 1 SignalR endpoint
 
-Slipstream independently implements the SignalR Core framing needed by its experimental raw public recorder. The endpoint returned HTTP 403 when probed outside a live session from the development environment, so availability and payload coverage still require real-weekend validation.
+Slipstream independently implements the SignalR Core framing used by its public recorder and live adapter. On 2026-08-22 the public endpoint accepted POST negotiation and a real initial subscription without credentials; an OPTIONS request returned 405, so the server-owned client does not require a browser-style preflight. The observed session exposed the public topic subset documented in `src/slipstream/live.py`.
 
-The recorder requests only the topics listed in `src/slipstream/live.py`. Protected GPS, car data, team radio, and similar enhanced topics are intentionally excluded.
+The recorder/live adapter requests only the topics listed in `src/slipstream/live.py`. Protected GPS, car data, team radio, and similar enhanced topics are intentionally excluded. The observed public slice did not provide precise X/Y, so live position capability remains unavailable rather than estimated.
 
 ## References used for verification only
 

@@ -2,7 +2,7 @@
 
 Slipstream F1 is an open-source, self-hosted Formula 1 historical timing and replay application. It turns source data into one canonical `RaceState` and presents that state through a browser pit wall, a versioned REST/WebSocket API, and a terminal renderer.
 
-The usable product today is historical replay. A public live-feed recorder also exists, but live messages are not yet normalized into `RaceState` or shown as live timing in the application.
+The product supports historical replay and a minimum public live-timing slice. One server-owned public SignalR connection normalizes proven timing, session, track-status, race-control, and weather topics through the same `NormalizedEvent` → `RaceState` path used by replay.
 
 ## What works today
 
@@ -23,7 +23,7 @@ The usable product today is historical replay. A public live-feed recorder also 
 | Outputs | Browser, API v1, WebSocket snapshots, and terminal output |
 | Deployment | One container, one process, and one internal port |
 
-Not yet implemented: authentication/SQLite, Sync Groups and device pairing, normalized live timing in the browser/API, authenticated live sources, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. A schedule entry may be labelled `LIVE` because its official time window is active; that does not mean a live timing source is connected.
+Not yet implemented: authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status and source status remain separate: the UI distinguishes LIVE CONNECTING, LIVE, LIVE STALE, and LIVE SOURCE UNAVAILABLE.
 
 ## Run it with Docker
 

@@ -81,6 +81,18 @@ export type RaceState = {
   }>;
 };
 
+export type LiveConnectionStatus = "OFFLINE" | "CONNECTING" | "LIVE" | "STALE" | "UNAVAILABLE";
+export type ViewingMode = "live" | "replay";
+
+export type LiveSourceState = {
+  status: LiveConnectionStatus;
+  connected: boolean;
+  stale: boolean;
+  sequence: number;
+  lastReceivedAt: string | null;
+  error: string | null;
+};
+
 export type StateEnvelope = {
   v: 1;
   seq: number;
@@ -88,6 +100,8 @@ export type StateEnvelope = {
   sessionTime: string | null;
   sourceTime: string | null;
   playback: { playing: boolean };
+  mode?: ViewingMode;
+  live?: LiveSourceState;
   data: RaceState;
   analytics?: AnalyticsSnapshot;
   error?: string;
@@ -100,6 +114,10 @@ export type SourceCapabilities = {
   source: string;
   capabilities: Record<string, boolean>;
   replayAvailable: boolean;
+  liveAvailable: boolean;
+  liveConnected: boolean;
+  liveStale: boolean;
+  liveStatus: LiveConnectionStatus;
   isLive: boolean;
   positionMode: PositionMode;
 };
@@ -112,6 +130,11 @@ export type ReplayMetadata = {
   endTime: string | null;
   durationSeconds: number;
   available: boolean;
+  replayAvailable: boolean;
+  liveAvailable: boolean;
+  liveConnected: boolean;
+  liveStale: boolean;
+  liveStatus: LiveConnectionStatus;
   isLive: boolean;
   positionMode: PositionMode;
 };
@@ -407,6 +430,10 @@ export type CatalogSession = {
   dateEnd: string;
   available: boolean;
   isLive: boolean;
+  liveAvailable: boolean;
+  liveConnected: boolean;
+  liveStale: boolean;
+  liveStatus: LiveConnectionStatus;
   downloadable: boolean;
   circuitShapeAvailable: boolean;
   positionMode: PositionMode;
@@ -416,6 +443,8 @@ export type ReplayCatalog = {
   v: 1;
   defaultSessionKey: string;
   downloadsEnabled: boolean;
+  liveSessionKey: string | null;
+  liveStatus: LiveConnectionStatus;
   sessions: CatalogSession[];
 };
 

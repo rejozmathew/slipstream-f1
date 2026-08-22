@@ -1,6 +1,6 @@
 # Architecture
 
-Slipstream is a historical replay and deterministic race-intelligence application with an experimental raw live recorder. Historical replay is integrated end to end; public live messages are recorded for research but do not yet feed the application state.
+Slipstream is a historical replay and deterministic race-intelligence application with a minimum public live-timing path. Replay and proven public live topics both enter the canonical `NormalizedEvent` → `RaceState` pipeline; raw public capture remains available for evidence and debugging.
 
 ## System shape
 
@@ -37,12 +37,13 @@ Static/circuit facts + RaceState + SessionEvidence
                           cached AnalyticsSnapshot v1
                      /api/v1/analytics + replay stream
 
-Experimental live path
+Public live path
 
-public F1 SignalR ---> versioned raw JSONL recording ---> future live normalizer
+public F1 SignalR ---> F1LiveAdapter ---> NormalizedEvent ---> RaceState ---> API/WebSocket viewers
+                         \-> optional versioned raw JSONL evidence
 ```
 
-The live recorder is deliberately disconnected from `RaceState` until its payloads have been captured and validated during a real session. A session can be schedule-active and marked `LIVE` without a live timing adapter being connected.
+`PublicLiveSession` owns at most one upstream connection, verifies the provider session key, maintains sparse provider state inside `F1LiveAdapter`, and publishes only canonical state. Schedule-active, live-available, connected, stale, and replay-available are separate states.
 
 ## Core invariants
 
@@ -73,7 +74,7 @@ The live recorder is deliberately disconnected from `RaceState` until its payloa
 | `replay.py` | Load supported recordings and reconstruct state deterministically |
 | `playback.py` | Own replay cursor, source clock, seek, delay, pause, and play behavior |
 | `api.py` | Expose API v1, per-client WebSocket playback, downloads, and compiled browser files |
-| `live.py` | Record unauthenticated public SignalR messages without normalizing them |
+| `live.py` | Record public SignalR evidence and normalize the proven public subset into canonical events/state through one reconnecting upstream |
 | `terminal.py` | Render canonical state for command-line inspection |
 | `web/` | Typed API/WebSocket clients, session context, shared factual panels, and Race/Qualifying/Practice views; never read a provider directly |
 
@@ -151,15 +152,11 @@ Routes and message compatibility are defined in [docs/protocol.md](docs/protocol
 
 ## Live-source boundary
 
-`PublicLiveRecorder` currently negotiates one unauthenticated SignalR connection and stores selected public topics in a versioned JSONL file. It does not:
+`PublicLiveSession` owns one reconnecting unauthenticated SignalR connection for the currently scheduled session. `F1LiveAdapter` keeps source-specific sparse-update merging at the boundary and rejects a provider session whose `SessionInfo.Key` differs from the selected catalog session. Browser clients receive canonical API v1 snapshots, never provider payloads.
 
-- update `RaceState`
-- feed the browser or API
-- provide a resilient reconnecting service
-- request protected GPS, car-data, or team-radio topics
-- prove that every advertised public topic is available throughout a race weekend
+The proven public subset is `DriverList`, `TimingData`, `TimingAppData`, `LapCount`, `SessionInfo`, `SessionStatus`, `TrackStatus`, `RaceControlMessages`, and `WeatherData`. Protected GPS, car data, team radio, and other enhanced topics are not requested. Because precise X/Y is absent from the public slice, `positionMode` is `unavailable`; the product does not invent car positions.
 
-The next live milestone starts with a real-session capture. Only after the raw messages are validated will the project add live normalization and extract a shared source abstraction from the historical and live implementations.
+Connection state is explicit (`OFFLINE`, `CONNECTING`, `LIVE`, `STALE`, `UNAVAILABLE`) and independent from schedule activity and replay availability. Raw versioned JSONL capture remains an operational evidence format.
 
 ## Deployment
 

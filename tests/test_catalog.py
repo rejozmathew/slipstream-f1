@@ -134,7 +134,7 @@ def test_catalog_only_live_session_is_default_and_cannot_seek_to_future(
     }
     (tmp_path / "catalog.json").write_text(json.dumps(payload), encoding="utf-8")
 
-    with TestClient(create_app(tmp_path, now=lambda: now)) as client:
+    with TestClient(create_app(tmp_path, now=lambda: now, public_live=False)) as client:
         catalog = client.get("/api/v1/catalog").json()
         state = client.get("/api/v1/state").json()
         replay = client.get("/api/v1/replay").json()

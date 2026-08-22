@@ -103,11 +103,6 @@ def test_recorder_negotiates_subscribes_and_writes_jsonl(tmp_path) -> None:
         upstream_connections = 0
         subscription: dict[str, object] = {}
 
-        async def options_handler(request: web.Request) -> web.Response:
-            assert request.query["negotiateVersion"] == "1"
-            return web.Response(
-                headers={"Set-Cookie": "AWSALBCORS=test-cookie; Path=/"}
-            )
 
         async def negotiate_handler(request: web.Request) -> web.Response:
             assert request.query["negotiateVersion"] == "1"
@@ -155,7 +150,6 @@ def test_recorder_negotiates_subscribes_and_writes_jsonl(tmp_path) -> None:
             return socket
 
         app = web.Application()
-        app.router.add_route("OPTIONS", "/signalrcore/negotiate", options_handler)
         app.router.add_post("/signalrcore/negotiate", negotiate_handler)
         app.router.add_get("/signalrcore", websocket_handler)
         runner = web.AppRunner(app)

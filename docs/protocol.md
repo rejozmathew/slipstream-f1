@@ -60,7 +60,7 @@ REST state responses and WebSocket snapshots use:
 | `GET /api/v1/catalog` | List known seasons, weekends, and sessions; identify the default session and whether downloads are writable |
 | `GET /api/v1/state` | Return the final normalized state for a selected session resource |
 | `GET /api/v1/capabilities` | Describe the selected source/session data capabilities |
-| `GET /api/v1/replay` | Return event count, time bounds, availability, live schedule status, and position mode |
+| `GET /api/v1/replay` | Return replay and live availability separately, event/time bounds, live source state, and position mode |
 | `GET /api/v1/driver-history` | Return one driver's normalized lap evidence on demand, outside high-frequency state snapshots |
 | `GET /api/v1/analytics` | Return the versioned analytics sidecar at an optional inclusive `at` or `seq` cutoff and start non-blocking Weekend Context preparation |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
@@ -102,7 +102,7 @@ Catalog session fields have specific meanings:
 - `positionMode`: `precise_xy`, `timing_estimate`, or `unavailable`.
 - `downloadsEnabled`: the server is using a writable recording directory.
 
-`isLive` is schedule status, not proof that a live timing adapter is connected. An active scheduled session is selected by default even when only its catalog placeholder is available.
+`isLive` is schedule status, not proof that a live source is connected. `replayAvailable`, `liveAvailable`, `liveConnected`, `liveStale`, and `liveStatus` are separate. The catalog also exposes `liveSessionKey`; an active scheduled session is selected in live mode by default, while a viewer already watching replay is not forcibly switched.
 
 For an active scheduled session, replay `endTime` is capped at the earlier of the scheduled end and the current time. Clients must not create future seek targets.
 
@@ -185,7 +185,7 @@ Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` whe
 | --- | --- |
 | `slipstream.openf1-recording.v1` | Historical OpenF1 session capture with unmodified endpoint arrays and declared source capabilities |
 | `slipstream.openf1-catalog.v1` | Lightweight session/meeting metadata and normalized circuit geometry; no timing events |
-| `slipstream.f1-signalr-recording.v1` | Raw public live SignalR JSONL evidence; not normalized state |
+| `slipstream.f1-signalr-recording.v1` | Optional raw public live SignalR JSONL evidence; live viewers still consume canonical state |
 | `slipstream.weekend-context.v1` | Compact operational meeting context for one target-session cutoff; not a replay asset |
 
 Historical recording envelopes include capture time, session key, source capabilities, and endpoint arrays. Raw live files begin with a header, followed by rows containing `received_at`, `stream`, optional `source_timestamp`, raw `payload`, and whether the row came from the initial subscription result.

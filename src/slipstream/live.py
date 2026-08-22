@@ -9,13 +9,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 import aiohttp
+
+from .events import NormalizedEvent
+from .session import classify_session
+from .state import RaceState
 
 RECORD_SEPARATOR = "\x1e"
 RECORDING_FORMAT = "slipstream.f1-signalr-recording.v1"
@@ -44,7 +49,7 @@ PUBLIC_TOPICS = (
 CAPABILITIES = {
     "historical_replay": False,
     "live_timing": True,
-    "positions": True,
+    "positions": False,
     "intervals": True,
     "location_xy": False,
     "circuit_shape": False,
@@ -267,11 +272,9 @@ class PublicLiveRecorder:
 
     async def _negotiate(self, session: aiohttp.ClientSession) -> str:
         params = {"negotiateVersion": "1"}
-        async with session.options(self.negotiate_url, params=params) as response:
-            if response.status >= 400:
-                raise LiveSourceError(
-                    f"Live negotiation preflight failed with HTTP {response.status}"
-                )
+        # The current public endpoint returns 405 to OPTIONS while accepting the
+        # actual POST negotiation. Browsers may preflight; this server-owned
+        # client does not need to invent a provider requirement for OPTIONS.
         async with session.post(self.negotiate_url, params=params) as response:
             if response.status >= 400:
                 raise LiveSourceError(
@@ -298,3 +301,602 @@ class PublicLiveRecorder:
                 ) from error
             if isinstance(payload, dict) and payload.get("error"):
                 raise LiveSourceError(f"SignalR handshake failed: {payload['error']}")
+
+
+LIVE_CONNECTION_STATES = ("OFFLINE", "CONNECTING", "LIVE", "STALE", "UNAVAILABLE")
+
+
+class LiveSessionMismatch(LiveSourceError):
+    """Raised when the public feed does not match the selected live session."""
+
+
+def _merge_provider_value(current: Any, patch: Any) -> Any:
+    """Merge SignalR sparse updates without leaking them outside the adapter."""
+
+    if isinstance(current, dict) and isinstance(patch, dict):
+        merged = dict(current)
+        for key, value in patch.items():
+            merged[str(key)] = _merge_provider_value(merged.get(str(key)), value)
+        return merged
+    if isinstance(current, list) and isinstance(patch, dict):
+        merged = list(current)
+        for raw_index, value in patch.items():
+            if not str(raw_index).isdigit():
+                continue
+            index = int(raw_index)
+            while len(merged) <= index:
+                merged.append({})
+            merged[index] = _merge_provider_value(merged[index], value)
+        return merged
+    return patch
+
+
+def _number(value: Any, *, integer: bool = False) -> float | int | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(parsed) if integer else parsed
+
+
+def _value(value: Any) -> Any:
+    return value.get("Value") if isinstance(value, dict) else value
+
+
+def _truthy(value: Any) -> bool:
+    return value is True or str(value).strip().lower() in {"1", "true", "yes"}
+
+
+def _ordered_values(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return [
+            item
+            for _, item in sorted(
+                value.items(),
+                key=lambda pair: int(pair[0]) if str(pair[0]).isdigit() else 999,
+            )
+        ]
+    return []
+
+
+def _session_status(payload: dict[str, Any]) -> str:
+    status = str(payload.get("Status") or payload.get("SessionStatus") or "").upper()
+    started = str(payload.get("Started") or "").upper()
+    if status in {"ENDS", "FINISHED", "FINALISED", "FINALIZED"} or started == "FINISHED":
+        return "FINISHED"
+    if status in {"STARTED", "RUNNING"} or started in {"STARTED", "RUNNING"}:
+        return "RUNNING"
+    if status in {"INACTIVE", "NOT STARTED"}:
+        return "SCHEDULED"
+    return "UNKNOWN"
+
+
+_TRACK_STATUS_CODES = {
+    "1": "GREEN",
+    "2": "YELLOW",
+    "4": "SAFETY CAR",
+    "5": "RED",
+    "6": "VSC",
+    "7": "VSC ENDING",
+}
+
+
+def _track_status(payload: dict[str, Any]) -> str | None:
+    message = str(payload.get("Message") or "").upper()
+    if "DOUBLE YELLOW" in message:
+        return "DOUBLE YELLOW"
+    if "CHEQUERED" in message:
+        return "CHEQUERED"
+    return _TRACK_STATUS_CODES.get(str(payload.get("Status") or ""))
+
+
+class F1LiveAdapter:
+    """Stateful boundary from observed public SignalR topics to NormalizedEvent."""
+
+    _ORDER = (
+        "SessionInfo",
+        "SessionStatus",
+        "DriverList",
+        "TimingAppData",
+        "TimingData",
+        "LapCount",
+        "TrackStatus",
+        "RaceControlMessages",
+        "WeatherData",
+    )
+
+    def __init__(self, target_session_key: str) -> None:
+        self.target_session_key = str(target_session_key)
+        self.streams: dict[str, Any] = {}
+        self.session_verified = False
+        self._published_initial = False
+        self._seen_race_control: set[str] = set()
+
+    def ingest(self, row: dict[str, Any]) -> tuple[NormalizedEvent, ...]:
+        stream = str(row.get("stream") or "")
+        if stream not in PUBLIC_TOPICS:
+            return ()
+        payload = row.get("payload")
+        self.streams[stream] = _merge_provider_value(
+            self.streams.get(stream), payload
+        )
+        if stream == "SessionInfo":
+            key = str(
+                self.streams[stream].get("Key")
+                if isinstance(self.streams[stream], dict)
+                else ""
+            )
+            if key and key != self.target_session_key:
+                raise LiveSessionMismatch(
+                    f"public feed session {key} does not match selected live session "
+                    f"{self.target_session_key}"
+                )
+            self.session_verified = key == self.target_session_key
+        if not self.session_verified:
+            return ()
+
+        received_at = str(row.get("received_at") or utc_now())
+        if not self._published_initial:
+            self._published_initial = True
+            events = [
+                event
+                for name in self._ORDER
+                for event in self._events_for(
+                    name, self.streams.get(name), received_at, self.streams.get(name)
+                )
+            ]
+            return tuple(events)
+        return tuple(self._events_for(stream, self.streams[stream], received_at, payload))
+
+    def _events_for(
+        self, stream: str, merged: Any, occurred_at: str, patch: Any
+    ) -> list[NormalizedEvent]:
+        if not isinstance(merged, dict):
+            return []
+        if stream == "SessionInfo":
+            return self._session_info_events(merged, occurred_at)
+        if stream == "SessionStatus":
+            return [
+                NormalizedEvent(
+                    "session",
+                    occurred_at,
+                    "f1-signalr-public",
+                    {"status": _session_status(merged)},
+                    received_at=occurred_at,
+                )
+            ]
+        if stream == "DriverList":
+            return self._driver_events(merged, occurred_at)
+        if stream == "TimingData":
+            return self._timing_events(merged, patch, occurred_at)
+        if stream == "TimingAppData":
+            return self._stint_events(merged, occurred_at)
+        if stream == "LapCount":
+            updates: dict[str, Any] = {}
+            current = _number(
+                merged.get("CurrentLap") or merged.get("Current"), integer=True
+            )
+            total = _number(
+                merged.get("TotalLaps") or merged.get("Total"), integer=True
+            )
+            if current is not None:
+                updates["lap"] = current
+            if total is not None:
+                updates["total_laps"] = total
+            return [NormalizedEvent("session", occurred_at, "f1-signalr-public", updates, received_at=occurred_at)] if updates else []
+        if stream == "TrackStatus":
+            status = _track_status(merged)
+            return [NormalizedEvent("session", occurred_at, "f1-signalr-public", {"track_status": status}, received_at=occurred_at)] if status else []
+        if stream == "RaceControlMessages":
+            return self._race_control_events(merged, occurred_at)
+        if stream == "WeatherData":
+            mapping = {
+                "AirTemp": ("air_temperature", float),
+                "TrackTemp": ("track_temperature", float),
+                "Humidity": ("humidity", float),
+                "Pressure": ("pressure", float),
+                "Rainfall": ("rainfall", _truthy),
+                "WindSpeed": ("wind_speed", float),
+                "WindDirection": ("wind_direction", int),
+            }
+            updates: dict[str, Any] = {}
+            for provider_key, (canonical_key, converter) in mapping.items():
+                if provider_key not in merged:
+                    continue
+                try:
+                    updates[canonical_key] = converter(merged[provider_key])
+                except (TypeError, ValueError):
+                    continue
+            return [NormalizedEvent("weather", occurred_at, "f1-signalr-public", updates, received_at=occurred_at)] if updates else []
+        return []
+
+    def _session_info_events(
+        self, payload: dict[str, Any], occurred_at: str
+    ) -> list[NormalizedEvent]:
+        meeting = payload.get("Meeting") if isinstance(payload.get("Meeting"), dict) else {}
+        circuit = meeting.get("Circuit") if isinstance(meeting.get("Circuit"), dict) else {}
+        session_name = str(payload.get("Name") or "Session")
+        session_type = str(payload.get("Type") or "Session")
+        classification = classify_session(session_type, session_name)
+        return [
+            NormalizedEvent(
+                "session",
+                occurred_at,
+                "f1-signalr-public",
+                {
+                    "key": self.target_session_key,
+                    "name": session_name,
+                    "meeting_name": meeting.get("Name"),
+                    "session_type": session_type,
+                    "session_kind": classification.kind.value,
+                    "layout_family": classification.layout_family.value,
+                    "circuit": circuit.get("ShortName"),
+                    "location": meeting.get("Location"),
+                    "started_at": payload.get("StartDate"),
+                    "ended_at": payload.get("EndDate"),
+                    "gmt_offset": payload.get("GmtOffset"),
+                    "status": _session_status(payload),
+                },
+                received_at=occurred_at,
+            )
+        ]
+
+    def _driver_events(
+        self, payload: dict[str, Any], occurred_at: str
+    ) -> list[NormalizedEvent]:
+        events: list[NormalizedEvent] = []
+        for raw_number, item in payload.items():
+            if raw_number == "_kf" or not isinstance(item, dict):
+                continue
+            number = str(item.get("RacingNumber") or raw_number)
+            events.append(
+                NormalizedEvent(
+                    "driver",
+                    occurred_at,
+                    "f1-signalr-public",
+                    {
+                        "number": number,
+                        "code": item.get("Tla"),
+                        "name": item.get("FullName"),
+                        "team": item.get("TeamName"),
+                        "team_colour": item.get("TeamColour"),
+                        "status": "UNKNOWN",
+                    },
+                    received_at=occurred_at,
+                )
+            )
+        return events
+
+    def _timing_events(
+        self, merged: dict[str, Any], patch: Any, occurred_at: str
+    ) -> list[NormalizedEvent]:
+        lines = merged.get("Lines") if isinstance(merged.get("Lines"), dict) else {}
+        patch_lines = patch.get("Lines") if isinstance(patch, dict) and isinstance(patch.get("Lines"), dict) else {}
+        events: list[NormalizedEvent] = []
+        for raw_number, item in lines.items():
+            if not isinstance(item, dict):
+                continue
+            number = str(item.get("RacingNumber") or raw_number)
+            line_patch = patch_lines.get(raw_number) if isinstance(patch_lines.get(raw_number), dict) else {}
+            sectors = _ordered_values(item.get("Sectors"))
+            updates: dict[str, Any] = {
+                "position": _number(item.get("Position"), integer=True),
+                "lap": _number(item.get("NumberOfLaps"), integer=True),
+                "gap_to_leader": _value(item.get("GapToLeader")),
+                "interval_to_ahead": _value(item.get("IntervalToPositionAhead")),
+                "last_lap": _value(item.get("LastLapTime")),
+                "best_lap": _value(item.get("BestLapTime")),
+                "pit_count": _number(item.get("NumberOfPitStops"), integer=True) or 0,
+                "sector_1": _number(_value(sectors[0])) if len(sectors) > 0 else None,
+                "sector_2": _number(_value(sectors[1])) if len(sectors) > 1 else None,
+                "sector_3": _number(_value(sectors[2])) if len(sectors) > 2 else None,
+            }
+            if _truthy(item.get("Retired")):
+                updates["status"] = "RETIRED"
+            elif _truthy(item.get("Stopped")):
+                updates["status"] = "STOPPED"
+            elif "NumberOfLaps" in line_patch or (
+                not patch_lines and item.get("NumberOfLaps") is not None
+            ):
+                updates["status"] = "RUNNING"
+            updates = {key: value for key, value in updates.items() if value is not None}
+            events.append(
+                NormalizedEvent(
+                    "timing",
+                    occurred_at,
+                    "f1-signalr-public",
+                    {"number": number, **updates},
+                    received_at=occurred_at,
+                )
+            )
+        return events
+
+    def _stint_events(
+        self, payload: dict[str, Any], occurred_at: str
+    ) -> list[NormalizedEvent]:
+        lines = payload.get("Lines") if isinstance(payload.get("Lines"), dict) else {}
+        events: list[NormalizedEvent] = []
+        for raw_number, item in lines.items():
+            if not isinstance(item, dict):
+                continue
+            stints = _ordered_values(item.get("Stints"))
+            if not stints or not isinstance(stints[-1], dict):
+                continue
+            stint = stints[-1]
+            total_laps = _number(stint.get("TotalLaps"), integer=True)
+            events.append(
+                NormalizedEvent(
+                    "timing",
+                    occurred_at,
+                    "f1-signalr-public",
+                    {
+                        "number": str(item.get("RacingNumber") or raw_number),
+                        "compound": stint.get("Compound"),
+                        "tyre_age": total_laps,
+                        "stint_laps": total_laps,
+                    },
+                    received_at=occurred_at,
+                )
+            )
+        return events
+
+    def _race_control_events(
+        self, payload: dict[str, Any], occurred_at: str
+    ) -> list[NormalizedEvent]:
+        messages = payload.get("Messages")
+        if not isinstance(messages, (dict, list)):
+            return []
+        items = messages.items() if isinstance(messages, dict) else enumerate(messages)
+        events: list[NormalizedEvent] = []
+        for index, item in items:
+            if not isinstance(item, dict):
+                continue
+            identity = str(item.get("Utc") or item.get("Timestamp") or index)
+            if identity in self._seen_race_control:
+                continue
+            self._seen_race_control.add(identity)
+            message = str(item.get("Message") or "")
+            if not message:
+                continue
+            events.append(
+                NormalizedEvent(
+                    "race_control",
+                    str(item.get("Utc") or occurred_at),
+                    "f1-signalr-public",
+                    {
+                        "category": str(item.get("Category") or "Other"),
+                        "message": message,
+                        "flag": item.get("Flag"),
+                        "scope": item.get("Scope"),
+                        "driver_number": str(item.get("RacingNumber")) if item.get("RacingNumber") is not None else None,
+                        "sector": _number(item.get("Sector"), integer=True),
+                        "lap": _number(item.get("Lap"), integer=True),
+                    },
+                    received_at=occurred_at,
+                )
+            )
+        return events
+
+
+class PublicSignalRConnection:
+    """Yield raw public rows from one SignalR Core connection."""
+
+    def __init__(
+        self,
+        *,
+        negotiate_url: str = NEGOTIATE_URL,
+        connect_url: str = CONNECT_URL,
+        topics: tuple[str, ...] = PUBLIC_TOPICS,
+    ) -> None:
+        self.negotiate_url = negotiate_url
+        self.connect_url = connect_url
+        self.topics = topics
+
+    async def rows(self) -> AsyncIterator[dict[str, Any]]:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(
+            timeout=timeout, headers={"User-Agent": "slipstream-f1/0.1"}
+        ) as session:
+            async with session.post(
+                self.negotiate_url, params={"negotiateVersion": "1"}
+            ) as response:
+                if response.status >= 400:
+                    raise LiveSourceError(
+                        f"Live negotiation failed with HTTP {response.status}"
+                    )
+                negotiated = await response.json()
+            token = negotiated.get("connectionToken") if isinstance(negotiated, dict) else None
+            if not isinstance(token, str) or not token:
+                raise LiveSourceError("Live negotiation returned no connection token")
+            async with session.ws_connect(
+                f"{self.connect_url}?{urlencode({'id': token})}", heartbeat=20
+            ) as websocket:
+                await websocket.send_str(
+                    json.dumps({"protocol": "json", "version": 1}) + RECORD_SEPARATOR
+                )
+                handshake = await websocket.receive()
+                PublicLiveRecorder._validate_handshake(handshake)
+                await websocket.send_str(
+                    json.dumps(
+                        {
+                            "type": 1,
+                            "target": "Subscribe",
+                            "arguments": [list(self.topics)],
+                            "invocationId": "0",
+                        }
+                    )
+                    + RECORD_SEPARATOR
+                )
+                async for message in websocket:
+                    if message.type == aiohttp.WSMsgType.TEXT:
+                        rows, ping = decode_signalr_text(
+                            message.data, received_at=utc_now()
+                        )
+                        if ping:
+                            await websocket.send_str(
+                                json.dumps({"type": 6}) + RECORD_SEPARATOR
+                            )
+                        for row in rows:
+                            yield row
+                    elif message.type in {
+                        aiohttp.WSMsgType.CLOSE,
+                        aiohttp.WSMsgType.CLOSED,
+                        aiohttp.WSMsgType.ERROR,
+                    }:
+                        raise LiveSourceError(
+                            "The public live connection closed unexpectedly"
+                        )
+
+
+@dataclass(frozen=True)
+class LiveSourceView:
+    target_session_key: str | None
+    status: str
+    connected: bool
+    stale: bool
+    sequence: int
+    last_received_at: str | None
+    error: str | None
+
+
+class PublicLiveSession:
+    """Own one reconnecting public upstream and one canonical live RaceState."""
+
+    def __init__(
+        self,
+        row_source: Callable[[], AsyncIterator[dict[str, Any]]] | None = None,
+        *,
+        now: Callable[[], datetime] | None = None,
+        stale_after: float = 25.0,
+        maximum_backoff: float = 30.0,
+    ) -> None:
+        self._row_source = row_source or PublicSignalRConnection().rows
+        self._now = now or (lambda: datetime.now(UTC))
+        self._stale_after = stale_after
+        self._maximum_backoff = maximum_backoff
+        self._target_session_key: str | None = None
+        self._status = "OFFLINE"
+        self._error: str | None = None
+        self._last_received_at: str | None = None
+        self._events: list[NormalizedEvent] = []
+        self._state = RaceState()
+        self._task: asyncio.Task[None] | None = None
+
+    @property
+    def state(self) -> RaceState:
+        return self._state
+
+    @property
+    def events(self) -> tuple[NormalizedEvent, ...]:
+        return tuple(self._events)
+
+    @property
+    def target_session_key(self) -> str | None:
+        return self._target_session_key
+
+    def view(self, session_key: str | None = None) -> LiveSourceView:
+        matches = session_key is None or str(session_key) == self._target_session_key
+        status = self._status if matches else "OFFLINE"
+        return LiveSourceView(
+            self._target_session_key if matches else None,
+            status,
+            status == "LIVE",
+            status == "STALE",
+            len(self._events) if matches else 0,
+            self._last_received_at if matches else None,
+            self._error if matches else None,
+        )
+
+    async def start(self, session_key: str) -> None:
+        key = str(session_key)
+        if key == self._target_session_key and (
+            (self._task is not None and not self._task.done()) or self._events
+        ):
+            return
+        await self.stop()
+        self._target_session_key = key
+        self._status = "CONNECTING"
+        self._error = None
+        self._last_received_at = None
+        self._events = []
+        self._state = RaceState()
+        self._task = asyncio.create_task(self._run(key))
+
+    async def stop(self) -> None:
+        task = self._task
+        self._task = None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._status = "OFFLINE"
+        self._target_session_key = None
+
+    async def apply_rows(
+        self, session_key: str, rows: Iterable[dict[str, Any]]
+    ) -> None:
+        """Apply a deterministic raw fixture without opening a network connection."""
+
+        self._target_session_key = str(session_key)
+        self._status = "CONNECTING"
+        adapter = F1LiveAdapter(str(session_key))
+        for row in rows:
+            self._apply(adapter.ingest(row), str(row.get("received_at") or utc_now()))
+        if self._events:
+            self._status = "LIVE"
+            self._error = None
+
+    def _apply(
+        self, events: Iterable[NormalizedEvent], received_at: str
+    ) -> None:
+        emitted = False
+        for event in events:
+            self._events.append(event)
+            self._state = self._state.apply(event)
+            emitted = True
+        self._last_received_at = received_at
+        if emitted:
+            self._status = "LIVE"
+            self._error = None
+
+    async def _run(self, session_key: str) -> None:
+        backoff = 1.0
+        while self._target_session_key == session_key:
+            adapter = F1LiveAdapter(session_key)
+            self._status = "CONNECTING" if not self._events else "STALE"
+            try:
+                iterator = self._row_source().__aiter__()
+                while self._target_session_key == session_key:
+                    try:
+                        row = await asyncio.wait_for(
+                            anext(iterator), timeout=self._stale_after
+                        )
+                    except StopAsyncIteration as error:
+                        raise LiveSourceError(
+                            "The public live stream ended"
+                        ) from error
+                    except TimeoutError as error:
+                        self._status = "STALE"
+                        self._error = (
+                            f"No public live data received for "
+                            f"{self._stale_after:g} seconds"
+                        )
+                        raise LiveSourceError(self._error) from error
+                    self._apply(
+                        adapter.ingest(row),
+                        str(row.get("received_at") or utc_now()),
+                    )
+                    backoff = 1.0
+            except asyncio.CancelledError:
+                raise
+            except (LiveSourceError, aiohttp.ClientError, OSError) as error:
+                self._status = (
+                    "UNAVAILABLE" if not self._events else "STALE"
+                )
+                self._error = str(error)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, self._maximum_backoff)
