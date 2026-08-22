@@ -77,15 +77,15 @@ def test_field_distributions_excludes_retired_runners(tmp_path) -> None:
     resource, state = _resource(tmp_path, drivers)
     snap = build_analytics_snapshot(resource, state, sequence=1, as_of="2026-08-01T14:00:00+00:00", context=ContextAvailability("unavailable"))
 
-    # Retired driver excluded from active-runner field distributions.
+    # Starting tyres require first-stint evidence; current tyres use active runners.
     assert snap["activeRunnerCount"] == 2
-    dist = snap["startingTyreDistribution"]
-    assert dist.get("MEDIUM") == 1
-    assert dist.get("HARD") == 1
-    assert dist.get("SOFT") is None
+    assert snap["startingTyreDistribution"] == {}
+    assert snap["startingTyrePopulation"] == {"known": 0, "participants": 3}
+    assert snap["currentTyreDistribution"] == {"HARD": 1, "MEDIUM": 1}
+    assert snap["currentTyrePopulation"] == {"known": 2, "active": 2}
 
 
-def test_projection_gate_publishes_hard_pass_and_not_modelled(tmp_path) -> None:
+def test_projection_gate_publishes_hard_pass_and_truthful_insufficiency(tmp_path) -> None:
     drivers = {"1": DriverState(number="1", code="AAA", position=1, compound="MEDIUM", status="RUNNING")}
     resource, state = _resource(tmp_path, drivers)
     snap = build_analytics_snapshot(resource, state, sequence=1, as_of="2026-08-01T14:00:00+00:00", context=ContextAvailability("unavailable"))
@@ -93,8 +93,8 @@ def test_projection_gate_publishes_hard_pass_and_not_modelled(tmp_path) -> None:
     gate = snap["projectionGate"]
     assert gate["hardValidity"]["status"] == "PASS"
     assert gate["hardValidity"]["violations"] == 0
-    assert gate["plausibility"]["status"] == "NOT_MODELLED"
-    assert gate["stability"]["status"] == "NOT_MODELLED"
+    assert gate["plausibility"]["status"] == "INSUFFICIENT"
+    assert gate["stability"]["status"] == "INSUFFICIENT"
 
 
 def test_sprint_pit_lanes_excluded_from_race_pit_loss(tmp_path) -> None:

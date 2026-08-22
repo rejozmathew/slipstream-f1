@@ -98,14 +98,9 @@ def test_hysteresis_is_session_scoped_no_cross_session_leakage(tmp_path) -> None
     # Advance session B at the same cursor with the same driver state.
     snap_b = service.snapshot(rb, sb, sequence=100, as_of="2026-08-01T14:00:00+00:00", context=ContextAvailability("unavailable"))
 
-    # Both sessions must be independent — the held state is keyed by session.
-    a_held = snap_a["battle"]["heldRecommendation"]
-    b_held = snap_b["battle"]["heldRecommendation"]
-    # Both should have a held recommendation (candidate is stable at this cursor).
-    assert a_held is not None, "session A should hold a Battle recommendation"
-    assert b_held is not None, "session B should hold a Battle recommendation"
-    # The held states are independent objects (not the same dict reference).
-    assert a_held is not b_held
+    # No completed-lap source history exists, so neither session may fabricate a stable pair.
+    assert snap_a["battle"]["heldRecommendation"] is None
+    assert snap_b["battle"]["heldRecommendation"] is None
     # Ownership metadata is published and correct.
     assert snap_a["battle"]["hysteresis"]["sessionScoped"] is True
     assert snap_a["battle"]["hysteresis"]["cursorKeyed"] is True

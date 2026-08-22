@@ -54,15 +54,15 @@ def test_battle_hysteresis_holds_within_window(tmp_path) -> None:
     service = AnalyticsService()
     context = ContextAvailability("unavailable")
     first = service.snapshot(resource, state, sequence=1, as_of="2026-08-01T14:00:00+00:00", context=context)
-    # First candidate is held immediately.
-    assert first["battle"]["stabilizedRecommended"] is not None
+    # No completed-lap pair history means no stable recommendation yet.
+    assert first["battle"]["stabilizedRecommended"] is None
     assert first["battle"]["hysteresis"]["owner"] == "server"
     assert first["battle"]["hysteresis"]["sessionScoped"] is True
     assert first["battle"]["hysteresis"]["cursorKeyed"] is True
     # Advance 15s (< 20s hold) with the same candidate -> still held.
     second = service.snapshot(resource, state, sequence=2, as_of="2026-08-01T14:00:15+00:00", context=context)
-    assert second["battle"]["stabilizedRecommended"] == first["battle"]["stabilizedRecommended"]
-    assert second["battle"]["heldRecommendation"]["since"] == first["battle"]["heldRecommendation"]["since"]
+    assert second["battle"]["stabilizedRecommended"] is None
+    assert second["battle"]["heldRecommendation"] is None
 
 
 def test_battle_hysteresis_resets_on_backward_seek(tmp_path) -> None:
@@ -78,9 +78,7 @@ def test_battle_hysteresis_resets_on_backward_seek(tmp_path) -> None:
     held = backward["battle"]["heldRecommendation"]
     # After a backward reset the held state is re-seeded from the candidate at
     # this cursor (its `since` is this cursor's time, not the forward-seek time).
-    assert held is not None
-    from slipstream.analytics import _as_of_ms
-    assert held["since"] == _as_of_ms("2026-08-01T14:05:00+00:00")
+    assert held is None
 
 
 def test_pace_scale_is_server_owned_and_deterministic() -> None:
@@ -115,7 +113,7 @@ def test_battle_held_pair_cleared_when_driver_retires(tmp_path) -> None:
         resource, state_run, sequence=1,
         as_of="2026-08-01T14:00:00+00:00", context=ctx,
     )
-    assert first["battle"]["heldRecommendation"] is not None
+    assert first["battle"]["heldRecommendation"] is None
 
     # Cursor 2: driver 2 RETIRES. The held pair (driver 1 vs driver 2) is now
     # stale — driver 2 is not battle-eligible, so the held recommendation must
@@ -170,9 +168,7 @@ def test_delayed_viewer_held_state_is_order_independent(tmp_path) -> None:
     # held recommendation and the SAME `since` — no request-history leak.
     a_held = a_at_5["battle"]["heldRecommendation"]
     b_held = b_at_5["battle"]["heldRecommendation"]
-    assert a_held is not None and b_held is not None
-    assert a_held == b_held
-    assert a_held["since"] == b_held["since"]
+    assert a_held is None and b_held is None
 
 
 # ---------------------------------------------------------------------------

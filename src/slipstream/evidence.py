@@ -42,6 +42,18 @@ class LapEvidence:
 
 
 @dataclass(frozen=True)
+class CompletedGapEvidence:
+    """One car-to-car gap sampled only when the behind car completed a lap."""
+
+    sequence: int
+    occurred_at: str
+    lap: int
+    ahead_driver_number: str
+    behind_driver_number: str
+    gap_seconds: float
+
+
+@dataclass(frozen=True)
 class PitEvent:
     """One viewer-oriented pit event backed only by observed source fields."""
 
@@ -60,6 +72,7 @@ class SessionEvidence:
     """Queryable evidence reconstructed deterministically from normalized events."""
 
     lap_observations: tuple[LapEvidence, ...] = ()
+    completed_gaps: tuple[CompletedGapEvidence, ...] = ()
 
     @classmethod
     def from_events(
@@ -79,7 +92,10 @@ class SessionEvidence:
         """
         cutoff_dt = parse_timestamp(cutoff) if cutoff is not None else None
         observations: list[LapEvidence] = []
+        completed_gaps: list[CompletedGapEvidence] = []
+        state = RaceState()
         for sequence, event in enumerate(events, start=1):
+            state = state.apply(event)
             payload = event.payload.get("lap_observation")
             driver_number = event.payload.get("number")
             if event.kind != "timing" or not isinstance(payload, dict):
@@ -111,7 +127,30 @@ class SessionEvidence:
                     observation=observation,
                 )
             )
-        return cls(tuple(observations))
+            behind = state.drivers.get(str(driver_number))
+            if behind is None or behind.position is None:
+                continue
+            ahead = next(
+                (
+                    driver
+                    for driver in state.drivers.values()
+                    if driver.position == behind.position - 1
+                ),
+                None,
+            )
+            gap = _numeric_interval(behind.interval_to_ahead)
+            if ahead is not None and gap is not None:
+                completed_gaps.append(
+                    CompletedGapEvidence(
+                        sequence=sequence,
+                        occurred_at=event.occurred_at,
+                        lap=observation.lap,
+                        ahead_driver_number=ahead.number,
+                        behind_driver_number=behind.number,
+                        gap_seconds=gap,
+                    )
+                )
+        return cls(tuple(observations), tuple(completed_gaps))
 
     def laps_for_driver(
         self,
@@ -161,6 +200,23 @@ class SessionEvidence:
             and item.observation.pit_in is True
             and (event_limit is None or item.sequence <= event_limit)
             and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
+        )
+
+    def completed_gap_history(
+        self,
+        ahead_driver_number: str,
+        behind_driver_number: str,
+        *,
+        event_limit: int | None = None,
+    ) -> tuple[CompletedGapEvidence, ...]:
+        """Return completed-lap gap samples for one factual ordered pair."""
+
+        return tuple(
+            item
+            for item in self.completed_gaps
+            if item.ahead_driver_number == str(ahead_driver_number)
+            and item.behind_driver_number == str(behind_driver_number)
+            and (event_limit is None or item.sequence <= event_limit)
         )
 
     # ------------------------------------------------------------------
@@ -277,3 +333,11 @@ def active_runners(state: RaceState) -> tuple[str, ...]:
     there is a single status vocabulary across the codebase (v2.1 §8).
     """
     return _active_participants(state)
+
+def _numeric_interval(value: str | None) -> float | None:
+    if not value or "lap" in value.casefold():
+        return None
+    try:
+        return float(value.lstrip("+"))
+    except ValueError:
+        return None

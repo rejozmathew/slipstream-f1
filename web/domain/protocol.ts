@@ -245,9 +245,12 @@ export type OfficialPreRaceContext = {
 };
 
 export type ProjectionGate = {
-  hardValidity: { status: string; violations: number; reason?: string };
-  plausibility: { status: string; reason?: string };
-  stability: { status: string; reason?: string };
+  hardValidity: { status: string; violations: number; reason?: string; evidenceBasis?: string[] };
+  plausibility: { status: string; reason?: string; evidenceBasis?: string[]; supportingDrivers?: number };
+  stability: { status: string; reason?: string; evidenceBasis?: string[]; supportingDrivers?: number; windowSpreadLaps?: number; windows?: Array<[number, number]> };
+  publishAllowed: boolean;
+  stage: AnalyticsStage;
+  modelVersion: string;
 };
 
 export type NetPitLoss = {
@@ -273,6 +276,7 @@ export type StrategyAnalytics = {
   likelyNextCompound: AnalyticsMetric<string>;
   pitWindow: AnalyticsMetric<[number, number]>;
   tyreStress: AnalyticsMetric<string>;
+  paceTrend?: AnalyticsMetric<number>;
   degradation: AnalyticsMetric<number>;
   pitLoss: AnalyticsMetric<number>;
   undercutStrength: AnalyticsMetric<string>;
@@ -288,6 +292,15 @@ export type StrategyAnalytics = {
   terminalState?: string | null;
   strategyValidity?: StrategyValidity;
   dryTyreRequirement?: DryTyreRequirementState;
+  finishAssessment?: {
+    status: "SUPPORTED" | "INSUFFICIENT" | "UNKNOWN";
+    canFinish: boolean | null;
+    requiredTyreAge: number | null;
+    supportedTyreAge: number | null;
+    racePhase: string | null;
+    evidenceBasis: string[];
+  };
+  projectionGate?: ProjectionGate;
 };
 
 export type DriverAnalytics = {
@@ -302,6 +315,7 @@ export type DriverAnalytics = {
     // v2.1 §20: SERVER-computed deterministic chart scale (median of |delta|,
     // MAD 3× retention, 0.25s floor). Client renders verbatim.
     scale?: number;
+    paceTrend: AnalyticsMetric<number>;
     degradation: AnalyticsMetric<number>;
   };
   pitEvents: PitEvent[];
@@ -339,6 +353,27 @@ export type BattleCandidate = {
 
 export type AnalyticsStage = "BASELINE_AVAILABLE" | "WEEKEND_MODEL_READY" | "LIVE_OUTLOOK";
 
+export type DryRequirementLandscape = {
+  satisfied: number;
+  unsatisfied: number;
+  notApplicable: number;
+  unknown: number;
+  denominator: number;
+};
+
+export type RaceRead = {
+  raceLifecycle: StrategyLifecycle;
+  population: { participants: number; active: number; circulating: number; stopped: number; terminal: number };
+  completedStopDistribution: Record<string, number>;
+  startingTyreDistribution: Record<string, number>;
+  currentTyreDistribution: Record<string, number>;
+  paceTrendDistribution: { comparableDrivers: number; highFade: number; moderateFade: number; lowOrStable: number; unknown: number; denominator: number; basis: string };
+  stintContextByCompound: Record<string, { completedStints: number; medianLife: number; phaseCounts: Record<string, number> }>;
+  dryRequirementLandscape: DryRequirementLandscape;
+  strategyArchetype: { status: "OBSERVED" | "UNKNOWN"; value: string | null; drivers?: number; denominator?: number; evidenceBasis: string[] };
+  recentPitActivity: Array<{ driverNumber: string; lap: number; previousCompound: string | null; newCompound: string | null }>;
+  summaryFacts: string[];
+};
 export type AnalyticsSnapshot = {
   v: 1;
   type: "analytics.snapshot";
@@ -363,7 +398,12 @@ export type AnalyticsSnapshot = {
   activeRunnerCount?: number;
   startingTyreDistribution?: Record<string, number>;
   stopDistribution?: Record<string, number>;
-  observedSequences?: string[];
+  startingTyrePopulation?: { known: number; participants: number };
+  currentTyreDistribution?: Record<string, number>;
+  currentTyrePopulation?: { known: number; active: number };
+  observedSequences?: Array<{ sequence: string; drivers: number }>;
+  dryRequirementLandscape?: DryRequirementLandscape;
+  raceRead?: RaceRead;
   // v2.1 §5.2 / §5.3: attributed, target-session-owned context artifacts.
   historical?: HistoricalContext;
   officialPreRace?: OfficialPreRaceContext;
@@ -409,8 +449,9 @@ export type AnalyticsSnapshot = {
     // cursor-keyed hysteresis owned by AnalyticsService). The client renders
     // this verbatim and must NOT recompute it locally.
     stabilizedRecommended: BattleCandidate | null;
-    heldRecommendation: BattleCandidate | null;
-    hysteresis: { minimumHoldSeconds: number; switchMargin: number; owner?: string; sessionScoped?: boolean; cursorKeyed?: boolean };
+    heldRecommendation: { candidate: BattleCandidate; since: number } | null;
+    histories?: Record<string, Array<{ sequence: number; occurredAt: string; lap: number; gapSeconds: number }>>;
+    hysteresis: { minimumHoldSeconds: number; switchMargin: number; owner?: string; sessionScoped?: boolean; cursorKeyed?: boolean; orderIndependent?: boolean; basis?: string };
     modelVersion: string;
   };
 };

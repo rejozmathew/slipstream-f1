@@ -147,6 +147,8 @@ def test_v21_enum_vocabulary_is_closed_and_stable() -> None:
         "WINDOW_PASSED_EXTENDING",
         "TO_FINISH",
         "RESETTING",
+        "UNKNOWN",
+        "FINAL",
     )
     assert STRATEGY_VALIDITY_STATES == (
         "VALID",

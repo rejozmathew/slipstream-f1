@@ -76,7 +76,7 @@ The driver-history response also contains viewer-oriented `pitEvents`. A pit eve
 
 ## Weekend context and analytics
 
-`GET /api/v1/analytics` returns `analytics.snapshot` schema version 1. Its top-level fields include `modelVersion`, `sessionKind`, `layoutFamily`, `sequence`, `asOf`, stage, context status/provenance, explicit race-wide `raceStrategy`, per-driver models, pit loss, and the shared Battle recommendation. `raceStrategy.scope` is `RACE`; `drivers[number].strategy.scope` is `DRIVER` and includes `driverNumber`. Race/TV Strategy must not substitute the first driver model. `context.meetingKey` declares the only meeting whose evidence may contribute to the Weekend model. Metric values use:
+`GET /api/v1/analytics` returns `analytics.snapshot` schema version 1. Its top-level fields include `modelVersion`, `sessionKind`, `layoutFamily`, `sequence`, `asOf`, stage, context status/provenance, explicit race-wide `raceStrategy`, per-driver models, `raceRead`, projection gates, separate starting/current tyre populations, one dry-rule landscape, pit-loss capability state, completed-lap Battle histories, and the shared stabilized Battle recommendation. `raceStrategy.scope` is `RACE`; `drivers[number].strategy.scope` is `DRIVER` and includes `driverNumber`. Race/TV Strategy must not substitute the first driver model. `context.meetingKey` declares the only meeting whose evidence may contribute to the Weekend model. Metric values use:
 
 - `OBSERVED`: a normalized source fact;
 - `DERIVED`: a deterministic calculation from observed facts;
@@ -191,3 +191,13 @@ Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` whe
 Historical recording envelopes include capture time, session key, source capabilities, and endpoint arrays. Raw live files begin with a header, followed by rows containing `received_at`, `stream`, optional `source_timestamp`, raw `payload`, and whether the row came from the initial subscription result.
 
 Recordings are private operational inputs. Their formats may need migrations independently of API v1, and they must never contain committed credentials or authenticated captures.
+
+### Race-intelligence publication rules
+
+`raceRead` is a deterministic server-side interpretation of factual current-session evidence; clients must not recalculate it. `startingTyreDistribution` uses first-stint evidence and `currentTyreDistribution` uses active runners at the cursor. Each includes an explicit denominator.
+
+`drivers[number].strategy.projectionGate` and top-level `projectionGate` contain hard-validity, plausibility, stability, and `publishAllowed`. Future strategy values are absent/`UNKNOWN` unless all gates pass. `finishAssessment` is the positive evidence record behind `TO_FINISH`; the absence of a pit window never implies a run to the flag. `paceTrend` is raw clean-stint pace slope, not isolated tyre degradation; `degradation` remains a compatibility alias.
+
+`battle.histories` contains only completed-lap interval samples. `battle.stabilizedRecommended` and `heldRecommendation` are functions of source history at the cursor and are request-order independent. A pair must remain eligible within the meaningful-gap threshold and have source history spanning the configured hold time.
+
+`netPitLoss.status = NOT_IMPLEMENTED` blocks free-stop, projected-rejoin, and quantified-undercut claims. Raw pit-lane duration does not satisfy that dependency.

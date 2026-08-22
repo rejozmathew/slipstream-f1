@@ -68,7 +68,8 @@ public F1 SignalR ---> F1LiveAdapter ---> NormalizedEvent ---> RaceState ---> AP
 | `evidence.py` | Reconstruct queryable source-neutral session/lap evidence by replay time or cursor |
 | `session.py` | Normalize discovered session labels into `SessionKind` and `LayoutFamily` |
 | `weekend.py` | Prepare and cache compact meeting context asynchronously under `/data/.slipstream` |
-| `analytics.py` | Produce cached, as-of-time strategy, pace, pit, driver, and Battle analytics with provenance |
+| `analytics.py` | Orchestrate cached, cursor-safe Strategy, RaceRead, driver, and Battle analytics with provenance |
+| `race_intelligence.py` | Own explicit race-phase comparability, TO_FINISH evidence, field distributions, RaceRead, and hard projection invariants |
 | `strategy_rules.py` | Hold narrow season/session rule profiles without applying current rules to unverified historical events |
 | `external.py` | Define the optional external-intelligence boundary, disabled by default |
 | `replay.py` | Load supported recordings and reconstruct state deterministically |
@@ -99,6 +100,8 @@ Eligible sessions are discovered rather than assumed. A standard weekend may pro
 `AnalyticsSnapshot` is synchronized to the replay cursor/time and cached by meaningful factual and context revisions. It exposes explicit `raceStrategy` for field/session Strategy plus separate `drivers[number].strategy` models; Race and TV Strategy never default to the first driver. Each metric is `OBSERVED`, `DERIVED`, `ESTIMATE`, or `UNKNOWN` and carries its evidence basis, model version, and evidence/sample quality where useful. The clean-lap pace baseline is the median of at least three representative laps in a stint after median-absolute-deviation filtering; contaminated, pit, and neutralized laps remain visible but do not move that baseline.
 
 The normative derivation reference is [docs/analytics.md](docs/analytics.md). It records the current formulas, evidence thresholds, quality rules, replay-time behavior, Battle Score weights, and limitations that require `UNKNOWN`.
+
+RaceRead is the single server-authored field interpretation: it separates starting from current tyres, counts factual lifecycle populations, summarizes current-race Pace Trend, stint context, recent pits, and the authoritative dry-rule population. Future strategy fields are published only when hard validity, plausibility, and three-completed-lap stability gates pass. Battle stabilization and histories are derived from completed-lap source evidence, never request order or 250 ms transport snapshots.
 
 Sporting-rule facts are versioned by season and session kind. The 2026 profile follows the [FIA 2026 Formula 1 Sporting Regulations, Section B, Issue 08](https://www.fia.com/system/files/documents/fia_2026_f1_regulations_-_section_b_sporting_-_iss_08_-_2026-08-05_7.pdf). Sprint never inherits Grand Prix stop assumptions, and historical/event-specific obligations remain unknown until a matching profile exists.
 
