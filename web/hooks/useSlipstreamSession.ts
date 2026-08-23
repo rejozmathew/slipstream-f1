@@ -6,6 +6,7 @@ import {
   EMPTY_RACE_STATE,
   type AnalyticsSnapshot,
   type LiveConnectionStatus,
+  type LiveProductPhase,
   type RaceState,
   type ReplayCatalog,
   type ReplayCommand,
@@ -28,6 +29,7 @@ export function useSlipstreamSession() {
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
   const [viewingMode, setViewingMode] = useState<ViewingMode>("replay");
   const [liveStatus, setLiveStatus] = useState<LiveConnectionStatus>("OFFLINE");
+  const [livePhase, setLivePhase] = useState<LiveProductPhase>("UNAVAILABLE");
   const [playhead, setPlayhead] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [transport, setTransport] = useState<TransportState>("connecting");
@@ -87,8 +89,9 @@ export function useSlipstreamSession() {
       setIsPlaying(viewingMode === "replay" && (envelope.playback?.playing ?? false));
       if (viewingMode === "live") {
         setLiveStatus(envelope.live?.status ?? "UNAVAILABLE");
-        setAnalytics(null);
-      } else if (envelope.analytics) {
+        setLivePhase(envelope.live?.phase ?? "UNAVAILABLE");
+      }
+      if (envelope.analytics) {
         setAnalytics(envelope.analytics);
       }
     };
@@ -123,7 +126,7 @@ export function useSlipstreamSession() {
       setMetadata(replay);
       setCapabilities(sourceCapabilities);
       applyEnvelope(envelope);
-      if (viewingMode === "replay") {
+      if (viewingMode === "replay" && !envelope.analytics) {
         void slipstreamApi.analytics(selectedSessionKey, envelope.seq).then((result) => {
           if (active) setAnalytics(result);
         }).catch(() => {
@@ -140,7 +143,7 @@ export function useSlipstreamSession() {
         onOpen: () => {
           if (!active) return;
           setTransport("stream");
-          setCommandAvailable(viewingMode === "replay");
+          setCommandAvailable(true);
           setConnectionError(null);
           if (pollTimer !== undefined) {
             window.clearInterval(pollTimer);
@@ -192,6 +195,7 @@ export function useSlipstreamSession() {
     setSelectedSessionKey(sessionKey);
     setViewingMode(mode ?? (selected?.liveAvailable ? "live" : "replay"));
     setLiveStatus(selected?.liveStatus ?? "OFFLINE");
+    setLivePhase(selected?.livePhase ?? "UNAVAILABLE");
   };
 
   const goLive = () => {
@@ -222,7 +226,7 @@ export function useSlipstreamSession() {
   };
 
   const sendReplayCommand = (command: ReplayCommand) =>
-    viewingMode === "replay" && commandAvailable && socketRef.current?.send(command) === true;
+    commandAvailable && socketRef.current?.send(command) === true;
 
   useEffect(() => {
     if (viewingMode !== "replay" || !selectedSessionKey || analytics?.context.status !== "preparing") return;
@@ -252,6 +256,7 @@ export function useSlipstreamSession() {
     selectedCatalogSession,
     viewingMode,
     liveStatus,
+    livePhase,
     playhead,
     isPlaying,
     transport,

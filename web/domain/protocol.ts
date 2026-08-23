@@ -15,6 +15,7 @@ export type Driver = {
   compound: string | null;
   tyre_age: number | null;
   stint_laps: number | null;
+  tyre_usage: "NEW" | "USED" | "UNKNOWN";
   pit_count: number;
   track_position: number | null;
   x: number | null;
@@ -25,6 +26,9 @@ export type Driver = {
   sector_3: number | null;
   availability: Record<string, AvailabilityStatus>;
   status: string;
+  activity: "ON_TRACK" | "IN_PIT" | "NO_RECENT_PROGRESS" | "UNKNOWN";
+  progress_observed_at_lap: number | null;
+  qualifying_eliminated: boolean | null;
 };
 
 export type RaceState = {
@@ -44,6 +48,9 @@ export type RaceState = {
     lap: number | null;
     total_laps: number | null;
     track_status: string | null;
+    qualifying_phase: QualifyingPhase;
+    session_clock: string | null;
+    session_clock_running: boolean | null;
     gmt_offset: string | null;
     local_time: string | null;
     status: string;
@@ -82,15 +89,21 @@ export type RaceState = {
 };
 
 export type LiveConnectionStatus = "OFFLINE" | "CONNECTING" | "LIVE" | "STALE" | "UNAVAILABLE";
+export type LiveProductPhase = "PRE_EVENT" | "CONNECTING" | "LIVE" | "STALE" | "RECONNECTING" | "FINALIZING" | "COMPLETE" | "REPLAY_READY" | "UNAVAILABLE";
+export type QualifyingPhase = "Q1" | "Q2" | "Q3" | "SQ1" | "SQ2" | "SQ3" | "UNKNOWN";
 export type ViewingMode = "live" | "replay";
 
 export type LiveSourceState = {
   status: LiveConnectionStatus;
+  phase: LiveProductPhase;
   connected: boolean;
   stale: boolean;
   sequence: number;
   lastReceivedAt: string | null;
   error: string | null;
+  replayReady: boolean;
+  finalRecording: string | null;
+  delaySeconds: number;
 };
 
 export type StateEnvelope = {
@@ -118,6 +131,8 @@ export type SourceCapabilities = {
   liveConnected: boolean;
   liveStale: boolean;
   liveStatus: LiveConnectionStatus;
+  livePhase: LiveProductPhase;
+  replayReady: boolean;
   isLive: boolean;
   positionMode: PositionMode;
 };
@@ -135,6 +150,8 @@ export type ReplayMetadata = {
   liveConnected: boolean;
   liveStale: boolean;
   liveStatus: LiveConnectionStatus;
+  livePhase: LiveProductPhase;
+  replayReady: boolean;
   isLive: boolean;
   positionMode: PositionMode;
 };
@@ -151,6 +168,9 @@ export type LapObservation = {
   compound: string | null;
   stint_number: number | null;
   tyre_age: number | null;
+  qualifying_phase: QualifyingPhase;
+  tyre_usage: "NEW" | "USED" | "UNKNOWN";
+  lap_validity: "VALID" | "INVALID" | "UNKNOWN";
   pit_in: boolean | null;
   pit_out: boolean | null;
   pit_occurred_at: string | null;
@@ -424,6 +444,46 @@ export type PublishedStrategyIntelligence = {
   drivers: Record<string, DriverPublishedStrategy>;
   modelVersion: string;
 };
+export type QualifyingAttempt = {
+  attempt: number;
+  phase: QualifyingPhase;
+  lap: number | null;
+  lapTime: number | null;
+  sector1: number | null;
+  sector2: number | null;
+  sector3: number | null;
+  compound: string | null;
+  tyreAge: number | null;
+  tyreUsage: "NEW" | "USED" | "UNKNOWN";
+  validity: "VALID" | "INVALID" | "UNKNOWN";
+  occurredAt: string;
+};
+
+export type QualifyingDriverIntelligence = {
+  driverNumber: string;
+  activity: "ON_TRACK" | "IN_PIT" | "NO_RECENT_PROGRESS" | "UNKNOWN";
+  benchmarkDelta: number | null;
+  cutState: "ADVANCING" | "BELOW_CUT" | "ELIMINATED" | "UNKNOWN";
+  attempts: QualifyingAttempt[];
+  tyreUsage: "NEW" | "USED" | "UNKNOWN";
+};
+
+export type QualifyingIntelligence = {
+  status: "AVAILABLE" | "NOT_APPLICABLE";
+  phase: QualifyingPhase;
+  phaseEvidence?: string;
+  sessionClock: string | null;
+  sessionClockRunning?: boolean | null;
+  benchmark: { driverNumber: string; code: string | null; lapTime: string } | null;
+  cutLine: {
+    advancePosition: number | null;
+    cutoff: { driverNumber: string; code: string | null; position: number; bestLap: string | null } | null;
+    firstOut: { driverNumber: string; code: string | null; position: number; bestLap: string | null } | null;
+    status: "AVAILABLE" | "UNKNOWN";
+  };
+  drivers: Record<string, QualifyingDriverIntelligence>;
+  modelVersion: string;
+};
 export type AnalyticsSnapshot = {
   v: 1;
   type: "analytics.snapshot";
@@ -436,6 +496,7 @@ export type AnalyticsSnapshot = {
   asOf: string | null;
   stage: AnalyticsStage;
   publishedStrategy: PublishedStrategyIntelligence;
+  qualifying: QualifyingIntelligence;
   // v2.1 §11: race-level strategy validity (SC/VSC/Red resets this).
   strategyValidity?: StrategyValidity;
   strategyLifecycle?: StrategyLifecycle;
@@ -525,12 +586,15 @@ export type CatalogSession = {
   location: string | null;
   dateStart: string;
   dateEnd: string;
+  gmtOffset: string | null;
   available: boolean;
   isLive: boolean;
   liveAvailable: boolean;
   liveConnected: boolean;
   liveStale: boolean;
   liveStatus: LiveConnectionStatus;
+  livePhase: LiveProductPhase;
+  replayReady: boolean;
   downloadable: boolean;
   circuitShapeAvailable: boolean;
   positionMode: PositionMode;
@@ -542,6 +606,7 @@ export type ReplayCatalog = {
   downloadsEnabled: boolean;
   liveSessionKey: string | null;
   liveStatus: LiveConnectionStatus;
+  livePhase: LiveProductPhase;
   sessions: CatalogSession[];
 };
 
@@ -552,7 +617,8 @@ export const EMPTY_RACE_STATE: RaceState = {
     key: null, name: null, meeting_name: null, session_type: null,
     session_kind: "unknown", layout_family: "unsupported",
     circuit: null, location: null, started_at: null, ended_at: null,
-    lap: null, total_laps: null, track_status: null, gmt_offset: null,
+    lap: null, total_laps: null, track_status: null, qualifying_phase: "UNKNOWN",
+    session_clock: null, session_clock_running: null, gmt_offset: null,
     local_time: null, status: "UNAVAILABLE",
   },
   circuit: {

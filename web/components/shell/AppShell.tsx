@@ -15,6 +15,7 @@ import { SettingsView, type SettingsSection } from "../../views/SettingsView";
 import { StrategyView } from "../../views/StrategyView";
 import { TVModeView } from "../../views/TVModeView";
 import { Panel } from "../shared/Panel";
+import { LiveControls } from "./LiveControls";
 import { ReplayControls } from "./ReplayControls";
 import { ReplayLibrary } from "./ReplayLibrary";
 import { SessionStrip } from "./SessionStrip";
@@ -35,7 +36,9 @@ export function AppShell() {
   );
   const layout = classification.layoutFamily;
   const replayAvailable = session.metadata?.replayAvailable ?? session.selectedCatalogSession?.available ?? false;
-  const dataAvailable = session.viewingMode === "live" ? ["LIVE", "STALE"].includes(session.liveStatus) : replayAvailable;
+  const dataAvailable = session.viewingMode === "live"
+    ? ["LIVE", "STALE", "RECONNECTING", "FINALIZING", "COMPLETE", "REPLAY_READY"].includes(session.livePhase)
+    : replayAvailable;
   const positionMode = session.capabilities?.positionMode ?? session.metadata?.positionMode ?? session.selectedCatalogSession?.positionMode ?? "unavailable";
   const driverHistory = useDriverHistory(session.viewingMode === "replay" ? session.selectedSessionKey : null, focusedDriver);
   const recommendedBattle = useBattleRecommendation(session.analytics, session.state);
@@ -46,9 +49,9 @@ export function AppShell() {
   };
   const liveNow = Boolean(session.catalog?.liveSessionKey);
   const connectionLabel = session.viewingMode === "live"
-    ? session.liveStatus === "LIVE" ? "LIVE CONNECTED" : session.liveStatus === "STALE" ? "LIVE STALE" : session.liveStatus === "CONNECTING" ? "LIVE CONNECTING" : "LIVE SOURCE UNAVAILABLE"
+    ? session.livePhase.replaceAll("_", " ")
     : session.transport === "stream" ? "REPLAY CONNECTED" : session.transport.toUpperCase();
-  const connectionClass = session.viewingMode === "live" ? `live-${session.liveStatus.toLowerCase()}` : session.transport;
+  const connectionClass = session.viewingMode === "live" ? `live-${session.livePhase.toLowerCase()}` : session.transport;
 
   const openDriver = (driverNumber: string) => {
     setFocusedDriver(driverNumber);
@@ -94,21 +97,21 @@ export function AppShell() {
         <ReplayLibrary catalog={session.catalog} selected={session.selectedCatalogSession} selectedKey={session.selectedSessionKey} viewingMode={session.viewingMode} downloadState={session.downloadState} downloadError={session.downloadError} onSelect={(key) => { session.chooseSession(key); setView("session"); }} onGoLive={goLive} onWatchReplay={session.watchReplay} onDownload={() => void session.downloadReplay()} />
       </div>
     </header>
-    {view !== "settings" && <SessionStrip session={session.state.session} selected={session.selectedCatalogSession} viewingMode={session.viewingMode} liveStatus={session.liveStatus} liveNow={liveNow} onGoLive={goLive} />}
+    {view !== "settings" && <SessionStrip session={session.state.session} selected={session.selectedCatalogSession} viewingMode={session.viewingMode} livePhase={session.livePhase} liveNow={liveNow} onGoLive={goLive} />}
     <main ref={workspaceRef} className={`workspace workspace-${layout} workspace-view-${view}`}>
       {view !== "settings" && session.connectionError && <section className="service-unavailable"><strong>SLIPSTREAM DATA UNAVAILABLE</strong><p>{session.connectionError}</p><span>No sample race has been substituted.</span></section>}
-      {view !== "settings" && !session.connectionError && session.viewingMode === "live" && session.liveStatus !== "LIVE" && <section className={`live-source-state live-source-${session.liveStatus.toLowerCase()}`}><strong>{connectionLabel}</strong><p>{session.liveStatus === "CONNECTING" ? "Connecting to the public Formula 1 timing source." : session.liveStatus === "STALE" ? "The last canonical state is retained while the source reconnects." : "Public live timing is currently unavailable. No replay or sample state has been substituted."}</p></section>}
+      {view !== "settings" && !session.connectionError && session.viewingMode === "live" && !dataAvailable && <section className={`live-source-state live-source-${session.livePhase.toLowerCase()}`}><strong>{connectionLabel}</strong><p>{session.livePhase === "PRE_EVENT" ? "WAITING FOR PUBLIC TIMING FEED" : session.livePhase === "CONNECTING" ? "Connecting to the public Formula 1 timing source." : "Public live timing is currently unavailable. No replay or sample state has been substituted."}</p></section>}
       {view === "session" && !session.connectionError && layout === "race" && <RaceView state={session.state} analytics={session.analytics} replayAvailable={dataAvailable} positionMode={positionMode} layout={preferences.raceLayout} onLayoutChange={preferences.setRaceLayout} onOpenLayoutEditor={openLayoutEditor} onSelectDriver={openDriver} towerView={preferences.towerView} onTowerViewChange={preferences.setTowerView} onOpenStrategy={() => setView("strategy")} />}
-      {view === "session" && !session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
+      {view === "session" && !session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} analytics={session.analytics} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "practice" && <PracticeView state={session.state} replayAvailable={dataAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "unsupported" && <Panel eyebrow="SESSION LAYOUT" title="Session layout unavailable"><div className="unknown-block"><strong>LAYOUT - NOT AVAILABLE</strong><p>This session is present in the catalog but does not classify as Race, Qualifying, or Practice.</p></div></Panel>}
       {view === "strategy" && layout === "race" && !session.connectionError && <StrategyView state={session.state} analytics={session.analytics} onSelectDriver={openDriver} />}
       {view === "battle" && layout === "race" && !session.connectionError && <BattleView state={session.state} analytics={session.analytics} recommendedPair={recommendedBattle} positionMode={positionMode} />}
       {view === "driver" && !session.connectionError && (!focusedDriver || !session.state.drivers[focusedDriver]) && <DriverPickerView state={session.state} onSelect={openDriver} />}
-      {view === "driver" && !session.connectionError && focusedDriver && session.state.drivers[focusedDriver] && <DriverFocusView state={session.state} analytics={session.analytics} driverNumber={focusedDriver} history={driverHistory.history} historyError={driverHistory.error} playhead={session.playhead} positionMode={positionMode} onChangeDriver={() => setFocusedDriver(null)} onBack={() => setView("session")} />}
+      {view === "driver" && !session.connectionError && focusedDriver && session.state.drivers[focusedDriver] && <DriverFocusView state={session.state} analytics={session.analytics} sessionLayout={layout} driverNumber={focusedDriver} history={driverHistory.history} historyError={driverHistory.error} playhead={session.playhead} positionMode={positionMode} onChangeDriver={() => setFocusedDriver(null)} onBack={() => setView("session")} />}
       {view === "settings" && <SettingsView appearance={preferences.appearance} onAppearanceChange={preferences.setAppearance} raceLayout={preferences.raceLayout} onRaceLayoutChange={preferences.setRaceLayout} tvPreferences={preferences.tv} onTVPreferencesChange={preferences.setTV} drivers={Object.values(session.state.drivers)} section={settingsSection} onSectionChange={setSettingsSection} />}
     </main>
     {view !== "settings" && session.viewingMode === "replay" && <ReplayControls metadata={session.metadata} playhead={session.playhead} isPlaying={session.isPlaying} sequence={session.sequence} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />}
-    {view !== "settings" && session.viewingMode === "live" && <footer className={`live-footer live-footer-${session.liveStatus.toLowerCase()}`}><span>{connectionLabel}</span><strong>{session.state.updated_at ? `SOURCE ${session.state.updated_at}` : "WAITING FOR FIRST CANONICAL STATE"}</strong></footer>}
+    {view !== "settings" && session.viewingMode === "live" && <LiveControls phase={session.livePhase} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />}
   </div>;
 }

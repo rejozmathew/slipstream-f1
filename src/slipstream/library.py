@@ -91,6 +91,7 @@ class SessionDescriptor:
             "location": self.location,
             "dateStart": self.date_start,
             "dateEnd": self.date_end,
+            "gmtOffset": self.gmt_offset,
             "available": self.available,
             "isLive": self.is_live(now),
             "downloadable": self.is_downloadable(now),

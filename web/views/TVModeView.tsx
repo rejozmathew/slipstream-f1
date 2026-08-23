@@ -17,7 +17,7 @@ type TVState = TVStatePreference | "cutline" | "sectors" | "runs" | "pace" | "st
 
 const stateSets: Record<Exclude<SessionLayout, "unsupported">, TVState[]> = {
   race: ["tower", "track", "strategy", "battle", "driver"],
-  qualifying: ["tower", "cutline", "sectors", "track"],
+  qualifying: ["tower"],
   practice: ["tower", "runs", "pace", "stints"],
 };
 
@@ -75,6 +75,16 @@ function TVTrack({ state, drivers, analytics, positionMode, replayAvailable }: {
   return <div className="tv-track-composed"><div className="tv-track-map"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div><div className="tv-mini-tower"><TimingTower drivers={drivers} variant="race" replayAvailable={replayAvailable} analytics={analytics} /></div></div>;
 }
 
+function TVQualifyingCutline({ analytics }: { analytics: AnalyticsSnapshot | null }) {
+  const value = analytics?.qualifying;
+  return <div className="tv-qualifying-cutline"><header><span>QUALIFYING CUT LINE</span><strong>{value?.phase ?? "UNKNOWN"}</strong><b>{value?.sessionClock ?? "CLOCK UNKNOWN"}</b></header><div className="tv-cutline-benchmark"><span>BENCHMARK</span><strong>{value?.benchmark ? `${value.benchmark.code ?? value.benchmark.driverNumber} · ${value.benchmark.lapTime}` : "—"}</strong></div><div className="tv-cutline-boundary"><section><span>LAST ADVANCING</span><strong>{value?.cutLine.cutoff ? `P${value.cutLine.cutoff.position} · ${value.cutLine.cutoff.code ?? value.cutLine.cutoff.driverNumber}` : "—"}</strong><b>{value?.cutLine.cutoff?.bestLap ?? "—"}</b></section><i>TOP {value?.cutLine.advancePosition ?? "—"}</i><section><span>FIRST OUT</span><strong>{value?.cutLine.firstOut ? `P${value.cutLine.firstOut.position} · ${value.cutLine.firstOut.code ?? value.cutLine.firstOut.driverNumber}` : "—"}</strong><b>{value?.cutLine.firstOut?.bestLap ?? "—"}</b></section></div></div>;
+}
+
+function TVQualifyingSectors({ drivers }: { drivers: Driver[] }) {
+  const rows = drivers.filter((driver) => driver.sector_1 != null || driver.sector_2 != null || driver.sector_3 != null);
+  return <div className="tv-qualifying-sectors"><header><span>FACTUAL SECTOR EVOLUTION</span><strong>{rows.length} DRIVERS</strong></header><div>{rows.map((driver) => <section key={driver.number}><b style={{ borderColor: `#${driver.team_colour ?? "77808f"}` }}>{driver.code ?? driver.number}</b><span>S1 <strong>{driver.sector_1 ?? "—"}</strong></span><span>S2 <strong>{driver.sector_2 ?? "—"}</strong></span><span>S3 <strong>{driver.sector_3 ?? "—"}</strong></span></section>)}</div></div>;
+}
+
 export function TVModeView({ state, analytics, recommendedBattle, sessionLayout, sessionKind, replayAvailable, positionMode, preferences, onPreferencesChange, onExit }: {
   state: RaceState;
   analytics: AnalyticsSnapshot | null;
@@ -88,7 +98,15 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
   onExit: () => void;
 }) {
   const layout = sessionLayout === "unsupported" ? "race" : sessionLayout;
-  const authoredStates = layout === "race" ? preferences.includedRaceStates.length ? preferences.includedRaceStates : stateSets.race : stateSets[layout];
+  const qualifyingStates = useMemo<TVState[]>(() => {
+    const items: TVState[] = ["tower"];
+    const qualifying = analytics?.qualifying;
+    if (qualifying?.status === "AVAILABLE" && (qualifying.phase !== "UNKNOWN" || qualifying.cutLine.status === "AVAILABLE")) items.push("cutline");
+    if (Object.values(state.drivers).some((driver) => driver.sector_1 != null || driver.sector_2 != null || driver.sector_3 != null)) items.push("sectors");
+    if (state.circuit.path.length > 1 && positionMode !== "unavailable") items.push("track");
+    return items;
+  }, [analytics?.qualifying, positionMode, state.circuit.path.length, state.drivers]);
+  const authoredStates = useMemo(() => layout === "race" ? preferences.includedRaceStates.length ? preferences.includedRaceStates : stateSets.race : layout === "qualifying" ? qualifyingStates : stateSets.practice, [layout, preferences.includedRaceStates, qualifyingStates]);
   const [active, setActive] = useState<TVState>(authoredStates[0]);
   const [rotating, setRotating] = useState(false);
   const [statusAlert, setStatusAlert] = useState(false);
@@ -126,11 +144,11 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
     return () => window.clearTimeout(timer);
   }, [latestControl?.occurred_at, latestControl?.flag, latestControl?.scope, latestControl?.sector, preferences.alertOnCriticalStatus]);
 
-  const unavailableTitle = visibleState === "cutline" ? "Qualifying cutline" : visibleState === "sectors" ? "Sector evolution" : visibleState === "runs" ? "Practice runs" : visibleState === "pace" ? "Long-run pace" : "Stint context";
+  const unavailableTitle = visibleState === "runs" ? "Practice runs" : visibleState === "pace" ? "Long-run pace" : "Stint context";
   const tone = statusTone(state.session.track_status);
   const trackStatus = scopedAlert ?? state.session.track_status ?? "TRACK STATUS UNAVAILABLE";
   return <div className={`tv-mode-view${statusAlert ? " tv-status-alert" : ""}`} data-track-tone={tone}>
-    <header className="tv-header"><div className="tv-brand"><i>SS</i><span><strong>SLIPSTREAM</strong><small>TV MODE · {sessionKind.replaceAll("_", " ").toUpperCase()}</small></span></div><div className="tv-session"><span>{state.session.meeting_name ?? "Session unavailable"}</span><strong>{state.session.name ?? layout.toUpperCase()}</strong></div><div className="tv-status"><span>LAP</span><b>{state.session.lap ?? "—"} / {state.session.total_laps ?? "—"}</b><strong>{trackStatus}</strong></div><button onClick={onExit}>EXIT TV</button></header>
+    <header className="tv-header"><div className="tv-brand"><i>SS</i><span><strong>SLIPSTREAM</strong><small>TV MODE · {sessionKind.replaceAll("_", " ").toUpperCase()}</small></span></div><div className="tv-session"><span>{state.session.meeting_name ?? "Session unavailable"}</span><strong>{state.session.name ?? layout.toUpperCase()}</strong></div><div className="tv-status"><span>{layout === "qualifying" ? analytics?.qualifying.phase ?? "PHASE" : "LAP"}</span><b>{layout === "qualifying" ? analytics?.qualifying.sessionClock ?? "CLOCK UNKNOWN" : `${state.session.lap ?? "—"} / ${state.session.total_laps ?? "—"}`}</b><strong>{trackStatus}</strong></div><button onClick={onExit}>EXIT TV</button></header>
     <div className={`tv-status-rail tv-status-${tone}${statusAlert ? " critical-transition" : ""}`}><span>{trackStatus}</span></div>
     <main className={`tv-stage tv-stage-${visibleState}`}>
       {visibleState === "tower" && <div className="tv-tower"><TimingTower drivers={drivers} variant={layout === "race" ? "race" : layout === "qualifying" ? "qualifying" : "practice"} mode="standard" replayAvailable={replayAvailable} analytics={analytics} /></div>}
@@ -138,7 +156,9 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
       {visibleState === "strategy" && <div className="tv-strategy pirelli-tv-strategy"><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} /><RaceNow analytics={analytics} /></div>}
       {visibleState === "battle" && <TVBattle drivers={battle} analytics={analytics} mode={preferences.battleMode} state={state} positionMode={positionMode} />}
       {visibleState === "driver" && <DriverTV driver={selectedDriver} analytics={analytics} state={state} positionMode={positionMode} />}
-      {!(["tower", "track", "strategy", "battle", "driver"] as TVState[]).includes(visibleState) && <Panel eyebrow={layout.toUpperCase()} title={unavailableTitle} className="tv-unavailable-panel"><div className="unknown-block"><strong>ANALYTICS · UNKNOWN</strong><p>The current evidence does not yet support this authored state.</p></div></Panel>}
+      {visibleState === "cutline" && <TVQualifyingCutline analytics={analytics} />}
+      {visibleState === "sectors" && <TVQualifyingSectors drivers={drivers} />}
+      {!(["tower", "track", "strategy", "battle", "driver", "cutline", "sectors"] as TVState[]).includes(visibleState) && <Panel eyebrow={layout.toUpperCase()} title={unavailableTitle} className="tv-unavailable-panel"><div className="unknown-block"><strong>ANALYTICS · UNKNOWN</strong><p>The current evidence does not yet support this authored state.</p></div></Panel>}
     </main>
     <footer className="tv-rotation"><div>{authoredStates.map((item, index) => <button className={visibleState === item ? "active" : ""} key={item} onClick={() => setActive(item)}><span>{String(index + 1).padStart(2, "0")}</span>{item.toUpperCase()}</button>)}</div><button className={rotating ? "rotation-toggle active" : "rotation-toggle"} onClick={() => setRotating((value) => !value)}>{rotating ? "AUTO ROTATION ON" : "AUTO ROTATION OFF"}</button><button className="tv-alert-toggle" onClick={() => onPreferencesChange({ ...preferences, alertOnCriticalStatus: !preferences.alertOnCriticalStatus })}>ALERTS {preferences.alertOnCriticalStatus ? "ON" : "OFF"}</button></footer>
   </div>;

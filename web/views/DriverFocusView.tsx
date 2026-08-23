@@ -8,7 +8,8 @@ import { DataValue } from "../components/shared/DataValue";
 import { InfoPopover } from "../components/shared/InfoPopover";
 import { Panel } from "../components/shared/Panel";
 import { driverLifecycle } from "../domain/lifecycle";
-import type { AnalyticsSnapshot, DriverBattleContext, DriverHistory, PaceSample, PitEvent, PositionMode, RaceState } from "../domain/protocol";
+import type { AnalyticsSnapshot, Driver, DriverBattleContext, DriverHistory, PaceSample, PitEvent, PositionMode, RaceState } from "../domain/protocol";
+import type { SessionLayout } from "../domain/sessionLayout";
 
 function BattleContext({ label, value }: { label: string; value: DriverBattleContext | null }) {
   if (!value) return <div><span>{label}</span><strong>—</strong></div>;
@@ -25,9 +26,36 @@ function PitHistory({ events }: { events: PitEvent[] }) {
   </div>)}</div></>;
 }
 
-export function DriverFocusView({ state, analytics, driverNumber, history, historyError, playhead, positionMode, onChangeDriver, onBack }: {
+function QualifyingDriverFocus({ driver, state, analytics, positionMode, onChangeDriver, onBack }: {
+  driver: Driver;
   state: RaceState;
   analytics: AnalyticsSnapshot | null;
+  positionMode: PositionMode;
+  onChangeDriver: () => void;
+  onBack: () => void;
+}) {
+  const intelligence = analytics?.qualifying;
+  const model = intelligence?.drivers[driver.number];
+  const delta = model?.benchmarkDelta == null ? "—" : model.benchmarkDelta === 0 ? "BENCHMARK" : `+${model.benchmarkDelta.toFixed(3)}s`;
+  return <div className="driver-focus-view qualifying-driver-focus">
+    <header className="driver-hero" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as CSSProperties}>
+      <div className="driver-hero-actions"><button onClick={onBack}>BACK</button><button onClick={onChangeDriver}>CHANGE DRIVER</button></div>
+      <div className="driver-number">#{driver.number}</div>
+      <div className="driver-identity"><span>QUALIFYING DRIVER FOCUS · {intelligence?.phase ?? "UNKNOWN"}</span><h1>{driver.name ?? driver.code ?? driver.number}</h1><p>{driver.team ?? "Team unavailable"}</p></div>
+      <div className="driver-hero-position"><span>CLASSIFICATION</span><strong>P{driver.position ?? "—"}</strong><DataValue compact value={delta} /></div>
+    </header>
+    <div className="qualifying-driver-grid">
+      <Panel eyebrow="CURRENT QUALIFYING STATE" title="Driver facts" className="qualifying-driver-state"><div className="qualifying-driver-facts"><div><span>BEST</span><strong>{driver.best_lap ?? driver.last_lap ?? "—"}</strong></div><div><span>DELTA</span><strong>{delta}</strong></div><div><span>ACTIVITY</span><strong>{model?.activity.replaceAll("_", " ") ?? "UNKNOWN"}</strong></div><div><span>CUT</span><strong>{model?.cutState === "UNKNOWN" ? "—" : model?.cutState.replaceAll("_", " ") ?? "—"}</strong></div><div><span>TYRE</span><strong><CompoundBadge compound={driver.compound} showLabel /></strong></div><div><span>AGE / USAGE</span><strong>{driver.tyre_age == null ? "—" : `${driver.tyre_age}L`} · {model?.tyreUsage === "UNKNOWN" ? "—" : model?.tyreUsage ?? "—"}</strong></div></div></Panel>
+      <Panel eyebrow="CURSOR-SAFE LAP EVIDENCE" title="Attempts" className="qualifying-driver-attempts">{!model?.attempts.length && <div className="panel-empty">NO FACTUAL ATTEMPTS AT THIS CURSOR</div>}<div className="driver-attempt-list">{model?.attempts.map((attempt) => <div key={`${attempt.attempt}-${attempt.occurredAt}`}><header><span>{attempt.phase === "UNKNOWN" ? "PHASE —" : attempt.phase}</span><strong>ATTEMPT {attempt.attempt}</strong><b>LAP {attempt.lap ?? "—"}</b></header><div><strong>{attempt.lapTime ?? "—"}</strong><span>S1 {attempt.sector1 ?? "—"}</span><span>S2 {attempt.sector2 ?? "—"}</span><span>S3 {attempt.sector3 ?? "—"}</span><CompoundBadge compound={attempt.compound} compact /><em>{attempt.tyreAge == null ? "—" : `${attempt.tyreAge}L`} · {attempt.tyreUsage === "UNKNOWN" ? "—" : attempt.tyreUsage}</em></div></div>)}</div></Panel>
+      <div className="qualifying-driver-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[driver.number]} focusLabel={driver.code ?? driver.number} /></div>
+    </div>
+  </div>;
+}
+
+export function DriverFocusView({ state, analytics, sessionLayout, driverNumber, history, historyError, playhead, positionMode, onChangeDriver, onBack }: {
+  state: RaceState;
+  analytics: AnalyticsSnapshot | null;
+  sessionLayout: SessionLayout;
   driverNumber: string;
   history: DriverHistory | null;
   historyError: string | null;
@@ -43,6 +71,7 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
   const paceSamples = model?.pace.samples ?? observations.map((lap): PaceSample => ({ lap: lap.lap, rawLapTime: lap.duration, delta: null, compound: lap.compound, tyreAge: lap.tyre_age, stintNumber: lap.stint_number, quality: lap.quality, contaminationReasons: lap.contamination_reasons }));
   const pitEvents: PitEvent[] = model?.pitEvents ?? fallbackPits;
   if (!driver) return <div className="driver-focus-view"><header className="experience-heading"><button onClick={onBack}>BACK TO SESSION</button><div><span>DRIVER FOCUS</span><h1>Driver unavailable</h1></div></header><div className="service-unavailable"><strong>DRIVER STATE UNAVAILABLE</strong><p>This driver is not present at the current replay time.</p><button onClick={onChangeDriver}>CHOOSE DRIVER</button></div></div>;
+  if (sessionLayout === "qualifying") return <QualifyingDriverFocus driver={driver} state={state} analytics={analytics} positionMode={positionMode} onChangeDriver={onChangeDriver} onBack={onBack} />;
   const allDrivers = Object.values(state.drivers);
   const lifecycle = driverLifecycle(driver);
   return <div className="driver-focus-view">

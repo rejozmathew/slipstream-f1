@@ -411,6 +411,8 @@ def create_app(
             "liveConnected": source.connected,
             "liveStale": source.stale,
             "liveStatus": source.status if live_available else "OFFLINE",
+            "livePhase": source.phase if live_available else "UNAVAILABLE",
+            "replayReady": selected.replay_available or source.replay_ready,
             "isLive": selected.is_live,
             "positionMode": (
                 "unavailable"
@@ -444,6 +446,8 @@ def create_app(
             "liveConnected": source.connected,
             "liveStale": source.stale,
             "liveStatus": source.status if live_available else "OFFLINE",
+            "livePhase": source.phase if live_available else "UNAVAILABLE",
+            "replayReady": selected.replay_available or source.replay_ready,
             "isLive": selected.is_live,
             "positionMode": (
                 "unavailable"

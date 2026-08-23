@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { formatSector } from "../../domain/format";
 import { driverLifecycle, lifecycleClassName } from "../../domain/lifecycle";
 import type { TowerView } from "../../domain/layout";
-import type { AnalyticsSnapshot, Driver } from "../../domain/protocol";
+import type { AnalyticsSnapshot, Driver, QualifyingIntelligence } from "../../domain/protocol";
 import { publishedWindowSummary } from "../analysis/PublishedStrategy";
 import { CompoundBadge } from "../shared/CompoundBadge";
 import { DataValue } from "../shared/DataValue";
@@ -77,16 +77,23 @@ function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; anal
   </button>;
 }
 
-function QualifyingRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
+function QualifyingRow({ driver, intelligence, onSelect }: { driver: Driver; intelligence?: QualifyingIntelligence; onSelect?: (driverNumber: string) => void }) {
   const lifecycle = driverLifecycle(driver);
-  return <button type="button" className={"timing-row timing-qualifying " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
+  const model = intelligence?.drivers[driver.number];
+  const boundary = intelligence?.cutLine.advancePosition === driver.position;
+  const delta = model?.benchmarkDelta == null ? "—" : model.benchmarkDelta === 0 ? "BENCHMARK" : `+${model.benchmarkDelta.toFixed(3)}`;
+  const cut = model?.cutState === "UNKNOWN" ? "—" : model?.cutState.replaceAll("_", " ") ?? "—";
+  return <button type="button" className={`timing-row timing-qualifying ${lifecycleClassName(driver)}${boundary ? " timing-cut-boundary" : ""}`} role="row" onClick={() => onSelect?.(driver.number)}>
     <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
-    <DataValue compact value={lifecycle.label ?? driver.status} />
+    <DataValue compact value={lifecycle.label ?? model?.activity.replaceAll("_", " ")} />
+    <DataValue compact value={driver.best_lap ?? driver.last_lap} availability={driver.availability.best_lap} />
+    <DataValue compact value={delta} />
     <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} />
     <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} />
     <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} />
-    <DataValue compact value={driver.best_lap ?? driver.last_lap} availability={driver.availability.best_lap} />
     <CompoundBadge compound={driver.compound} compact />
+    <span>{driver.tyre_age == null ? "—" : `${driver.tyre_age}L`} · {model?.tyreUsage === "UNKNOWN" ? "—" : model?.tyreUsage ?? "—"}</span>
+    <span className={`cut-state cut-${model?.cutState.toLowerCase().replaceAll("_", "-") ?? "unknown"}`}>{cut}</span>
   </button>;
 }
 
@@ -103,7 +110,7 @@ function PracticeRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverN
 }
 
 const headers = {
-  qualifying: ["P", "DRIVER", "STATE", "S1", "S2", "S3", "BEST", "TYRE"],
+  qualifying: ["P", "DRIVER / TEAM", "ACTIVITY", "BEST", "DELTA", "S1", "S2", "S3", "TYRE", "AGE / USAGE", "CUT"],
   practice: ["P", "DRIVER", "TYRE", "AGE", "LAST", "BEST", "STINT", "PIT"],
 };
 
@@ -116,7 +123,9 @@ const raceModeHeaders = {
 export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, toolbar, onSelectDriver }: TimingTowerProps) {
   const headersForView = variant === "race" ? raceModeHeaders[mode] : headers[variant];
   const rowClass = variant === "race" && mode !== "standard" ? `race-${mode}` : variant;
-  return <Panel eyebrow={variant === "race" ? "CLASSIFICATION" : variant === "qualifying" ? "SESSION CLASSIFICATION" : "RUN CLASSIFICATION"} title="Timing tower" action={<div className="panel-actions"><span className="panel-badge">{drivers.length} DRIVERS</span>{toolbar}</div>} className="timing-panel">
+  const qualifying = analytics?.qualifying;
+  const qualifierTitle = qualifying?.phase === "UNKNOWN" ? "QUALIFYING · PHASE UNKNOWN" : `QUALIFYING · ${qualifying?.phase ?? "UNKNOWN"}`;
+  return <Panel eyebrow={variant === "race" ? "CLASSIFICATION" : variant === "qualifying" ? qualifierTitle : "RUN CLASSIFICATION"} title="Timing tower" action={<div className="panel-actions">{variant === "qualifying" && <strong className="qualifying-clock">{qualifying?.sessionClock ?? "CLOCK UNKNOWN"}</strong>}<span className="panel-badge">{drivers.length} DRIVERS</span>{toolbar}</div>} className="timing-panel">
     {!replayAvailable && <div className="panel-empty">TIMING DATA - UNAVAILABLE</div>}
     {replayAvailable && drivers.length === 0 && <div className="panel-empty">TIMING DATA - UNKNOWN AT THIS SESSION TIME</div>}
     <div className={`timing-table timing-${rowClass}`} role="table">
@@ -128,7 +137,7 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
           : variant === "race"
             ? <RaceRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
             : variant === "qualifying"
-              ? <QualifyingRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
+              ? <QualifyingRow driver={driver} intelligence={qualifying} onSelect={onSelectDriver} key={driver.number} />
               : <PracticeRow driver={driver} onSelect={onSelectDriver} key={driver.number} />)}
     </div>
   </Panel>;
