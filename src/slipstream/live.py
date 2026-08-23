@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 import aiohttp
 
 from .events import NormalizedEvent, parse_timestamp
+from .evidence import SessionEvidence
 from .live_recording import NormalizedLiveRecorder
 from .session import classify_session
 from .state import RaceState
@@ -1102,6 +1103,7 @@ class PublicLiveSession:
         self._last_received_at: str | None = None
         self._events: list[NormalizedEvent] = []
         self._state = RaceState()
+        self._evidence = SessionEvidence()
         self._task: asyncio.Task[None] | None = None
         self._finalization_task: asyncio.Task[None] | None = None
         self._normalized_recorder: NormalizedLiveRecorder | None = None
@@ -1115,6 +1117,10 @@ class PublicLiveSession:
     @property
     def state(self) -> RaceState:
         return self._state
+
+    @property
+    def evidence(self) -> SessionEvidence:
+        return self._evidence
 
     @property
     def events(self) -> tuple[NormalizedEvent, ...]:
@@ -1176,10 +1182,8 @@ class PublicLiveSession:
                 if self._normalized_recorder is not None:
                     self._normalized_recorder.append(static_circuit)
                 self._events.extend(static_circuit)
-                self._events.sort(key=lambda event: event.occurred_at)
-                self._state = RaceState()
-                for event in self._events:
-                    self._state = self._state.apply(event)
+                self._events.sort(key=lambda event: parse_timestamp(event.occurred_at))
+                self._rebuild_projection()
             return
         await self.stop()
         self._target_session_key = key
@@ -1190,6 +1194,7 @@ class PublicLiveSession:
         self._last_received_at = None
         self._events = []
         self._state = RaceState()
+        self._evidence = SessionEvidence()
         self._completion_observed = False
         self._ever_connected = False
         self._reconnecting = False
@@ -1266,10 +1271,9 @@ class PublicLiveSession:
             (*recovered, *fresh_seed),
             key=lambda event: parse_timestamp(event.occurred_at),
         )
-        self._state = RaceState()
+        self._rebuild_projection()
         self._completion_observed = False
         for event in self._events:
-            self._state = self._state.apply(event)
             if self._event_completes_session(event):
                 self._completion_observed = True
         if recovered:
@@ -1298,23 +1302,54 @@ class PublicLiveSession:
         batch = tuple(events)
         if self._normalized_recorder is not None:
             batch = self._normalized_recorder.append(batch)
-        emitted = False
+        if not batch:
+            self._last_received_at = received_at
+            return False
+
+        previous_count = len(self._events)
+        ordered = sorted(
+            (*self._events, *batch),
+            key=lambda event: parse_timestamp(event.occurred_at),
+        )
+        append_only = ordered[:previous_count] == self._events
+        self._events = ordered
+        if append_only:
+            for sequence, event in enumerate(
+                ordered[previous_count:],
+                start=previous_count + 1,
+            ):
+                self._state = self._state.apply(event)
+                self._evidence = self._evidence.append(
+                    event,
+                    sequence=sequence,
+                    state=self._state,
+                )
+        else:
+            self._rebuild_projection()
+
         for event in batch:
-            self._events.append(event)
-            self._state = self._state.apply(event)
-            emitted = True
             if self._event_completes_session(event):
                 self._completion_observed = True
                 self._set_phase("FINALIZING")
         self._last_received_at = received_at
-        if emitted:
-            self._status = "LIVE"
-            self._ever_connected = True
-            self._reconnecting = False
-            if not self._completion_observed:
-                self._set_phase("LIVE")
-            self._error = None
-        return emitted
+        self._status = "LIVE"
+        self._ever_connected = True
+        self._reconnecting = False
+        if not self._completion_observed:
+            self._set_phase("LIVE")
+        self._error = None
+        return True
+
+    def _rebuild_projection(self) -> None:
+        self._state = RaceState()
+        self._evidence = SessionEvidence()
+        for sequence, event in enumerate(self._events, start=1):
+            self._state = self._state.apply(event)
+            self._evidence = self._evidence.append(
+                event,
+                sequence=sequence,
+                state=self._state,
+            )
 
     def _phase_for_schedule(self, fallback: str) -> str:
         if self._scheduled_start:

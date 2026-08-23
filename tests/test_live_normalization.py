@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from slipstream.api import create_app
 from slipstream.catalog import CATALOG_FORMAT
 from slipstream.events import NormalizedEvent
+from slipstream.evidence import SessionEvidence
 from slipstream.live import F1LiveAdapter, LiveSessionMismatch, PublicLiveSession
 from slipstream.playback import ReplayController
 from slipstream.state import RaceState
@@ -274,6 +275,28 @@ def test_public_live_session_applies_fixture_deterministically() -> None:
     assert view.connected is True
     assert view.sequence == len(live.events)
     assert live.state.drivers["12"].position == 5
+
+
+@pytest.mark.parametrize(
+    ("session_key", "rows"),
+    [("11344", fixture_rows()), ("11353", red_flag_rows())],
+)
+def test_live_head_matches_full_reducer_and_evidence_at_every_arrival_prefix(
+    session_key: str,
+    rows: list[dict[str, object]],
+) -> None:
+    adapter = F1LiveAdapter(session_key)
+    live = PublicLiveSession()
+
+    for row in rows:
+        live._apply(
+            adapter.ingest(row),
+            str(row.get("received_at") or "2026-08-23T00:00:00Z"),
+        )
+        controller = ReplayController(live.events)
+        controller.seek_cursor(len(live.events))
+        assert live.state == controller.state
+        assert live.evidence == SessionEvidence.from_events(live.events)
 
 
 def test_api_separates_live_transport_from_replay_availability(tmp_path: Path) -> None:

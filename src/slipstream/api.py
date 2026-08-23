@@ -335,17 +335,25 @@ def create_app(
             source.target_session_key == selected.descriptor.key and source.sequence > 0
         )
         events = live.events if has_live_state else selected.events
-        controller = ReplayController(
-            events,
-            start_time=selected.descriptor.date_start,
-            end_time=None,
-        )
-        if events:
-            if delay_seconds > 0:
+        if has_live_state and delay_seconds == 0:
+            state = live.state
+            evidence = live.evidence
+            sequence = len(events)
+            playhead = events[-1].occurred_at if events else state.updated_at
+        else:
+            controller = ReplayController(
+                events,
+                start_time=selected.descriptor.date_start,
+                end_time=None,
+            )
+            if events and delay_seconds > 0:
                 controller.seek_delay(delay_seconds)
-            else:
+            elif events:
                 controller.seek_cursor(len(events))
-        state = controller.state if events else selected.final_state
+            state = controller.state if events else selected.final_state
+            evidence = SessionEvidence.from_events(tuple(events))
+            sequence = controller.cursor
+            playhead = controller.playhead or state.updated_at
         analytics = None
         if has_live_state and source.phase not in {
             "PRE_EVENT",
@@ -356,22 +364,22 @@ def create_app(
                 descriptor=selected.descriptor,
                 events=tuple(events),
                 final_state=state,
-                evidence=SessionEvidence.from_events(tuple(events)),
+                evidence=evidence,
                 replay_available=False,
                 is_live=True,
             )
             analytics = analytics_service.snapshot(
                 live_resource,
                 state,
-                sequence=controller.cursor,
-                as_of=controller.playhead,
+                sequence=sequence,
+                as_of=playhead,
                 context=meeting_context(selected, prepare=True),
                 pirelli=pirelli_context(selected),
             )
         envelope = state_envelope(
             state,
-            sequence=controller.cursor,
-            session_time=controller.playhead or state.updated_at,
+            sequence=sequence,
+            session_time=playhead,
             analytics=analytics,
         )
         envelope["mode"] = "live"

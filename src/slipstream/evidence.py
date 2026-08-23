@@ -155,6 +155,70 @@ class SessionEvidence:
                 )
         return cls(tuple(observations), tuple(completed_gaps))
 
+    def append(
+        self,
+        event: NormalizedEvent,
+        *,
+        sequence: int,
+        state: RaceState,
+        cutoff: str | None = None,
+    ) -> SessionEvidence:
+        """Append evidence for one event using its canonical post-event state."""
+
+        payload = event.payload.get("lap_observation")
+        driver_number = event.payload.get("number")
+        if (
+            event.kind != "timing"
+            or not isinstance(payload, dict)
+            or driver_number is None
+        ):
+            return self
+        values = dict(payload)
+        values["contamination_reasons"] = tuple(values.get("contamination_reasons", ()))
+        observation = LapObservation(**values)
+        if (
+            cutoff is not None
+            and observation.started_at
+            and parse_timestamp(observation.started_at) > parse_timestamp(cutoff)
+        ):
+            raise ValueError(
+                "future-evidence integrity violation: observation "
+                f"lap={observation.lap} started_at={observation.started_at} "
+                f"is after the session evidence cutoff {cutoff!r}; "
+                "rejected loudly (v2.1 Scenario 20) rather than degraded "
+                "to UNKNOWN"
+            )
+        lap = LapEvidence(
+            sequence=sequence,
+            occurred_at=event.occurred_at,
+            driver_number=str(driver_number),
+            observation=observation,
+        )
+        gaps = self.completed_gaps
+        behind = state.drivers.get(str(driver_number))
+        if behind is not None and behind.position is not None:
+            ahead = next(
+                (
+                    driver
+                    for driver in state.drivers.values()
+                    if driver.position == behind.position - 1
+                ),
+                None,
+            )
+            gap = _numeric_interval(behind.interval_to_ahead)
+            if ahead is not None and gap is not None:
+                gaps += (
+                    CompletedGapEvidence(
+                        sequence=sequence,
+                        occurred_at=event.occurred_at,
+                        lap=observation.lap,
+                        ahead_driver_number=ahead.number,
+                        behind_driver_number=behind.number,
+                        gap_seconds=gap,
+                    ),
+                )
+        return SessionEvidence(self.lap_observations + (lap,), gaps)
+
     def laps_for_driver(
         self,
         driver_number: str,
@@ -188,9 +252,7 @@ class SessionEvidence:
         return tuple(
             PitEvent(
                 sequence=item.sequence,
-                occurred_at=(
-                    item.observation.pit_occurred_at or item.occurred_at
-                ),
+                occurred_at=(item.observation.pit_occurred_at or item.occurred_at),
                 driver_number=item.driver_number,
                 lap=item.observation.lap,
                 previous_compound=item.observation.previous_compound,
@@ -336,6 +398,7 @@ def active_runners(state: RaceState) -> tuple[str, ...]:
     there is a single status vocabulary across the codebase (v2.1 §8).
     """
     return _active_participants(state)
+
 
 def _numeric_interval(value: str | None) -> float | None:
     if not value or "lap" in value.casefold():
