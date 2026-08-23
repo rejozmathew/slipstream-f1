@@ -164,15 +164,8 @@ class ReplayLibrary:
             if local is None:
                 continue
             preloaded = descriptors.get(local.key)
-            if preloaded is not None and local.circuit_data is None:
-                local = replace(
-                    local,
-                    circuit_data=preloaded.circuit_data,
-                    capabilities={
-                        **local.capabilities,
-                        "circuit_shape": preloaded.circuit_shape_available,
-                    },
-                )
+            if preloaded is not None:
+                local = _attach_local_recording(preloaded, local)
             descriptors[local.key] = local
         if not descriptors:
             raise ValueError(f"No supported sessions found at {source_path}")
@@ -225,6 +218,24 @@ class ReplayLibrary:
             "defaultSessionKey": self.default_key,
             "sessions": [session.serialize(now) for session in sessions],
         }
+
+
+def _attach_local_recording(
+    catalog: SessionDescriptor, local: SessionDescriptor
+) -> SessionDescriptor:
+    capability_names = set(catalog.capabilities) | set(local.capabilities)
+    capabilities = {
+        name: bool(catalog.capabilities.get(name) or local.capabilities.get(name))
+        for name in capability_names
+    }
+    capabilities["historical_replay"] = True
+    return replace(
+        catalog,
+        path=local.path,
+        source=local.source,
+        capabilities=capabilities,
+        circuit_data=local.circuit_data or catalog.circuit_data,
+    )
 
 
 def _catalog_descriptors(raw: dict[str, Any]) -> dict[str, SessionDescriptor]:
@@ -428,6 +439,29 @@ def _read_descriptor(path: Path) -> SessionDescriptor | None:
             gmt_offset=state.session.gmt_offset,
             path=path,
             source=events[0].source,
-            capabilities={},
+            capabilities=_normalized_recording_capabilities(events, state),
         )
     return None
+
+
+def _normalized_recording_capabilities(
+    events: list[NormalizedEvent], state: RaceState
+) -> dict[str, bool]:
+    timing = [event.payload for event in events if event.kind == "timing"]
+    return {
+        "historical_replay": True,
+        "live_timing": events[0].source == "f1-signalr-public",
+        "positions": any(item.get("track_position") is not None for item in timing),
+        "intervals": any(
+            item.get("interval") is not None or item.get("gap_to_leader") is not None
+            for item in timing
+        ),
+        "location_xy": any(
+            item.get("x") is not None and item.get("y") is not None for item in timing
+        ),
+        "circuit_shape": bool(state.circuit.path),
+        "race_control": any(event.kind == "race_control" for event in events),
+        "weather": any(event.kind == "weather" for event in events),
+        "local_time": bool(state.session.gmt_offset),
+        "authenticated": False,
+    }

@@ -206,7 +206,7 @@ Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` whe
 
 Historical recording envelopes include capture time, session key, source capabilities, and endpoint arrays. Raw live files begin with a header, followed by rows containing `received_at`, `stream`, optional `source_timestamp`, raw `payload`, and whether the row came from the initial subscription result.
 
-Canonical live recording first appends JSONL mappings to `live-<session>.in-progress.jsonl`, which is never catalog-visible. Explicit completion starts a deterministic drain that is extended by later factual updates. Finalization writes the ordinary normalized event-list JSON to a temporary sibling and atomically replaces `live-<session>.json`; ReplayLibrary refresh then publishes `REPLAY_READY`. A disconnect alone never finalizes either artifact.
+Canonical live recording first appends JSONL mappings to `live-<session>.in-progress.jsonl`, which is never catalog-visible. Explicit completion starts a deterministic drain that is extended only by newly emitted canonical factual events; Heartbeat and other no-op rows do not extend it. Finalization writes the ordinary normalized event-list JSON to a temporary sibling and atomically replaces `live-<session>.json`. Valid same-session in-progress JSONL is recovered and deduplicated after restart; malformed or incompatible recovery fails explicitly. ReplayLibrary refresh then publishes `REPLAY_READY` and releases the completed upstream. A disconnect alone never finalizes either artifact.
 
 Recordings are private operational inputs. Their formats may need migrations independently of API v1, and they must never contain committed credentials or authenticated captures.
 

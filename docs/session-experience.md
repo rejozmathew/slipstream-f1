@@ -28,7 +28,7 @@ Live viewing has no pause, seek, relative-seek, or speed command. Those controls
 
 ## Recording and immediate replay
 
-Public live packets normalize into the same source-neutral events used by historical replay. The in-progress recording is operational data and is not exposed as a complete replay. After factual completion, a short drain accepts late packets; each such packet extends the drain. The finalized file is promoted atomically, the catalog is refreshed, and the lifecycle becomes `REPLAY_READY`.
+Public live packets normalize into the same source-neutral events used by historical replay. The in-progress recording is operational data and is not exposed as a complete replay. After factual completion, a short drain accepts late packets; only newly emitted canonical factual events extend the drain; Heartbeat and other no-op source rows do not. The finalized file is promoted atomically, the catalog is refreshed, the completed upstream is released, and the lifecycle becomes `REPLAY_READY`.
 
 Reconstruction remains deterministic: the inclusive event cursor determines both canonical state and analytics. The normalized recording—not a provider-specific raw capture—is the product replay artifact.
 
@@ -40,7 +40,7 @@ An attempt requires observed qualifying timing evidence; elapsed wall time or a 
 
 ## Driver activity and terminal state
 
-`ACTIVE`, `INACTIVE`, and `NO_RECENT_PROGRESS` describe evidence recency. They are not synonyms for `STOPPED`, `RETIRED`, `DNS`, `DNF`, or `DSQ`. Terminal lifecycle is published only when explicit source evidence establishes it. A missing timing update, a stationary map marker, or a low final classification never proves retirement.
+`ON_TRACK`, `IN_PIT`, `NO_RECENT_PROGRESS`, and `UNKNOWN` describe source-observed activity. They are not synonyms for `STOPPED`, `RETIRED`, `DNS`, `DNF`, or `DSQ`. Terminal lifecycle is published only when explicit source evidence establishes it. A missing timing update, a stationary map marker, or a low final classification never proves retirement.
 
 ## Track presentation
 

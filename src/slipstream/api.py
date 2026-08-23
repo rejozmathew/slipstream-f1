@@ -63,7 +63,15 @@ def create_app(
     def expose_live_recording(_path: Path) -> bool:
         library_ref[0] = ReplayLibrary(recording_path, now=clock)
         key = live.target_session_key
-        return bool(key and library_ref[0].descriptors.get(key) and library_ref[0].descriptors[key].available)
+        ready = bool(
+            key
+            and library_ref[0].descriptors.get(key)
+            and library_ref[0].descriptors[key].available
+        )
+        asyncio.get_running_loop().call_soon(
+            lambda: asyncio.create_task(reconcile_live_source())
+        )
+        return ready
 
     if downloads_enabled:
         live.configure_recording(recording_path, expose_live_recording)
@@ -137,22 +145,21 @@ def create_app(
         if target is not None:
             existing = library_ref[0].descriptors.get(target)
             phase = live.view(target).phase
-            if existing is not None and phase in {
-                "FINALIZING", "COMPLETE", "REPLAY_READY"
-            }:
+            if existing is not None and phase in {"FINALIZING", "COMPLETE"}:
                 return existing
         now_value = clock()
         current = [
             descriptor
             for descriptor in library_ref[0].descriptors.values()
-            if descriptor.is_live(now_value)
+            if descriptor.is_live(now_value) and not descriptor.available
         ]
         if current:
             return max(current, key=lambda item: item.date_start)
         upcoming = [
             descriptor
             for descriptor in library_ref[0].descriptors.values()
-            if parse_timestamp(descriptor.date_start) > now_value
+            if not descriptor.available
+            and parse_timestamp(descriptor.date_start) > now_value
             and parse_timestamp(descriptor.date_start) - now_value <= timedelta(hours=6)
         ]
         return min(upcoming, key=lambda item: item.date_start) if upcoming else None
