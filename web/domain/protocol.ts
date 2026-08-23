@@ -26,9 +26,11 @@ export type Driver = {
   sector_3: number | null;
   availability: Record<string, AvailabilityStatus>;
   status: string;
-  activity: "ON_TRACK" | "IN_PIT" | "NO_RECENT_PROGRESS" | "UNKNOWN";
+  activity: "ON_TRACK" | "IN_PIT" | "UNKNOWN";
   progress_observed_at_lap: number | null;
   qualifying_eliminated: boolean | null;
+  qualifying_results: [number | null, number | null, number | null] | null;
+  qualifying_phase_reached: QualifyingPhase | null;
 };
 
 export type RaceState = {
@@ -50,7 +52,8 @@ export type RaceState = {
     track_status: string | null;
     control_status?: "NORMAL" | "RED_FLAG" | "SAFETY_CAR" | "VSC" | "VSC_ENDING" | "CHEQUERED" | "UNKNOWN";
     marshal_status?: "ALL_CLEAR" | "YELLOW" | "RED" | "UNKNOWN";
-    display_status?: "RED_FLAG" | "SAFETY_CAR" | "VSC" | "VSC_ENDING" | "CHEQUERED" | "RED" | "YELLOW" | "ALL_CLEAR" | "UNKNOWN";
+    display_status?: "RED_FLAG" | "SAFETY_CAR" | "VSC" | "VSC_ENDING" | "CHEQUERED" | "RED" | "YELLOW" | "GREEN" | "UNKNOWN";
+    eligible_field_size: number | null;
     qualifying_phase: QualifyingPhase;
     session_clock: string | null;
     session_clock_running: boolean | null;
@@ -465,11 +468,19 @@ export type QualifyingAttempt = {
 
 export type QualifyingDriverIntelligence = {
   driverNumber: string;
-  activity: "ON_TRACK" | "IN_PIT" | "NO_RECENT_PROGRESS" | "UNKNOWN";
+  activity: "ON_TRACK" | "IN_PIT" | "UNKNOWN";
+  scopeBest: string | null;
   benchmarkDelta: number | null;
   cutState: "ADVANCING" | "BELOW_CUT" | "ELIMINATED" | "UNKNOWN";
+  qStatus: string | null;
   attempts: QualifyingAttempt[];
   tyreUsage: "NEW" | "USED" | "UNKNOWN";
+  teammate: {
+    driverNumber: string;
+    code: string | null;
+    comparison: "FASTER" | "SLOWER" | "LEVEL" | "UNKNOWN";
+    gapSeconds: number | null;
+  } | null;
 };
 
 export type QualifyingIntelligence = {
@@ -478,7 +489,7 @@ export type QualifyingIntelligence = {
   phaseEvidence?: string;
   sessionClock: string | null;
   sessionClockRunning?: boolean | null;
-  benchmark: { driverNumber: string; code: string | null; lapTime: string } | null;
+  benchmark: { driverNumber: string; code: string | null; lapTime: string; scope: "SEGMENT" | "SESSION" } | null;
   cutLine: {
     advancePosition: number | null;
     cutoff: { driverNumber: string; code: string | null; position: number; bestLap: string | null } | null;
@@ -624,6 +635,7 @@ export const EMPTY_RACE_STATE: RaceState = {
     lap: null, total_laps: null, track_status: null, control_status: "UNKNOWN",
     marshal_status: "UNKNOWN", display_status: "UNKNOWN", qualifying_phase: "UNKNOWN",
     session_clock: null, session_clock_running: null, gmt_offset: null,
+    eligible_field_size: null,
     local_time: null, status: "UNAVAILABLE",
   },
   circuit: {

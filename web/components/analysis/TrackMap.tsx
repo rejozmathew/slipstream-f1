@@ -22,7 +22,7 @@ export function TrackMap({ circuit, session, drivers, positionMode, focusedDrive
     || driver.track_position != null
   )).sort((a, b) => Number(focus.has(a.number)) - Number(focus.has(b.number)));
   return (
-    <Panel eyebrow="CIRCUIT" title={circuit.name ?? session.circuit ?? "Track map"} action={<span className="panel-badge">{geometry ? "OUTLINE READY" : "UNAVAILABLE"}</span>} className="map-panel">
+    <Panel eyebrow="CIRCUIT" title={circuit.name ?? session.circuit ?? "Track map"} action={geometry ? <span className="panel-badge">OUTLINE READY</span> : undefined} className="map-panel">
       <div className="track-map">
         {geometry ? <svg viewBox="0 0 1000 650" role="img" aria-label={`${circuit.name ?? "Circuit"} outline`} preserveAspectRatio="xMidYMid meet">
           <polyline className="circuit-shadow" points={geometry.polyline} />
@@ -43,11 +43,11 @@ export function TrackMap({ circuit, session, drivers, positionMode, focusedDrive
             })}
           </g>
         </svg> : <div className="panel-empty">CIRCUIT SHAPE - UNAVAILABLE</div>}
-        {geometry && positionMode === "unavailable" && <div className="map-note">CAR POSITION - UNSUPPORTED</div>}
-        {geometry && positionMode !== "unavailable" && positioned.length === 0 && <div className="map-note">CAR POSITION - UNKNOWN AT THIS SESSION TIME</div>}
-        <div className="map-center"><strong>{session.layout_family === "qualifying" ? session.qualifying_phase : session.lap ?? "?"}</strong><span>{focusLabel ?? (session.layout_family === "qualifying" ? "SESSION PHASE" : "CURRENT LAP")}</span></div>
+        {geometry && positionMode === "unavailable" && <div className="map-note">CAR POSITION NOT AVAILABLE FOR THIS REPLAY</div>}
+        {geometry && positionMode !== "unavailable" && positioned.length === 0 && <div className="map-note">CAR POSITION NOT YET AVAILABLE</div>}
+        {session.layout_family !== "qualifying" && <div className="map-center"><strong>{session.lap ?? "—"}</strong><span>{focusLabel ?? "CURRENT LAP"}</span></div>}
       </div>
-      <footer className="panel-footer"><span>SHAPE - OBSERVED</span><span>POSITION - {positionMode === "precise_xy" ? "SOURCE X/Y" : positionMode === "timing_estimate" ? "APPROX" : "UNSUPPORTED"}</span></footer>
+      <footer className="panel-footer"><span>SHAPE · OBSERVED</span>{positionMode !== "unavailable" && <span>{positionMode === "timing_estimate" ? "POSITION · APPROX" : "POSITION · SOURCE X/Y"}</span>}</footer>
     </Panel>
   );
 }

@@ -34,9 +34,7 @@ export function SessionStrip({ session, selected, viewingMode, livePhase, liveNo
   const preEvent = viewingMode === "live" && livePhase === "PRE_EVENT";
   const qualifying = session.layout_family === "qualifying" || selected?.layoutFamily === "qualifying";
   const canonicalStatus = session.display_status ?? session.track_status;
-  const displayStatus = !canonicalStatus || canonicalStatus === "UNKNOWN"
-    ? (viewingMode === "replay" && selected?.available ? null : "UNAVAILABLE")
-    : canonicalStatus.replaceAll("_", " ");
+  const displayStatus = !canonicalStatus || canonicalStatus === "UNKNOWN" ? null : canonicalStatus.replaceAll("_", " ");
   const modeLabel = viewingMode === "live" ? livePhase.replaceAll("_", " ") : "REPLAY";
   const startsIn = useMemo(() => countdownLabel(selected?.dateStart ?? date, now), [date, now, selected?.dateStart]);
   useEffect(() => {
@@ -55,8 +53,8 @@ export function SessionStrip({ session, selected, viewingMode, livePhase, liveNo
       </div>
       <div className="session-stat"><span>DATE</span><DataValue compact value={date ? formatSessionDate(date) : null} /></div>
       <div className="session-stat"><span>LOCAL</span><DataValue compact value={session.local_time ? `${session.local_time.slice(11, 19)} ${utcOffsetLabel(gmtOffset)}` : sessionStartLabel(selected?.dateStart ?? null, gmtOffset)} /></div>
-      {qualifying ? <div className="session-stat lap-stat qualifying-clock-stat"><span>{session.qualifying_phase === "UNKNOWN" ? "PHASE" : session.qualifying_phase}</span><strong><DataValue compact value={session.session_clock} /></strong></div> : <div className="session-stat lap-stat"><span>LAP</span><strong><DataValue compact value={session.lap} /> <i>/</i> <DataValue compact value={session.total_laps} /></strong></div>}
-      <div className="session-stat track-stat" data-track-status={displayStatus?.toLowerCase().replaceAll(" ", "-")}><span>STATUS</span><DataValue compact value={displayStatus} /></div>
+      {qualifying ? (session.qualifying_phase !== "UNKNOWN" || session.session_clock ? <div className="session-stat lap-stat qualifying-clock-stat">{session.qualifying_phase !== "UNKNOWN" && <span>{session.qualifying_phase}</span>}{session.session_clock && <strong>{session.session_clock}</strong>}</div> : null) : <div className="session-stat lap-stat"><span>LAP</span><strong><DataValue compact value={session.lap} /> <i>/</i> <DataValue compact value={session.total_laps} /></strong></div>}
+      {displayStatus && <div className="session-stat track-stat" data-track-status={displayStatus.toLowerCase().replaceAll(" ", "-")}><span>STATUS</span><DataValue compact value={displayStatus} /></div>}
     </section>
   );
 }

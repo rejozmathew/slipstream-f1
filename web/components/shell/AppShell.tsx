@@ -40,6 +40,7 @@ export function AppShell() {
     ? ["LIVE", "STALE", "RECONNECTING", "FINALIZING", "COMPLETE", "REPLAY_READY"].includes(session.livePhase)
     : replayAvailable;
   const positionMode = session.capabilities?.positionMode ?? session.metadata?.positionMode ?? session.selectedCatalogSession?.positionMode ?? "unavailable";
+  const sectorTimingAvailable = session.capabilities?.capabilities.sector_timing ?? false;
   const driverHistory = useDriverHistory(session.viewingMode === "replay" ? session.selectedSessionKey : null, focusedDriver);
   const recommendedBattle = useBattleRecommendation(session.analytics, session.state);
   const rootProps = {
@@ -79,7 +80,7 @@ export function AppShell() {
     setView("session");
   };
 
-  if (view === "tv") return <div {...rootProps}><TVModeView state={session.state} analytics={session.analytics} recommendedBattle={recommendedBattle} sessionLayout={layout} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} preferences={preferences.tv} onPreferencesChange={preferences.setTV} onExit={() => setView("session")} /></div>;
+  if (view === "tv") return <div {...rootProps}><TVModeView state={session.state} analytics={session.analytics} recommendedBattle={recommendedBattle} sessionLayout={layout} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} sectorTimingAvailable={sectorTimingAvailable} preferences={preferences.tv} onPreferencesChange={preferences.setTV} onExit={() => setView("session")} /></div>;
 
   return <div {...rootProps}>
     <header className="app-header">
@@ -102,7 +103,7 @@ export function AppShell() {
       {view !== "settings" && session.connectionError && <section className="service-unavailable"><strong>SLIPSTREAM DATA UNAVAILABLE</strong><p>{session.connectionError}</p><span>No sample race has been substituted.</span></section>}
       {view !== "settings" && !session.connectionError && session.viewingMode === "live" && !dataAvailable && <section className={`live-source-state live-source-${session.livePhase.toLowerCase()}`}><strong>{connectionLabel}</strong><p>{session.livePhase === "PRE_EVENT" ? "WAITING FOR PUBLIC TIMING FEED" : session.livePhase === "CONNECTING" ? "Connecting to the public Formula 1 timing source." : "Public live timing is currently unavailable. No replay or sample state has been substituted."}</p></section>}
       {view === "session" && !session.connectionError && layout === "race" && <RaceView state={session.state} analytics={session.analytics} replayAvailable={dataAvailable} positionMode={positionMode} layout={preferences.raceLayout} onLayoutChange={preferences.setRaceLayout} onOpenLayoutEditor={openLayoutEditor} onSelectDriver={openDriver} towerView={preferences.towerView} onTowerViewChange={preferences.setTowerView} onOpenStrategy={() => setView("strategy")} />}
-      {view === "session" && !session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} analytics={session.analytics} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
+      {view === "session" && !session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} analytics={session.analytics} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "practice" && <PracticeView state={session.state} replayAvailable={dataAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "unsupported" && <Panel eyebrow="SESSION LAYOUT" title="Session layout unavailable"><div className="unknown-block"><strong>LAYOUT - NOT AVAILABLE</strong><p>This session is present in the catalog but does not classify as Race, Qualifying, or Practice.</p></div></Panel>}
       {view === "strategy" && layout === "race" && !session.connectionError && <StrategyView state={session.state} analytics={session.analytics} onSelectDriver={openDriver} />}

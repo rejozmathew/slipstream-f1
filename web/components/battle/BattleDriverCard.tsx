@@ -18,7 +18,7 @@ export function BattleDriverCard({ driver, side, published }: { driver: Driver |
       <div><span>BEST LAP</span><DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} /></div>
     </div>
     <div className="battle-sectors"><span>S1 <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} /></span><span>S2 <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} /></span><span>S3 <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} /></span></div>
-    <div className="battle-pirelli-strip"><span>PIRELLI FIT</span><strong>{published?.relation.replaceAll("_", " ") ?? "UNKNOWN"}</strong><small>{publishedWindowSummary(published)}</small></div>
+    {published && <div className="battle-pirelli-strip"><span>PIRELLI FIT</span><strong>{published.relation === "UNKNOWN" ? "—" : published.relation.replaceAll("_", " ")}</strong><small>{publishedWindowSummary(published)}</small></div>}
   </section>;
 }
 

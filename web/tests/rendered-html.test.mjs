@@ -9,11 +9,14 @@ async function builtApplication() {
   const javascript = await Promise.all(
     assetNames.filter((name) => name.endsWith(".js")).map((name) => readFile(new URL(name, assetsDirectory), "utf8")),
   );
-  return { index, bundle: javascript.join("\n") };
+  const styles = await Promise.all(
+    assetNames.filter((name) => name.endsWith(".css")).map((name) => readFile(new URL(name, assetsDirectory), "utf8")),
+  );
+  return { index, bundle: javascript.join("\n"), styles: styles.join("\n") };
 }
 
 test("builds the replay-driven desktop shell as static files", async () => {
-  const { index, bundle } = await builtApplication();
+  const { index, bundle, styles } = await builtApplication();
 
   assert.match(index, /<title>Slipstream F1 .* Replay Pit Wall<\/title>/i);
   assert.match(index, /<div id="root"><\/div>/);
@@ -28,13 +31,14 @@ test("builds the replay-driven desktop shell as static files", async () => {
   assert.match(bundle, /TOWER VIEW/);
   assert.match(bundle, /PIRELLI BASELINE/);
   assert.match(bundle, /RACE NOW/);
-  assert.match(bundle, /PUBLISHED STRATEGY CONTEXT/);
+  assert.match(bundle, /NO PUBLISHED PIRELLI CONTEXT FOR THIS PAIR/);
   assert.doesNotMatch(bundle, /Strategy Outlook/);
   assert.doesNotMatch(bundle, /NET PIT LOSS/);
   assert.match(bundle, /PACE DELTA/);
   assert.match(bundle, /CHANGE DRIVER/);
   assert.match(bundle, /No sample race has been substituted/);
-  assert.match(bundle, /QUALIFYING CUT LINE/);
+  assert.doesNotMatch(bundle, /QUALIFYING CUT LINE|CLOCK UNKNOWN|PHASE UNKNOWN|Q UNKNOWN/);
+  assert.match(styles, /ELIMINATION ZONE/);
   assert.match(bundle, /WAITING FOR PUBLIC TIMING FEED/);
   assert.match(bundle, /LIVE DELAY/);
   assert.match(bundle, /SYNC DELAY/);
@@ -80,6 +84,9 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(replayLibrary, /aria-label="Weekend session"/);
   assert.match(sessionHook, /commandAvailable && socketRef\.current\?\.send/);
   assert.doesNotMatch(sessionHook, /setAnalytics\(null\).*viewingMode === "live"/s);
+  assert.match(sessionHook, /envelope = await slipstreamApi\.state\(selectedSessionKey, viewingMode\)/);
+  assert.match(sessionHook, /Promise\.allSettled/);
+  assert.ok(sessionHook.indexOf("envelope = await slipstreamApi.state") < sessionHook.indexOf("Promise.allSettled"), "canonical state must bootstrap before auxiliary metadata");
   assert.match(raceView, /\["standard", "timing", "strategy"\]/);
   assert.match(preferences, /slipstream\.device-preferences\.v1/);
   assert.match(preferences, /includedRaceStates/);
@@ -106,7 +113,8 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(driverView, /model\?\.read\.headline/);
   assert.match(driverView, /focusedDriverNumbers=\{\[driverNumber\]\}/);
   assert.match(driverView, /sessionLayout === "qualifying"/);
-  assert.match(driverView, /CURSOR-SAFE LAP EVIDENCE/);
+  assert.match(driverView, /QUALIFYING LAP HISTORY/);
+  assert.doesNotMatch(driverView, /CURSOR-SAFE LAP EVIDENCE|PHASE —/);
   assert.match(battleView, /analytics\?\.battle\.histories/);
   assert.doesNotMatch(battleView, /stateHistory/);
   assert.match(battleView, /Published strategy context/);
@@ -131,7 +139,9 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.match(tvMode, /focusedDriverNumbers=\{\[driver\.number\]\}/);
   assert.match(tvMode, /tv-status-chequered|return "chequered"/);
   assert.match(tvMode, /qualifyingStates/);
-  assert.match(tvMode, /TVQualifyingCutline/);
+  assert.doesNotMatch(tvMode, /TVQualifyingCutline|TVQualifyingSectors|"cutline"|"sectors"|"runs"|"stints"|CLOCK UNKNOWN|PHASE UNKNOWN/);
+  assert.match(tvMode, /practice: \["tower"\]/);
+  assert.match(tvMode, /hasRenderableCarPositions/);
   assert.match(protocol, /perDriverState\?: Record<string, DryTyreRequirementState>/);
   assert.match(protocol, /status: "NOT_IMPLEMENTED"/);
   assert.match(protocol, /metrics: null/);
@@ -142,6 +152,9 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.match(publishedStrategy, /publishedWindowSummary/);
   for (const source of [publishedStrategy, battleCard, timingTower, strategyView, tvMode]) {
     assert.doesNotMatch(source, /windows\[0\]/);
+  }
+  for (const source of [publishedStrategy, timingTower, strategyView, tvMode]) {
+    assert.doesNotMatch(source, /\braceStrategy\b|\.primaryStrategy\b|\.alternateStrategy\b|\.likelyNextCompound\b|\.pitWindow\b|\.undercutStrength\b|\.projectedRejoinPosition\b|\.freeStopMargin\b/);
   }
 });
 
@@ -154,6 +167,8 @@ test("uses server-authored status and preserves same-session live replay handoff
 
   assert.match(sessionStrip, /session\.display_status/);
   assert.match(sessionStrip, /session\.display_status \?\? session\.track_status/);
+  assert.match(sessionStrip, /canonicalStatus === "UNKNOWN" \? null/);
+  assert.doesNotMatch(sessionStrip, /PHASE UNKNOWN|STATUS UNAVAILABLE/);
   assert.match(protocol, /control_status/);
   assert.match(protocol, /marshal_status/);
   assert.match(protocol, /display_status/);
@@ -161,5 +176,52 @@ test("uses server-authored status and preserves same-session live replay handoff
   assert.match(sessionHook, /envelope\.mode === "replay" && envelope\.handoff === "REPLAY_READY"/);
   assert.match(sessionHook, /setViewingMode\("replay"\)/);
   assert.match(sessionHook, /currentSession\?\.replayReady/);
+  assert.match(sessionHook, /slipstream\.selected-session\.v1/);
+  assert.match(sessionHook, /const persistedKey = savedSessionKey\(\)/);
+  assert.match(sessionHook, /persistedSession\?\.sessionKey \?\? result\.defaultSessionKey/);
+  assert.match(sessionHook, /saveSessionKey\(sessionKey\)/);
+});
+
+test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", async () => {
+  const [timingTower, qualifyingView, practiceView, tvMode, lifecycle, trackMap, strategyView, sessionSnapshot] = await Promise.all([
+    readFile(new URL("../components/timing/TimingTower.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/QualifyingView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/PracticeView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/TVModeView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../domain/lifecycle.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/analysis/TrackMap.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/StrategyView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/analysis/SessionStrategySnapshot.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(timingTower, /standard: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "LAST", "PIT"\]/);
+  assert.match(timingTower, /timing: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "S1", "S2", "S3", "LAST", "BEST"\]/);
+  assert.match(timingTower, /strategy: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "STINT", "PIT"\]/);
+  assert.match(timingTower, /\["P", "DRIVER \/ TEAM", "BEST", "GAP", "TYRE", "AGE"/);
+  assert.match(timingTower, /"PIRELLI FIT", "PUBLISHED WINDOW"/);
+  assert.match(timingTower, /driver\.gap_to_leader/);
+  assert.doesNotMatch(timingTower, /interval_to_ahead|NO RECENT PROGRESS|TO AHEAD|TO LEADER/);
+  assert.match(lifecycle, /RETIRED: "RET"/);
+  assert.match(lifecycle, /WITHDRAWN: "WD"/);
+  assert.doesNotMatch(lifecycle, /NO_RECENT_PROGRESS|NO RECENT PROGRESS/);
+
+  assert.match(qualifyingView, /title="SESSION"/);
+  assert.match(qualifyingView, /SEGMENT TIMING WAS NOT RECORDED FOR THIS REPLAY/);
+  assert.doesNotMatch(qualifyingView, /Cut Line|AT RISK|ACTIVITY/);
+  assert.match(trackMap, /CAR POSITION NOT AVAILABLE FOR THIS REPLAY/);
+  assert.match(trackMap, /POSITION · APPROX/);
+  assert.doesNotMatch(trackMap, /UNKNOWN over|PHASE UNKNOWN/);
+
+  assert.match(practiceView, /\["timing", "track", "conditions", "control"\]/);
+  assert.doesNotMatch(practiceView, /ANALYTICS - NOT ENABLED|RUNS|PACE|STINTS/);
+  assert.match(tvMode, /qualifying: \["tower"\]/);
+  assert.match(tvMode, /practice: \["tower"\]/);
+  assert.doesNotMatch(tvMode, /QUALIFYING CUT LINE|CLOCK UNKNOWN|PHASE UNKNOWN|ANALYTICS · UNKNOWN/);
+
+  assert.match(strategyView, /raceRead/);
+  assert.match(sessionSnapshot, /raceRead/);
+  for (const source of [strategyView, sessionSnapshot, tvMode]) {
+    assert.doesNotMatch(source, /\braceStrategy\b|\.primaryStrategy\b|\.alternateStrategy\b|\.likelyNextCompound\b|\.pitWindow\b|\.undercutStrength\b|\.projectedRejoinPosition\b|\.freeStopMargin\b/);
+  }
 });
 

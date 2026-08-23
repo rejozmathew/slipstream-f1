@@ -5,20 +5,20 @@ import { PaceDeltaChart } from "../components/analysis/PaceDeltaChart";
 import { DriverPirelliContext, PirelliBaseline, RaceNow, publishedWindowSummary } from "../components/analysis/PublishedStrategy";
 import { TrackMap } from "../components/analysis/TrackMap";
 import { CompoundBadge, CompoundTransition } from "../components/shared/CompoundBadge";
-import { Panel } from "../components/shared/Panel";
 import { TimingTower } from "../components/timing/TimingTower";
 import { currentPairGap } from "../domain/battle";
+import { driverLifecycle } from "../domain/lifecycle";
 import type { AnalyticsSnapshot, Driver, PositionMode, RaceState, SessionKind } from "../domain/protocol";
 import type { SessionLayout } from "../domain/sessionLayout";
 import { isCriticalTrackStatus, nextAuthoredState } from "../domain/tvMode.mjs";
 import type { TVPreferences, TVStatePreference } from "../hooks/useProductPreferences";
 
-type TVState = TVStatePreference | "cutline" | "sectors" | "runs" | "pace" | "stints";
+type TVState = TVStatePreference;
 
 const stateSets: Record<Exclude<SessionLayout, "unsupported">, TVState[]> = {
   race: ["tower", "track", "strategy", "battle", "driver"],
   qualifying: ["tower"],
-  practice: ["tower", "runs", "pace", "stints"],
+  practice: ["tower"],
 };
 
 function statusTone(status?: string | null) {
@@ -41,8 +41,9 @@ function DriverTV({ driver, analytics, state, positionMode }: {
   const samples = model?.pace.samples.slice(-22) ?? [];
   const latestPit = model?.pitEvents.at(-1) ?? null;
   if (!driver) return <div className="unknown-block"><strong>DRIVER · NOT SELECTED</strong><p>Choose a Driver TV target in Settings → Preferences.</p></div>;
+  const lifecycle = driverLifecycle(driver);
   return <div className="tv-driver-state">
-    <header style={{ borderColor: `#${driver.team_colour ?? "77808f"}` }}><div><span>DRIVER</span><strong>#{driver.number}</strong></div><div><h2>{driver.name ?? driver.code ?? driver.number}</h2><p>{driver.team ?? "Team unavailable"}</p></div><b>P{driver.position ?? "—"}</b></header>
+    <header style={{ borderColor: `#${driver.team_colour ?? "77808f"}` }}><div><span>DRIVER</span><strong>#{driver.number}</strong></div><div><h2>{driver.name ?? driver.code ?? driver.number}</h2><p>{driver.team ?? "Team unavailable"}</p>{lifecycle.label && <span className="driver-status-badge terminal">{lifecycle.label}</span>}</div><b>P{driver.position ?? "—"}</b></header>
     <div className="tv-driver-zones">
       <section className="tv-driver-facts"><h3>DRIVER STATE</h3><div><span>AHEAD</span><strong>{model?.ahead?.code ?? "—"}</strong><small>{model?.ahead?.gapSeconds == null ? "—" : `${model.ahead.gapSeconds.toFixed(3)}s`}</small></div><div><span>BEHIND</span><strong>{model?.behind?.code ?? "—"}</strong><small>{model?.behind?.gapSeconds == null ? "—" : `${model.behind.gapSeconds.toFixed(3)}s`}</small></div><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / BEST</span><strong>{driver.last_lap ?? "—"} · {driver.best_lap ?? "—"}</strong></div>{latestPit && <div><span>LATEST PIT · L{latestPit.lap}</span><strong><CompoundTransition from={latestPit.previousCompound} to={latestPit.newCompound} compact /></strong><small>PIT-LANE {latestPit.stopDuration == null ? "—" : `${latestPit.stopDuration.toFixed(1)}s`}</small></div>}</section>
       <div className="tv-driver-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[driver.number]} focusLabel={`${driver.code ?? driver.number} · FOCUS`} /></div>
@@ -54,7 +55,8 @@ function DriverTV({ driver, analytics, state, positionMode }: {
 function BattleCard({ driver, analytics }: { driver: Driver; analytics: AnalyticsSnapshot | null }) {
   const model = analytics?.drivers[driver.number];
   const published = analytics?.publishedStrategy?.drivers[driver.number];
-  return <section className="tv-battle-card" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as React.CSSProperties}><header><b>P{driver.position ?? "—"}</b><strong>{driver.code ?? driver.number}</strong><span>#{driver.number}</span></header><p>{driver.name ?? "Driver"} · {driver.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{driver.last_lap ?? "—"} · {model?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div><div><span>PIRELLI FIT</span><strong>{published?.relation.replaceAll("_", " ") ?? "UNKNOWN"}</strong></div><div><span>PUBLISHED WINDOWS</span><strong>{publishedWindowSummary(published, "—")}</strong></div></section>;
+  const showPublished = analytics?.publishedStrategy?.status === "PRESENT";
+  return <section className="tv-battle-card" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as React.CSSProperties}><header><b>P{driver.position ?? "—"}</b><strong>{driver.code ?? driver.number}</strong><span>#{driver.number}</span></header><p>{driver.name ?? "Driver"} · {driver.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{driver.last_lap ?? "—"} · {model?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div>{showPublished && <><div><span>PIRELLI FIT</span><strong>{published?.relation.replaceAll("_", " ") ?? "—"}</strong></div><div><span>PUBLISHED WINDOWS</span><strong>{publishedWindowSummary(published, "—")}</strong></div></>}</section>;
 }
 
 function TVBattle({ drivers, analytics, mode, state, positionMode }: {
@@ -75,17 +77,14 @@ function TVTrack({ state, drivers, analytics, positionMode, replayAvailable }: {
   return <div className="tv-track-composed"><div className="tv-track-map"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div><div className="tv-mini-tower"><TimingTower drivers={drivers} variant="race" replayAvailable={replayAvailable} analytics={analytics} /></div></div>;
 }
 
-function TVQualifyingCutline({ analytics }: { analytics: AnalyticsSnapshot | null }) {
-  const value = analytics?.qualifying;
-  return <div className="tv-qualifying-cutline"><header><span>QUALIFYING CUT LINE</span><strong>{value?.phase ?? "UNKNOWN"}</strong><b>{value?.sessionClock ?? "CLOCK UNKNOWN"}</b></header><div className="tv-cutline-benchmark"><span>BENCHMARK</span><strong>{value?.benchmark ? `${value.benchmark.code ?? value.benchmark.driverNumber} · ${value.benchmark.lapTime}` : "—"}</strong></div><div className="tv-cutline-boundary"><section><span>LAST ADVANCING</span><strong>{value?.cutLine.cutoff ? `P${value.cutLine.cutoff.position} · ${value.cutLine.cutoff.code ?? value.cutLine.cutoff.driverNumber}` : "—"}</strong><b>{value?.cutLine.cutoff?.bestLap ?? "—"}</b></section><i>TOP {value?.cutLine.advancePosition ?? "—"}</i><section><span>FIRST OUT</span><strong>{value?.cutLine.firstOut ? `P${value.cutLine.firstOut.position} · ${value.cutLine.firstOut.code ?? value.cutLine.firstOut.driverNumber}` : "—"}</strong><b>{value?.cutLine.firstOut?.bestLap ?? "—"}</b></section></div></div>;
+function hasRenderableCarPositions(drivers: Driver[], positionMode: PositionMode) {
+  if (positionMode === "unavailable") return false;
+  return drivers.some((driver) => positionMode === "precise_xy"
+    ? driver.x != null && driver.y != null
+    : driver.track_position != null);
 }
 
-function TVQualifyingSectors({ drivers }: { drivers: Driver[] }) {
-  const rows = drivers.filter((driver) => driver.sector_1 != null || driver.sector_2 != null || driver.sector_3 != null);
-  return <div className="tv-qualifying-sectors"><header><span>FACTUAL SECTOR EVOLUTION</span><strong>{rows.length} DRIVERS</strong></header><div>{rows.map((driver) => <section key={driver.number}><b style={{ borderColor: `#${driver.team_colour ?? "77808f"}` }}>{driver.code ?? driver.number}</b><span>S1 <strong>{driver.sector_1 ?? "—"}</strong></span><span>S2 <strong>{driver.sector_2 ?? "—"}</strong></span><span>S3 <strong>{driver.sector_3 ?? "—"}</strong></span></section>)}</div></div>;
-}
-
-export function TVModeView({ state, analytics, recommendedBattle, sessionLayout, sessionKind, replayAvailable, positionMode, preferences, onPreferencesChange, onExit }: {
+export function TVModeView({ state, analytics, recommendedBattle, sessionLayout, sessionKind, replayAvailable, positionMode, sectorTimingAvailable, preferences, onPreferencesChange, onExit }: {
   state: RaceState;
   analytics: AnalyticsSnapshot | null;
   recommendedBattle: [string, string] | null;
@@ -93,6 +92,7 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
   sessionKind: SessionKind;
   replayAvailable: boolean;
   positionMode: PositionMode;
+  sectorTimingAvailable: boolean;
   preferences: TVPreferences;
   onPreferencesChange: (value: TVPreferences) => void;
   onExit: () => void;
@@ -100,24 +100,26 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
   const layout = sessionLayout === "unsupported" ? "race" : sessionLayout;
   const qualifyingStates = useMemo<TVState[]>(() => {
     const items: TVState[] = ["tower"];
-    const qualifying = analytics?.qualifying;
-    if (qualifying?.status === "AVAILABLE" && (qualifying.phase !== "UNKNOWN" || qualifying.cutLine.status === "AVAILABLE")) items.push("cutline");
-    if (Object.values(state.drivers).some((driver) => driver.sector_1 != null || driver.sector_2 != null || driver.sector_3 != null)) items.push("sectors");
-    if (state.circuit.path.length > 1 && positionMode !== "unavailable") items.push("track");
+    if (state.circuit.path.length > 1 && hasRenderableCarPositions(Object.values(state.drivers), positionMode)) items.push("track");
     return items;
-  }, [analytics?.qualifying, positionMode, state.circuit.path.length, state.drivers]);
+  }, [positionMode, state.circuit.path.length, state.drivers]);
   const authoredStates = useMemo(() => layout === "race" ? preferences.includedRaceStates.length ? preferences.includedRaceStates : stateSets.race : layout === "qualifying" ? qualifyingStates : stateSets.practice, [layout, preferences.includedRaceStates, qualifyingStates]);
   const [active, setActive] = useState<TVState>(authoredStates[0]);
   const [rotating, setRotating] = useState(false);
   const [statusAlert, setStatusAlert] = useState(false);
   const [scopedAlert, setScopedAlert] = useState<string | null>(null);
-  const effectiveStatus = state.session.display_status ?? state.session.track_status ?? "UNKNOWN";
+  const effectiveStatus = state.session.display_status && state.session.display_status !== "UNKNOWN"
+    ? state.session.display_status
+    : state.session.display_status == null && state.session.track_status && state.session.track_status !== "UNKNOWN"
+      ? state.session.track_status
+      : null;
   const previousStatus = useRef(effectiveStatus);
   const drivers = useMemo(() => Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
   const selectedDriver = drivers.find((driver) => driver.number === preferences.selectedDriverNumber) ?? drivers[0] ?? null;
-  const leaderPair = drivers.length >= 2 ? [drivers[0].number, drivers[1].number] as [string, string] : null;
+  const battleDrivers = useMemo(() => drivers.filter((driver) => driverLifecycle(driver).battleEligible), [drivers]);
+  const leaderPair = battleDrivers.length >= 2 ? [battleDrivers[0].number, battleDrivers[1].number] as [string, string] : null;
   const selectedPair = preferences.battleMode === "leader" ? leaderPair : preferences.battleMode === "pinned" ? preferences.pinnedBattle : recommendedBattle;
-  const battle = selectedPair ? [drivers.find((driver) => driver.number === selectedPair[0]), drivers.find((driver) => driver.number === selectedPair[1])] as const : null;
+  const battle = selectedPair ? [battleDrivers.find((driver) => driver.number === selectedPair[0]), battleDrivers.find((driver) => driver.number === selectedPair[1])] as const : null;
   const visibleState = authoredStates.includes(active) ? active : authoredStates[0];
 
   useEffect(() => {
@@ -128,7 +130,7 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
 
   useEffect(() => {
     const next = effectiveStatus;
-    if (preferences.alertOnCriticalStatus && next !== previousStatus.current && isCriticalTrackStatus(next)) {
+    if (preferences.alertOnCriticalStatus && next && next !== previousStatus.current && isCriticalTrackStatus(next)) {
       queueMicrotask(() => setStatusAlert(true));
       const timer = window.setTimeout(() => setStatusAlert(false), 4000);
       previousStatus.current = next;
@@ -145,24 +147,19 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
     return () => window.clearTimeout(timer);
   }, [latestControl?.occurred_at, latestControl?.flag, latestControl?.scope, latestControl?.sector, preferences.alertOnCriticalStatus]);
 
-  const unavailableTitle = visibleState === "runs" ? "Practice runs" : visibleState === "pace" ? "Long-run pace" : "Stint context";
-  const governingStatus = effectiveStatus === "UNKNOWN"
-    ? "STATUS UNAVAILABLE"
-    : effectiveStatus.replaceAll("_", " ");
+  const governingStatus = effectiveStatus?.replaceAll("_", " ") ?? null;
   const tone = statusTone(governingStatus);
-  const trackStatus = governingStatus;
+  const qualifyingPhase = analytics?.qualifying.phase && analytics.qualifying.phase !== "UNKNOWN" ? analytics.qualifying.phase : null;
+  const qualifyingClock = analytics?.qualifying.sessionClock ?? null;
   return <div className={`tv-mode-view${statusAlert ? " tv-status-alert" : ""}`} data-track-tone={tone}>
-    <header className="tv-header"><div className="tv-brand"><i>SS</i><span><strong>SLIPSTREAM</strong><small>TV MODE · {sessionKind.replaceAll("_", " ").toUpperCase()}</small></span></div><div className="tv-session"><span>{state.session.meeting_name ?? "Session unavailable"}</span><strong>{state.session.name ?? layout.toUpperCase()}</strong></div><div className="tv-status"><span>{layout === "qualifying" ? analytics?.qualifying.phase ?? "PHASE" : "LAP"}</span><b>{layout === "qualifying" ? analytics?.qualifying.sessionClock ?? "CLOCK UNKNOWN" : `${state.session.lap ?? "—"} / ${state.session.total_laps ?? "—"}`}</b><strong>{trackStatus}</strong></div><button onClick={onExit}>EXIT TV</button></header>
-    <div className={`tv-status-rail tv-status-${tone}${statusAlert ? " critical-transition" : ""}`}><span>{trackStatus}</span>{scopedAlert && <small>{scopedAlert}</small>}</div>
+    <header className="tv-header"><div className="tv-brand"><i>SS</i><span><strong>SLIPSTREAM</strong><small>TV MODE · {sessionKind.replaceAll("_", " ").toUpperCase()}</small></span></div><div className="tv-session"><span>{state.session.meeting_name ?? "Session unavailable"}</span><strong>{state.session.name ?? layout.toUpperCase()}</strong></div><div className="tv-status">{layout === "qualifying" ? <>{qualifyingPhase && <span>{qualifyingPhase}</span>}{qualifyingClock && <b>{qualifyingClock}</b>}</> : <><span>LAP</span><b>{state.session.lap ?? "—"} / {state.session.total_laps ?? "—"}</b></>}{governingStatus && <strong>{governingStatus}</strong>}</div><button onClick={onExit}>EXIT TV</button></header>
+    <div className={`tv-status-rail ${governingStatus ? `tv-status-${tone}` : "tv-status-none"}${statusAlert ? " critical-transition" : ""}`}>{governingStatus && <span>{governingStatus}</span>}{scopedAlert && <small>{scopedAlert}</small>}</div>
     <main className={`tv-stage tv-stage-${visibleState}`}>
-      {visibleState === "tower" && <div className="tv-tower"><TimingTower drivers={drivers} variant={layout === "race" ? "race" : layout === "qualifying" ? "qualifying" : "practice"} mode="standard" replayAvailable={replayAvailable} analytics={analytics} /></div>}
+      {visibleState === "tower" && <div className="tv-tower"><TimingTower drivers={drivers} variant={layout === "race" ? "race" : layout === "qualifying" ? "qualifying" : "practice"} mode="standard" replayAvailable={replayAvailable} analytics={analytics} sectorTimingAvailable={layout === "qualifying" && sectorTimingAvailable} /></div>}
       {visibleState === "track" && (layout === "race" ? <TVTrack state={state} drivers={drivers} analytics={analytics} positionMode={positionMode} replayAvailable={replayAvailable} /> : <div className="tv-track"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div>)}
       {visibleState === "strategy" && <div className="tv-strategy pirelli-tv-strategy"><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} /><RaceNow analytics={analytics} /></div>}
       {visibleState === "battle" && <TVBattle drivers={battle} analytics={analytics} mode={preferences.battleMode} state={state} positionMode={positionMode} />}
       {visibleState === "driver" && <DriverTV driver={selectedDriver} analytics={analytics} state={state} positionMode={positionMode} />}
-      {visibleState === "cutline" && <TVQualifyingCutline analytics={analytics} />}
-      {visibleState === "sectors" && <TVQualifyingSectors drivers={drivers} />}
-      {!(["tower", "track", "strategy", "battle", "driver", "cutline", "sectors"] as TVState[]).includes(visibleState) && <Panel eyebrow={layout.toUpperCase()} title={unavailableTitle} className="tv-unavailable-panel"><div className="unknown-block"><strong>ANALYTICS · UNKNOWN</strong><p>The current evidence does not yet support this authored state.</p></div></Panel>}
     </main>
     <footer className="tv-rotation"><div>{authoredStates.map((item, index) => <button className={visibleState === item ? "active" : ""} key={item} onClick={() => setActive(item)}><span>{String(index + 1).padStart(2, "0")}</span>{item.toUpperCase()}</button>)}</div><button className={rotating ? "rotation-toggle active" : "rotation-toggle"} onClick={() => setRotating((value) => !value)}>{rotating ? "AUTO ROTATION ON" : "AUTO ROTATION OFF"}</button><button className="tv-alert-toggle" onClick={() => onPreferencesChange({ ...preferences, alertOnCriticalStatus: !preferences.alertOnCriticalStatus })}>ALERTS {preferences.alertOnCriticalStatus ? "ON" : "OFF"}</button></footer>
   </div>;

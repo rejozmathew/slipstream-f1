@@ -18,6 +18,24 @@ import {
 
 export type TransportState = "connecting" | "stream" | "rest" | "disconnected";
 
+const SELECTED_SESSION_STORAGE_KEY = "slipstream.selected-session.v1";
+
+function savedSessionKey(): string | null {
+  try {
+    return window.localStorage.getItem(SELECTED_SESSION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveSessionKey(sessionKey: string) {
+  try {
+    window.localStorage.setItem(SELECTED_SESSION_STORAGE_KEY, sessionKey);
+  } catch {
+    // Selection persistence is an enhancement; the current in-memory selection remains authoritative.
+  }
+}
+
 export function useSlipstreamSession() {
   const [state, setState] = useState<RaceState>(EMPTY_RACE_STATE);
   const [analytics, setAnalytics] = useState<AnalyticsSnapshot | null>(null);
@@ -62,9 +80,15 @@ export function useSlipstreamSession() {
         setCatalog(result);
         if (!initialized) {
           initialized = true;
-          const defaultSession = result.sessions.find((item) => item.sessionKey === result.defaultSessionKey);
-          setSelectedSessionKey(result.defaultSessionKey);
-          setViewingMode(defaultSession?.liveAvailable ? "live" : "replay");
+          const persistedKey = savedSessionKey();
+          const persistedSession = persistedKey
+            ? result.sessions.find((item) => item.sessionKey === persistedKey)
+            : null;
+          const resolvedKey = persistedSession?.sessionKey ?? result.defaultSessionKey;
+          const resolvedSession = persistedSession
+            ?? result.sessions.find((item) => item.sessionKey === resolvedKey);
+          setSelectedSessionKey(resolvedKey);
+          setViewingMode(resolvedSession?.liveAvailable ? "live" : "replay");
         } else if (viewingModeRef.current === "live") {
           const currentSession = result.sessions.find(
             (item) => item.sessionKey === selectedSessionKeyRef.current,
@@ -134,15 +158,23 @@ export function useSlipstreamSession() {
       pollTimer = window.setInterval(() => void refreshState(), 3000);
     };
 
-    void Promise.all([
-      slipstreamApi.replay(selectedSessionKey),
-      slipstreamApi.state(selectedSessionKey, viewingMode),
-      slipstreamApi.capabilities(selectedSessionKey),
-    ]).then(([replay, envelope, sourceCapabilities]) => {
+    const bootstrap = async () => {
+      let envelope: StateEnvelope;
+      try {
+        // Canonical state is the bootstrap authority. Auxiliary metadata must
+        // never blank a valid Live or Replay state.
+        envelope = await slipstreamApi.state(selectedSessionKey, viewingMode);
+      } catch (error) {
+        if (!active) return;
+        setTransport("disconnected");
+        setConnectionError(error instanceof Error ? error.message : "State unavailable");
+        return;
+      }
       if (!active) return;
-      setMetadata(replay);
-      setCapabilities(sourceCapabilities);
       applyEnvelope(envelope);
+      setTransport("rest");
+      setConnectionError(null);
+
       if (viewingMode === "replay" && !envelope.analytics) {
         void slipstreamApi.analytics(selectedSessionKey, envelope.seq).then((result) => {
           if (active) setAnalytics(result);
@@ -150,10 +182,23 @@ export function useSlipstreamSession() {
           // Factual replay remains usable when analytics are unavailable.
         });
       }
-      const streamAvailable = viewingMode === "live" ? replay.liveAvailable : replay.replayAvailable;
+
+      const [replayResult, capabilityResult] = await Promise.allSettled([
+        slipstreamApi.replay(selectedSessionKey),
+        slipstreamApi.capabilities(selectedSessionKey),
+      ]);
+      if (!active) return;
+      const replay = replayResult.status === "fulfilled" ? replayResult.value : null;
+      const sourceCapabilities = capabilityResult.status === "fulfilled" ? capabilityResult.value : null;
+      if (replay) setMetadata(replay);
+      if (sourceCapabilities) setCapabilities(sourceCapabilities);
+
+      const streamAvailable = viewingMode === "live"
+        ? replay?.liveAvailable ?? sourceCapabilities?.liveAvailable ?? false
+        : replay?.replayAvailable ?? sourceCapabilities?.replayAvailable ?? false;
       if (!streamAvailable) {
-        setTransport("rest");
         setCommandAvailable(false);
+        startPolling();
         return;
       }
       socket = connectReplaySocket(slipstreamApi.streamUrl(selectedSessionKey, viewingMode), {
@@ -176,11 +221,8 @@ export function useSlipstreamSession() {
         },
       });
       socketRef.current = socket;
-    }).catch((error: unknown) => {
-      if (!active) return;
-      setTransport("disconnected");
-      setConnectionError(error instanceof Error ? error.message : "Session unavailable");
-    });
+    };
+    void bootstrap();
 
     return () => {
       active = false;
@@ -208,6 +250,7 @@ export function useSlipstreamSession() {
 
   const chooseSession = (sessionKey: string, mode?: ViewingMode) => {
     const selected = catalog?.sessions.find((item) => item.sessionKey === sessionKey);
+    saveSessionKey(sessionKey);
     resetSessionView();
     setSelectedSessionKey(sessionKey);
     setViewingMode(mode ?? (selected?.liveAvailable ? "live" : "replay"));

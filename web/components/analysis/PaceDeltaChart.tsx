@@ -22,7 +22,7 @@ function formatDelta(value: number | null) {
 }
 
 export function PaceDeltaChart({ samples, compact = false, serverScale }: { samples: PaceSample[]; compact?: boolean; serverScale?: number | null }) {
-  if (samples.length === 0) return <div className="panel-empty">PACE EVIDENCE · UNKNOWN AT THIS REPLAY TIME</div>;
+  if (samples.length === 0) return <div className="panel-empty">NO REPRESENTATIVE PACE LAPS YET</div>;
   // v2.1 §20: the y-axis scale is SERVER-computed (deterministic, cursor-
   // scoped). The client renders it verbatim; the local fallback only covers
   // snapshots that predate the server field.

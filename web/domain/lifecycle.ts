@@ -5,7 +5,6 @@ export type DriverLifecycle = {
   label: string | null;
   terminal: boolean;
   stopped: boolean;
-  noRecentProgress: boolean;
   circulating: boolean;
   battleEligible: boolean;
 };
@@ -32,25 +31,37 @@ const terminalLabels: Record<string, string> = {
   EXCLUDED: "WITHDRAWN",
 };
 
+const terminalClassificationLabels: Record<string, string> = {
+  RETIRED: "RET",
+  DNF: "DNF",
+  DSQ: "DSQ",
+  DNS: "DNS",
+  WITHDRAWN: "WD",
+  EXCLUDED: "WD",
+  FINISHED: "FINISHED",
+};
+
 export function canonicalDriverStatus(value: unknown): string {
   const raw = String(value ?? "").trim().toUpperCase();
   return aliases[raw] ?? raw ?? "UNKNOWN";
+}
+
+export function driverClassificationLabel(driver: Pick<Driver, "status">): string | null {
+  return terminalClassificationLabels[canonicalDriverStatus(driver.status)] ?? null;
 }
 
 export function driverLifecycle(driver: Pick<Driver, "status" | "position"> & Partial<Pick<Driver, "activity">>): DriverLifecycle {
   const status = canonicalDriverStatus(driver.status);
   const terminal = status in terminalLabels;
   const stopped = status === "STOPPED";
-  const noRecentProgress = driver.activity === "NO_RECENT_PROGRESS" && !terminal && !stopped;
   const circulating = status === "RUNNING";
   return {
     status,
-    label: stopped ? "STOPPED" : terminalLabels[status] ?? (noRecentProgress ? "NO RECENT PROGRESS" : null),
+    label: stopped ? "STOPPED" : terminalLabels[status] ?? null,
     terminal,
     stopped,
-    noRecentProgress,
     circulating,
-    battleEligible: circulating && !noRecentProgress && driver.position != null,
+    battleEligible: circulating && driver.position != null,
   };
 }
 
@@ -58,7 +69,6 @@ export function lifecycleClassName(driver: Pick<Driver, "status" | "position"> &
   const lifecycle = driverLifecycle(driver);
   if (lifecycle.terminal) return "driver-terminal";
   if (lifecycle.stopped) return "driver-stopped";
-  if (lifecycle.noRecentProgress) return "driver-no-recent-progress";
   if (!lifecycle.circulating) return "driver-lifecycle-unknown";
   return "driver-running";
 }
