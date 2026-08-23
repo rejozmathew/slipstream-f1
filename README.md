@@ -14,6 +14,7 @@ The product supports historical replay and a minimum public live-timing slice. O
 | Focused views | Contextual Driver Focus with on-demand normalized lap evidence, plus factual any-two-driver Battle |
 | Race intelligence | As-of-time Strategy, clean-lap pace/degradation, pit history, Driver context, and stabilized Recommended Battle with explicit provenance |
 | Weekend context | Compact prior-session evidence prepares asynchronously and never blocks replay startup |
+| Published strategy | Official Pirelli pre-race options plus deterministic cursor-safe Race Now/driver comparison |
 | Display modes | Responsive portrait/landscape session layouts and an authored browser TV Mode |
 | Presentation settings | Device-local dark background, accent, Race split, Timing Tower mode, module layout, and TV rotation preferences |
 | Track display | Preloaded historical circuit outline, independent of timing downloads |
@@ -23,7 +24,7 @@ The product supports historical replay and a minimum public live-timing slice. O
 | Outputs | Browser, API v1, WebSocket snapshots, and terminal output |
 | Deployment | One container, one process, and one internal port |
 
-Not yet implemented: deterministic archived-session backtesting, ingested historical/official pre-race context, Net Pit Loss, authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status and source status remain separate: the UI distinguishes LIVE CONNECTING, LIVE, LIVE STALE, and LIVE SOURCE UNAVAILABLE.
+Not yet implemented: deterministic archived-session backtesting, general historical pre-race context, Net Pit Loss, authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status and source status remain separate: the UI distinguishes LIVE CONNECTING, LIVE, LIVE STALE, and LIVE SOURCE UNAVAILABLE.
 
 ## Run it with Docker
 
@@ -94,6 +95,8 @@ npm install
 npm run dev
 ```
 
+Pirelli newsroom strategy evidence refreshes server-side and is stored under the operational data root. Set `SLIPSTREAM_PIRELLI_REFRESH=0` to disable acquisition. Native machine-readable PDF tyre-bank rows are optional; install `.[pirelli-pdf]` for that capability. Missing tyre-bank data never blocks Strategy.
+
 Open `http://localhost:3344`. The Vite development server is fixed to port
 `3344` and proxies API and WebSocket requests to the Slipstream backend at
 `http://127.0.0.1:8000`. Keep both terminals running. Do not run
@@ -129,6 +132,7 @@ The formulas, evidence thresholds, confidence rules, UNKNOWN behavior, Battle Sc
 
 - [Architecture](ARCHITECTURE.md) — current data flows, module boundaries, and invariants
 - [Protocol](docs/protocol.md) — RaceState, API v1, WebSocket commands, and file formats
+- [Published Pirelli strategy](docs/pirelli-strategy.md) — evidence admission, derivation, missing-data semantics, and corpus metrics
 - [Roadmap](ROADMAP.md) — shipped baseline and the next milestones
 - [Source notes](docs/sources.md) — reference and license boundaries
 - [Working agreement](AGENTS.md) — contributor rules

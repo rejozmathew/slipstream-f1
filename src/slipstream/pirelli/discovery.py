@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from urllib.parse import urlparse
 from xml.etree import ElementTree
@@ -99,11 +99,15 @@ def parse_formula1_feed(xml_text: str) -> tuple[FeedEntry, ...]:
 
 def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
     lower = f"{title} {summary}".casefold()
-    if "compound" in lower and any(word in lower for word in ("selected", "selection", "choices")):
+    if "compound" in lower and any(
+        word in lower for word in ("selected", "selection", "choices")
+    ):
         return ReleasePurpose.COMPOUND_NOMINATION
     if "sprint" in lower and any(word in lower for word in ("pole", "qualifying")):
         return ReleasePurpose.SPRINT_QUALIFYING
-    if "sprint" in lower and any(word in lower for word in ("wins", "victory", "winner")):
+    if "sprint" in lower and any(
+        word in lower for word in ("wins", "victory", "winner")
+    ):
         return ReleasePurpose.SPRINT
     if any(word in lower for word in ("pole", "qualifying")) and any(
         word in lower for word in ("strategy", "strategies", "tyre", "tire")
@@ -113,7 +117,10 @@ def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
         return ReleasePurpose.PRACTICE
     if any(word in lower for word in ("wins", "victory", "winner")):
         return ReleasePurpose.RACE_REPORT
-    if any(word in lower for word in ("grand prix", "weekend", "formula 1 resumes", "faces its")):
+    if any(
+        word in lower
+        for word in ("grand prix", "weekend", "formula 1 resumes", "faces its")
+    ):
         return ReleasePurpose.PREVIEW
     return ReleasePurpose.UNKNOWN
 
@@ -128,12 +135,16 @@ def discover_for_meeting(
     nomination releases. Ambiguous entries remain NEEDS_REVIEW instead of being silently
     attached to a meeting.
     """
-    aliases = tuple({target.canonical_name.casefold(), *(x.casefold() for x in target.aliases)})
-    lower_bound = target.weekend_start.astimezone(timezone.utc) - timedelta(days=35)
-    upper_bound = target.weekend_end.astimezone(timezone.utc) + timedelta(days=2)
+    aliases = tuple(
+        {target.canonical_name.casefold(), *(x.casefold() for x in target.aliases)}
+    )
+    lower_bound = target.weekend_start.astimezone(UTC) - timedelta(days=35)
+    upper_bound = target.weekend_end.astimezone(UTC) + timedelta(days=2)
     out: list[ReleaseCandidate] = []
     for entry in entries:
-        if entry.published_at is not None and not (lower_bound <= entry.published_at <= upper_bound):
+        if entry.published_at is not None and not (
+            lower_bound <= entry.published_at <= upper_bound
+        ):
             continue
         title = entry.title.casefold()
         summary = entry.summary.casefold()
@@ -157,14 +168,24 @@ def discover_for_meeting(
             continue
         # Exact tag is authoritative. Alias-only discovery is acceptable for nomination
         # releases but still requires fact-level meeting scoping later.
-        status = ExtractionStatus.ACCEPTED if (
-            "exact_event_tag" in reasons
-            or (purpose == ReleasePurpose.COMPOUND_NOMINATION and bool(title_hits))
-        ) else ExtractionStatus.NEEDS_REVIEW
-        out.append(
-            ReleaseCandidate(status, entry, purpose, "+".join(reasons), score)
+        status = (
+            ExtractionStatus.ACCEPTED
+            if (
+                "exact_event_tag" in reasons
+                or (purpose == ReleasePurpose.COMPOUND_NOMINATION and bool(title_hits))
+            )
+            else ExtractionStatus.NEEDS_REVIEW
         )
-    return tuple(sorted(out, key=lambda item: (item.entry.published_at or datetime.min.replace(tzinfo=timezone.utc), item.score)))
+        out.append(ReleaseCandidate(status, entry, purpose, "+".join(reasons), score))
+    return tuple(
+        sorted(
+            out,
+            key=lambda item: (
+                item.entry.published_at or datetime.min.replace(tzinfo=UTC),
+                item.score,
+            ),
+        )
+    )
 
 
 def discover_official_assets(document: HtmlDocument) -> tuple[AssetCandidate, ...]:

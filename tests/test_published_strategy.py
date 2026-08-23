@@ -1,9 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from slipstream.evidence import LapObservation
 from slipstream.pirelli.contracts import (
     Compound,
+    CompoundCount,
     CompoundSelection,
+    DriverTyreBank,
     EvidenceKind,
     ExtractionMethod,
     FactApplicability,
@@ -13,13 +15,13 @@ from slipstream.pirelli.contracts import (
     StrategyOption,
     StrategyOrder,
     StrategyRank,
+    TyreBankCoverage,
+    TyreBankSnapshot,
 )
 from slipstream.pirelli.snapshot import PirelliEvidenceSnapshot, StrategyReleaseView
 from slipstream.pirelli.store import PirelliAvailability
 from slipstream.published_strategy import build_published_strategy
 from slipstream.state import DriverState, RaceState, SessionState, WeatherState
-
-UTC = timezone.utc
 
 
 def _evidence():
@@ -54,7 +56,9 @@ def _option(
     )
 
 
-def _availability(*options: StrategyOption, selection: bool = False):
+def _availability(
+    *options: StrategyOption, selection: bool = False, bank: bool = False
+):
     published = datetime(2026, 7, 25, tzinfo=UTC)
     snapshot = PirelliEvidenceSnapshot(
         release_ids=("release",),
@@ -64,9 +68,7 @@ def _availability(*options: StrategyOption, selection: bool = False):
                 "C4",
                 "C5",
                 (_evidence(),),
-                FactApplicability(
-                    meeting_key="30", session_scope=SessionScope.WEEKEND
-                ),
+                FactApplicability(meeting_key="30", session_scope=SessionScope.WEEKEND),
             ),
         )
         if selection
@@ -82,7 +84,28 @@ def _availability(*options: StrategyOption, selection: bool = False):
         )
         if options
         else (),
-        tyre_bank_snapshots=(),
+        tyre_bank_snapshots=(
+            TyreBankSnapshot(
+                as_of=published,
+                target_session="race",
+                drivers=(
+                    DriverTyreBank(
+                        "Driver",
+                        CompoundCount(1, 0),
+                        CompoundCount(0, 1),
+                        CompoundCount(2, 0),
+                        1.0,
+                        (_evidence(),),
+                        "1",
+                        "AAA",
+                    ),
+                ),
+                source_evidence=(_evidence(),),
+                coverage=TyreBankCoverage.PARTIAL,
+            ),
+        )
+        if bank
+        else (),
         context_facts=(),
     )
     return PirelliAvailability("PRESENT", snapshot)
@@ -109,9 +132,7 @@ def _state(
         ),
         weather=WeatherState(rainfall=rainfall),
         drivers={
-            "1": DriverState(
-                number="1", code="AAA", compound=compound, status=status
-            )
+            "1": DriverState(number="1", code="AAA", compound=compound, status=status)
         },
     )
 
@@ -167,7 +188,11 @@ def test_ordered_prefix_matching_and_window_state_are_server_authored():
 def test_equivalent_options_remain_multiple_without_inventing_preference():
     result = _build(
         _availability(
-            _option("mh", (Compound.MEDIUM, Compound.HARD)),
+            _option(
+                "mh",
+                (Compound.MEDIUM, Compound.HARD),
+                rank=StrategyRank.EQUIVALENT_FASTEST,
+            ),
             _option(
                 "ms",
                 (Compound.MEDIUM, Compound.SOFT),
@@ -176,6 +201,10 @@ def test_equivalent_options_remain_multiple_without_inventing_preference():
         ),
         _state(),
     )
+    assert [item["rank"] for item in result["baseline"]["options"]] == [
+        "EQUIVALENT_FASTEST",
+        "EQUIVALENT_FASTEST",
+    ]
     assert result["drivers"]["1"]["relation"] == "MATCHING_MULTIPLE"
     assert result["drivers"]["1"]["compatibleOptionIds"] == ["mh", "ms"]
 
@@ -258,3 +287,62 @@ def test_missing_pirelli_baseline_keeps_driver_relation_unknown():
     assert result["status"] == "ABSENT"
     assert result["drivers"]["1"]["relation"] == "UNKNOWN"
     assert result["baseline"]["reason"] == "missing"
+
+
+def test_unranked_options_preserve_source_order_and_rank():
+    result = _build(
+        _availability(
+            _option("ms", (Compound.MEDIUM, Compound.SOFT), rank=StrategyRank.UNRANKED),
+            _option("mh", (Compound.MEDIUM, Compound.HARD), rank=StrategyRank.UNRANKED),
+        ),
+        _state(),
+    )
+    assert [(item["id"], item["rank"]) for item in result["baseline"]["options"]] == [
+        ("ms", "UNRANKED"),
+        ("mh", "UNRANKED"),
+    ]
+
+
+def test_native_tyre_bank_is_published_only_when_present():
+    result = _build(_availability(bank=True), _state())
+    bank = result["baseline"]["tyreBank"]
+    assert bank["status"] == "PRESENT"
+    assert bank["drivers"]["1"]["hard"] == {"new": 1, "used": 0}
+
+
+def test_divergence_does_not_generate_a_replacement_plan():
+    observations = (
+        LapObservation(1, "2026-07-26T13:01:00Z", compound="MEDIUM"),
+        LapObservation(19, "2026-07-26T13:30:00Z", compound="SOFT"),
+    )
+    result = _build(
+        _availability(_option("mh", (Compound.MEDIUM, Compound.HARD))),
+        _state(compound="SOFT", lap=25),
+        observations,
+    )
+    driver = result["drivers"]["1"]
+    assert driver["relation"] == "DIVERGED"
+    assert driver["compatibleOptionIds"] == []
+    assert driver["windows"] == []
+
+
+def test_cursor_rebuild_rewinds_and_advances_published_relation_deterministically():
+    option = _option(
+        "mhs",
+        (Compound.MEDIUM, Compound.HARD, Compound.SOFT),
+        windows=(PitWindow(17, 23), PitWindow(40, 46)),
+    )
+    before = _build(_availability(option), _state(lap=16))
+    after_observations = (
+        LapObservation(1, "2026-07-26T13:01:00Z", compound="MEDIUM"),
+        LapObservation(19, "2026-07-26T13:30:00Z", compound="HARD"),
+    )
+    after = _build(
+        _availability(option), _state(compound="HARD", lap=25), after_observations
+    )
+    rewound = _build(_availability(option), _state(lap=16))
+
+    assert before == rewound
+    assert before["drivers"]["1"]["windows"][0]["state"] == "BEFORE"
+    assert after["drivers"]["1"]["observedCompounds"] == ["MEDIUM", "HARD"]
+    assert after["drivers"]["1"]["windows"][0]["startLap"] == 40

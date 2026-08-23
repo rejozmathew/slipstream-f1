@@ -28,10 +28,13 @@ _NOMINATION_LANGUAGE = (
     "selection",
 )
 
+_UNKNOWN_APPLICABILITY = FactApplicability()
+_WEEKEND_APPLICABILITY = FactApplicability(session_scope=SessionScope.WEEKEND)
+
 
 def _codes(value: str) -> tuple[str, ...]:
     values: list[str] = []
-    for match in re.finditer(r"\bC([1-5])\b", value, re.I):
+    for match in re.finditer(r"\bC([1-5])\b", value, re.IGNORECASE):
         code = f"C{match.group(1)}"
         if code not in values:
             values.append(code)
@@ -58,7 +61,7 @@ def extract_compound_nominations(
     source_url: str,
     artifact_id: str,
     meeting_aliases: Mapping[str, str] | None = None,
-    default_applicability: FactApplicability = FactApplicability(session_scope=SessionScope.WEEKEND),
+    default_applicability: FactApplicability = _WEEKEND_APPLICABILITY,
 ) -> ExtractionResult:
     """Extract one or more meeting-scoped nominations.
 
@@ -73,10 +76,15 @@ def extract_compound_nominations(
 
     # Split additionally on semicolons; multi-event Pirelli nomination releases often
     # place one event selection per sentence/clause.
-    clauses = [part.strip() for part in re.split(r"(?<=[.!?;])\s+", text) if part.strip()]
+    clauses = [
+        part.strip() for part in re.split(r"(?<=[.!?;])\s+", text) if part.strip()
+    ]
     for clause in clauses:
         lower = clause.casefold()
-        if not any(language in lower for language in _NOMINATION_LANGUAGE) and len(_codes(clause)) < 3:
+        if (
+            not any(language in lower for language in _NOMINATION_LANGUAGE)
+            and len(_codes(clause)) < 3
+        ):
             continue
         codes = _codes(clause)
         if len(codes) < 3:
@@ -160,7 +168,9 @@ def extract_compound_nominations(
             ),
             methods_attempted=(ExtractionMethod.STRUCTURED_HTML,),
             completeness=(
-                ExtractionCompleteness.PARTIAL if facts else ExtractionCompleteness.UNKNOWN
+                ExtractionCompleteness.PARTIAL
+                if facts
+                else ExtractionCompleteness.UNKNOWN
             ),
         )
     return ExtractionResult(
@@ -175,7 +185,9 @@ def extract_compound_nomination(
     *,
     source_url: str,
     artifact_id: str,
-    applicability: FactApplicability = FactApplicability(session_scope=SessionScope.WEEKEND),
+    applicability: FactApplicability = FactApplicability(  # noqa: B008
+        session_scope=SessionScope.WEEKEND
+    ),
 ) -> CompoundSelection | None:
     """Compatibility helper for a single unambiguous nomination."""
 
@@ -186,7 +198,11 @@ def extract_compound_nomination(
         default_applicability=applicability,
     )
     facts = [fact for fact in result.facts if isinstance(fact, CompoundSelection)]
-    return facts[0] if result.status == ExtractionStatus.ACCEPTED and len(facts) == 1 else None
+    return (
+        facts[0]
+        if result.status == ExtractionStatus.ACCEPTED and len(facts) == 1
+        else None
+    )
 
 
 def extract_context_facts(
@@ -194,7 +210,7 @@ def extract_context_facts(
     *,
     source_url: str,
     artifact_id: str,
-    applicability: FactApplicability = FactApplicability(),
+    applicability: FactApplicability = _UNKNOWN_APPLICABILITY,
 ) -> tuple[ContextFact, ...]:
     categories = {
         "DEGRADATION": ("degradation",),
@@ -216,6 +232,8 @@ def extract_context_facts(
                     text=sentence,
                     confidence=1.0,
                 )
-                out.append(ContextFact(category, sentence.strip(), (ev,), applicability))
+                out.append(
+                    ContextFact(category, sentence.strip(), (ev,), applicability)
+                )
                 break
     return tuple(out)

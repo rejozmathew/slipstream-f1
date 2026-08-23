@@ -5,8 +5,9 @@ from __future__ import annotations
 import html as html_lib
 import json
 import re
+from collections.abc import Iterable
 from html.parser import HTMLParser
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urljoin
 
 from .base import HtmlDocument
@@ -47,7 +48,9 @@ class _Parser(HTMLParser):
         elif tag in {"style", "noscript", "svg"}:
             self._ignore += 1
         if tag == "meta":
-            key = (d.get("property") or d.get("name") or d.get("itemprop") or "").casefold()
+            key = (
+                d.get("property") or d.get("name") or d.get("itemprop") or ""
+            ).casefold()
             if key and d.get("content"):
                 self.meta[key] = d["content"]
         if tag in {"article", "main"}:
@@ -89,7 +92,9 @@ class _Parser(HTMLParser):
                 self._table.append(self._row)
             self._row = None
         elif tag == "table" and self._table is not None:
-            self.tables.append(tuple(tuple(cell for cell in row) for row in self._table))
+            self.tables.append(
+                tuple(tuple(cell for cell in row) for row in self._table)
+            )
             self._table = None
 
     def handle_data(self, data: str) -> None:
@@ -142,10 +147,20 @@ def parse_html(source: str, base_url: str) -> HtmlDocument:
             if not modified and isinstance(node.get("dateModified"), str):
                 modified = node["dateModified"]
 
-    title = title or _clean(parser.meta.get("og:title") or parser.meta.get("twitter:title") or "")
+    title = title or _clean(
+        parser.meta.get("og:title") or parser.meta.get("twitter:title") or ""
+    )
     body = body or _clean(" ".join(parser._article_chunks))
-    published = published or parser.meta.get("article:published_time") or parser.meta.get("datepublished")
-    modified = modified or parser.meta.get("article:modified_time") or parser.meta.get("datemodified")
+    published = (
+        published
+        or parser.meta.get("article:published_time")
+        or parser.meta.get("datepublished")
+    )
+    modified = (
+        modified
+        or parser.meta.get("article:modified_time")
+        or parser.meta.get("datemodified")
+    )
 
     return HtmlDocument(
         title=title,

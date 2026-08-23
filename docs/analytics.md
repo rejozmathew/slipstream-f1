@@ -8,3 +8,8 @@ Slipstream keeps factual `RaceState` separate from deterministic `AnalyticsSnaps
 - [race-intelligence-v1](analytics/race-intelligence-v1.md) — superseded historical model reference.
 
 See the [CHANGELOG](../CHANGELOG.md) for release history.
+
+
+## Published Pirelli strategy
+
+The official pre-race baseline and its deterministic comparison with factual current-race evidence are specified in [Published Pirelli strategy](pirelli-strategy.md). `publishedStrategy` is separate from the legacy internal `raceStrategy` model: product race surfaces use the published baseline and server-authored relation/window state, while existing calculations remain compatibility/internal data until separately accepted.

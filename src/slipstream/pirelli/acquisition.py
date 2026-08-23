@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
@@ -24,12 +24,12 @@ def _parse_dt(value: str | None) -> datetime | None:
         dt = parsedate_to_datetime(value)
     except (TypeError, ValueError, OverflowError):
         try:
-            dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(value.strip())
         except (TypeError, ValueError):
             return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _source_type(media_type: str, url: str) -> SourceType:
@@ -64,7 +64,13 @@ class AcquiredArtifact:
 
 
 class PirelliPublicClient:
-    def __init__(self, *, timeout_seconds: float = 20.0, max_bytes: int = 8_000_000, attempts: int = 3) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float = 20.0,
+        max_bytes: int = 8_000_000,
+        attempts: int = 3,
+    ) -> None:
         self.timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         self.max_bytes = max_bytes
         self.attempts = max(1, attempts)
@@ -85,20 +91,30 @@ class PirelliPublicClient:
         last_error: Exception | None = None
         for attempt in range(self.attempts):
             try:
-                async with aiohttp.ClientSession(timeout=self.timeout, headers=self.headers) as session:
+                async with aiohttp.ClientSession(  # noqa: SIM117
+                    timeout=self.timeout, headers=self.headers
+                ) as session:
                     async with session.get(url, allow_redirects=True) as response:
                         response.raise_for_status()
                         final_url = str(response.url)
                         self._validate_url(final_url)
                         body = await response.content.read(self.max_bytes + 1)
                         if len(body) > self.max_bytes:
-                            raise ValueError(f"Pirelli artifact exceeds {self.max_bytes} bytes")
-                        media_type = response.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].casefold()
+                            raise ValueError(
+                                f"Pirelli artifact exceeds {self.max_bytes} bytes"
+                            )
+                        media_type = (
+                            response.headers.get(
+                                "Content-Type", "application/octet-stream"
+                            )
+                            .split(";", 1)[0]
+                            .casefold()
+                        )
                         return final_url, body, media_type
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+            except (TimeoutError, aiohttp.ClientError, ValueError) as error:
                 last_error = error
                 if attempt + 1 < self.attempts:
-                    await asyncio.sleep(0.5 * (2 ** attempt))
+                    await asyncio.sleep(0.5 * (2**attempt))
         if last_error is not None:
             raise last_error
         raise RuntimeError("Pirelli fetch failed without an error")
@@ -117,7 +133,7 @@ class PirelliPublicClient:
         now: datetime | None = None,
     ) -> AcquiredArtifact:
         self._validate_url(url)
-        retrieved = now or datetime.now(timezone.utc)
+        retrieved = now or datetime.now(UTC)
         final_url, body, media_type = await self._fetch(url)
 
         stype = _source_type(media_type, final_url)
@@ -141,4 +157,3 @@ class PirelliPublicClient:
             extension=_extension(stype, media_type),
         )
         return AcquiredArtifact(artifact, body)
-

@@ -38,13 +38,13 @@ _STRATEGY_CONTEXT = re.compile(
     r"pit\s+window|pit\s+stop|starting\s+on|start\s+on|opening\s+stint|final\s+stint|"
     r"possible\s+options?|fastest\s+tactic|quickest\s+(?:option|solution|strategy)|"
     r"strategy\s+solution|stopping\s+once|stopping\s+twice)\b",
-    re.I,
+    re.IGNORECASE,
 )
 _NEGATIVE_SCOPE = re.compile(
     r"\b(?:historical\s+examples?|not\s+(?:a\s+)?recommendation|not\s+recommendations|"
     r"during\s+(?:fp\d|free\s+practice|practice)|development|constructions?|"
     r"long\s+runs?|compared\s+[^.]{0,30}performance)\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -53,7 +53,9 @@ def _strategy_id(source_url: str, seq: tuple[Compound, ...], evidence_text: str)
     return hashlib.sha256(raw).hexdigest()[:20]
 
 
-def _compound(value: str, code_map: dict[str, Compound] | None = None) -> Compound | None:
+def _compound(
+    value: str, code_map: dict[str, Compound] | None = None
+) -> Compound | None:
     upper = value.strip().upper()
     if upper in Compound.__members__:
         return Compound[upper]
@@ -71,12 +73,12 @@ def _has_strategy_context(sentence: str, previous: str = "") -> bool:
     if _NEGATIVE_SCOPE.search(local) and not re.search(
         r"\b(?:strategy|one[- ]stop|two[- ]stop|three[- ]stop|pit\s+window|pit\s+stop)\b",
         local,
-        re.I,
+        re.IGNORECASE,
     ):
         return False
-    if re.search(r"\bnot\s+(?:a\s+)?recommendation|\bnot\s+recommendations", local, re.I):
-        return False
-    return True
+    return not re.search(
+        r"\bnot\s+(?:a\s+)?recommendation|\bnot\s+recommendations", local, re.IGNORECASE
+    )
 
 
 def _rank(text: str) -> StrategyRank:
@@ -92,7 +94,9 @@ def _rank(text: str) -> StrategyRank:
         )
     ):
         return StrategyRank.EQUIVALENT_FASTEST
-    if any(phrase in lower for phrase in ("conditional on", "only if", "provided that")):
+    if any(
+        phrase in lower for phrase in ("conditional on", "only if", "provided that")
+    ):
         return StrategyRank.CONDITIONAL
     if any(
         phrase in lower
@@ -109,7 +113,9 @@ def _rank(text: str) -> StrategyRank:
 
     # Never rank from the mere presence of 'fastest'. Negation/scope uncertainty wins.
     rank_word = r"(?:fastest|quickest|best)"
-    if re.search(rf"\b(?:not|unlikely|isn['’]t|aren['’]t)\b[^.;]{{0,45}}\b{rank_word}\b", lower):
+    if re.search(
+        rf"\b(?:not|unlikely|isn['’]t|aren['’]t)\b[^.;]{{0,45}}\b{rank_word}\b", lower
+    ):
         return StrategyRank.UNRANKED
     if re.search(rf"\b{rank_word}\b[^.;]{{0,45}}\b(?:not|unlikely)\b", lower):
         return StrategyRank.UNRANKED
@@ -121,8 +127,10 @@ def _rank(text: str) -> StrategyRank:
 
     affirmative = (
         rf"\b(?:the\s+)?{rank_word}\s+(?:strategy|tactic|option|solution|choice)\b",
-        rf"\b(?:is|are|would\s+be|remains?|appears?\s+to\s+be|looks?\s+like)\s+"
-        rf"(?:the\s+)?{rank_word}\b",
+        (
+            rf"\b(?:is|are|would\s+be|remains?|appears?\s+to\s+be|looks?\s+like)\s+"
+            rf"(?:the\s+)?{rank_word}\b"
+        ),
         rf"\b{rank_word}\s+on\s+paper\b",
     )
     if any(re.search(pattern, lower) for pattern in affirmative):
@@ -134,7 +142,9 @@ def _window(text: str) -> PitWindow | None:
     match = re.search(_WIN, text, flags=re.IGNORECASE)
     if not match:
         match = re.search(
-            r"(?:window|stop)[^.;]{0,70}?(\d+)\s*(?:-|–|to)\s*(\d+)", text, re.I
+            r"(?:window|stop)[^.;]{0,70}?(\d+)\s*(?:-|–|to)\s*(\d+)",
+            text,
+            re.IGNORECASE,
         )
     if not match:
         return None
@@ -172,7 +182,7 @@ def _make(
     evidence_text: str,
     rank_text: str | None = None,
     conditions: tuple[str, ...] = (),
-    applicability: FactApplicability = FactApplicability(),
+    applicability: FactApplicability = FactApplicability(),  # noqa: B008
 ) -> StrategyOption:
     sequence_ev = _evidence(artifact_id, source_url, evidence_text)
     rank_value = _rank(rank_text or evidence_text)
@@ -181,7 +191,9 @@ def _make(
         if rank_value != StrategyRank.UNRANKED
         else ()
     )
-    window_evidence = tuple((sequence_ev,) if window is not None else () for window in windows)
+    window_evidence = tuple(
+        (sequence_ev,) if window is not None else () for window in windows
+    )
     field_evidence = StrategyFieldEvidence(
         sequence=(sequence_ev,),
         rank=rank_ev,
@@ -207,7 +219,7 @@ def extract_strategy_prose(
     source_url: str,
     artifact_id: str,
     compound_code_map: dict[str, Compound] | None = None,
-    applicability: FactApplicability = FactApplicability(),
+    applicability: FactApplicability = FactApplicability(),  # noqa: B008
 ) -> ExtractionResult:
     """Extract only strategy options supported by explicit local syntax."""
 
@@ -217,7 +229,9 @@ def extract_strategy_prose(
     sentences = _SENTENCE.split(text)
 
     # 1) Explicit hyphenated sequences, but only inside a proven strategy context.
-    direct_pattern = re.compile(rf"\b({_COMPOUND}(?:\s*[-–]\s*{_COMPOUND}){{1,3}})\b", re.I)
+    direct_pattern = re.compile(
+        rf"\b({_COMPOUND}(?:\s*[-–]\s*{_COMPOUND}){{1,3}})\b", re.IGNORECASE
+    )
     for sentence_index, sentence in enumerate(sentences):
         previous = sentences[sentence_index - 1] if sentence_index > 0 else ""
         if not _has_strategy_context(sentence, previous):
@@ -245,7 +259,7 @@ def extract_strategy_prose(
     # 2) Explicit ordered language.
     ordered = re.compile(
         rf"(?:running|using)\s+the\s+({_COMPOUND})\s+and\s+then\s+the\s+({_COMPOUND})",
-        re.I,
+        re.IGNORECASE,
     )
     for match in ordered.finditer(text):
         sentence = next((s for s in sentences if match.group(0) in s), match.group(0))
@@ -269,19 +283,21 @@ def extract_strategy_prose(
         rf"(?:start|starting)\s+on\s+(?:the\s+)?({_CODE}|{_COMPOUND})"
         rf".{{0,100}}?(?:switching|switch)\s+to\s+(?:the\s+)?({_CODE}|{_COMPOUND})"
         rf"(?:\s+{_WIN})?",
-        re.I,
+        re.IGNORECASE,
     )
     for match in coded.finditer(text):
         first = _compound(match.group(1), compound_code_map)
         second = _compound(match.group(2), compound_code_map)
         if first is None or second is None:
-            review.append(ExtractionIssue("compound_code_unresolved", match.group(0), artifact_id))
+            review.append(
+                ExtractionIssue("compound_code_unresolved", match.group(0), artifact_id)
+            )
             continue
         tail = text[match.end() : match.end() + 120]
         if re.search(
             r"^\s*,?\s*(?:and\s+then\s+(?:go\s+onto|switch\s+to)|before\s+finishing\s+on)",
             tail,
-            re.I,
+            re.IGNORECASE,
         ):
             continue
         win = (
@@ -308,7 +324,7 @@ def extract_strategy_prose(
         rf"(?:change|switch)\s+to\s+(?:the\s+)?({_COMPOUND})\s+{_WIN}[^.]*?"
         rf"(?:and\s+then\s+(?:go\s+onto|switch\s+to)|before\s+finishing\s+on)\s+"
         rf"(?:the\s+)?({_COMPOUND})\s+{_WIN}",
-        re.I,
+        re.IGNORECASE,
     )
     for match in natural_three.finditer(text):
         first = _compound(match.group(1))
@@ -338,18 +354,24 @@ def extract_strategy_prose(
         rf"(?:P\s+Zero\s+(?:White|Yellow|Red)\s+)?({_COMPOUND})"
         rf"[^.]*?(?:change|switch(?:ing)?)\s+to\s+"
         rf"(?:P\s+Zero\s+(?:White|Yellow|Red)\s+)?({_COMPOUND})\s+{_WIN}",
-        re.I,
+        re.IGNORECASE,
     )
     for match in natural_two.finditer(text):
         tail = text[match.end() : match.end() + 90]
-        if re.search(r"^\s*,?\s*and\s+then\s+(?:go\s+onto|switch\s+to)", tail, re.I):
+        if re.search(
+            r"^\s*,?\s*and\s+then\s+(?:go\s+onto|switch\s+to)", tail, re.IGNORECASE
+        ):
             continue
         first = _compound(match.group(1))
         second = _compound(match.group(2))
         if first is None or second is None:
             continue
         before = text[: match.start()]
-        previous = sentences[max(0, len(_SENTENCE.split(before)) - 1)] if before.strip() else ""
+        previous = (
+            sentences[max(0, len(_SENTENCE.split(before)) - 1)]
+            if before.strip()
+            else ""
+        )
         options.append(
             _make(
                 source_url=source_url,
@@ -368,7 +390,7 @@ def extract_strategy_prose(
         rf"starting\s+on\s+either\s+({_COMPOUND})\s+or\s+({_COMPOUND}).{{0,120}}?"
         rf"respectively\s+between\s+laps\s+(\d+)\s+and\s+(\d+)\s+or\s+"
         rf"between\s+laps\s+(\d+)\s+and\s+(\d+)",
-        re.I,
+        re.IGNORECASE,
     )
     for match in paired.finditer(text):
         finish = _compound(match.group(1))
@@ -396,7 +418,7 @@ def extract_strategy_prose(
         rf"Starting\s+on\s+(?:the\s+)?({_CODE}|{_COMPOUND}),[^.]*?"
         rf"two\s+sets\s+of\s+({_CODE}|{_COMPOUND})\s+available[^.]*?"
         rf"complete\s+the\s+race\s+using\s+both",
-        re.I,
+        re.IGNORECASE,
     )
     for match in same_finish.finditer(text):
         first = _compound(match.group(1), compound_code_map)
@@ -421,13 +443,25 @@ def extract_strategy_prose(
             "CROSS_SENTENCE_COMBINATION",
             rf"(?:{_COMPOUND})\s+could\s+be\s+a\s+valid\s+option[^.]*?combination\s+with\s+(?:the\s+)?(?:{_COMPOUND})",
         ),
-        ("ALTERNATIVE_MIDDLE_STINT", r"Alternatively,[^.]*middle\s+stint[^.]*towards\s+the\s+end"),
-        ("WINDOW_ASSOCIATION", r"final\s+stints?\s+will\s+be\s+run[^.]*pit\s+stop\s+windows"),
-        ("LEGACY_STINT_MULTISET", r"(?:fastest|second-quickest|slowest|good)\s+two-stopper[^.]*\bstints?\b"),
-        ("UNORDERED_STINTS", r"all\s+of\s+the\s+above\s+stints\s+can\s+be\s+run\s+in\s+any\s+order"),
+        (
+            "ALTERNATIVE_MIDDLE_STINT",
+            r"Alternatively,[^.]*middle\s+stint[^.]*towards\s+the\s+end",
+        ),
+        (
+            "WINDOW_ASSOCIATION",
+            r"final\s+stints?\s+will\s+be\s+run[^.]*pit\s+stop\s+windows",
+        ),
+        (
+            "LEGACY_STINT_MULTISET",
+            r"(?:fastest|second-quickest|slowest|good)\s+two-stopper[^.]*\bstints?\b",
+        ),
+        (
+            "UNORDERED_STINTS",
+            r"all\s+of\s+the\s+above\s+stints\s+can\s+be\s+run\s+in\s+any\s+order",
+        ),
     )
     for claim_id, pattern in unresolved_patterns:
-        match = re.search(pattern, text, re.I)
+        match = re.search(pattern, text, re.IGNORECASE)
         if not match:
             continue
         ev = _evidence(artifact_id, source_url, match.group(0), start=match.start())
@@ -446,10 +480,25 @@ def extract_strategy_prose(
             )
         )
 
+    # Prefer a windowed extraction over a windowless shorthand for the exact
+    # same sequence and order. Pirelli prose commonly summarizes a plan as
+    # ``medium-hard`` before stating the same plan with its pit window; keeping
+    # both would publish a duplicate option with weaker evidence.
+    specific_sequences = {
+        (option.compounds, option.order)
+        for option in options
+        if any(window is not None for window in option.pit_windows)
+    }
+
     # Dedupe exact facts.
     deduped: list[StrategyOption] = []
     seen: set[tuple[object, ...]] = set()
     for option in options:
+        if (
+            not any(window is not None for window in option.pit_windows)
+            and (option.compounds, option.order) in specific_sequences
+        ):
+            continue
         key = (
             option.compounds,
             option.rank,
@@ -463,12 +512,16 @@ def extract_strategy_prose(
     if deduped:
         needs_review = bool(review or unresolved)
         return ExtractionResult(
-            status=ExtractionStatus.NEEDS_REVIEW if needs_review else ExtractionStatus.ACCEPTED,
+            status=ExtractionStatus.NEEDS_REVIEW
+            if needs_review
+            else ExtractionStatus.ACCEPTED,
             facts=tuple(deduped),
             issues=tuple(review),
             methods_attempted=(ExtractionMethod.DETERMINISTIC_PROSE,),
             completeness=(
-                ExtractionCompleteness.PARTIAL if needs_review else ExtractionCompleteness.COMPLETE
+                ExtractionCompleteness.PARTIAL
+                if needs_review
+                else ExtractionCompleteness.COMPLETE
             ),
             unresolved_claims=tuple(unresolved),
         )

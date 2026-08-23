@@ -28,7 +28,9 @@ def validate_strategy(option: StrategyOption) -> tuple[ExtractionIssue, ...]:
     issues: list[ExtractionIssue] = []
     if option.stop_count < 1 or option.stop_count > 6:
         issues.append(
-            ExtractionIssue("strategy_stop_count_implausible", "stop count outside 1..6")
+            ExtractionIssue(
+                "strategy_stop_count_implausible", "stop count outside 1..6"
+            )
         )
     if option.order != StrategyOrder.ORDERED and any(
         window is not None for window in option.pit_windows
@@ -42,25 +44,50 @@ def validate_strategy(option: StrategyOption) -> tuple[ExtractionIssue, ...]:
     for window in option.pit_windows:
         if window is None:
             continue
-        if window.start_lap < 1 or window.end_lap < window.start_lap or window.end_lap > 100:
-            issues.append(ExtractionIssue("pit_window_invalid", f"invalid lap window {window}"))
-    if option.published_delta_seconds is not None and option.published_delta_seconds < 0:
-        issues.append(ExtractionIssue("strategy_delta_invalid", "published delta must be non-negative"))
+        if (
+            window.start_lap < 1
+            or window.end_lap < window.start_lap
+            or window.end_lap > 100
+        ):
+            issues.append(
+                ExtractionIssue("pit_window_invalid", f"invalid lap window {window}")
+            )
+    if (
+        option.published_delta_seconds is not None
+        and option.published_delta_seconds < 0
+    ):
+        issues.append(
+            ExtractionIssue(
+                "strategy_delta_invalid", "published delta must be non-negative"
+            )
+        )
     if option.published_delta_seconds_range is not None:
         low, high = option.published_delta_seconds_range
         if low < 0 or high < low:
             issues.append(
-                ExtractionIssue("strategy_delta_range_invalid", "published delta range invalid")
+                ExtractionIssue(
+                    "strategy_delta_range_invalid", "published delta range invalid"
+                )
             )
     if not option.source_evidence:
-        issues.append(ExtractionIssue("strategy_missing_evidence", "strategy has no source evidence"))
+        issues.append(
+            ExtractionIssue(
+                "strategy_missing_evidence", "strategy has no source evidence"
+            )
+        )
     if option.field_evidence is None or not option.field_evidence.sequence:
         issues.append(
-            ExtractionIssue("strategy_missing_sequence_evidence", "sequence lacks field evidence")
+            ExtractionIssue(
+                "strategy_missing_sequence_evidence", "sequence lacks field evidence"
+            )
         )
     elif option.field_evidence is not None:
         if option.rank.value != "UNRANKED" and not option.field_evidence.rank:
-            issues.append(ExtractionIssue("strategy_missing_rank_evidence", "rank lacks field evidence"))
+            issues.append(
+                ExtractionIssue(
+                    "strategy_missing_rank_evidence", "rank lacks field evidence"
+                )
+            )
         if len(option.field_evidence.pit_windows) != len(option.pit_windows):
             issues.append(
                 ExtractionIssue(
@@ -81,10 +108,17 @@ def validate_strategy(option: StrategyOption) -> tuple[ExtractionIssue, ...]:
             option.published_delta_seconds is not None
             or option.published_delta_seconds_range is not None
         ) and not option.field_evidence.delta:
-            issues.append(ExtractionIssue("strategy_missing_delta_evidence", "delta lacks field evidence"))
+            issues.append(
+                ExtractionIssue(
+                    "strategy_missing_delta_evidence", "delta lacks field evidence"
+                )
+            )
         if option.conditions and not option.field_evidence.conditions:
             issues.append(
-                ExtractionIssue("strategy_missing_condition_evidence", "conditions lack field evidence")
+                ExtractionIssue(
+                    "strategy_missing_condition_evidence",
+                    "conditions lack field evidence",
+                )
             )
     return tuple(issues)
 
@@ -98,7 +132,9 @@ def validate_tyre_bank(
     issues: list[ExtractionIssue] = []
     if len(snapshot.drivers) < min_driver_rows:
         issues.append(
-            ExtractionIssue("tyre_bank_too_few_rows", f"only {len(snapshot.drivers)} rows parsed")
+            ExtractionIssue(
+                "tyre_bank_too_few_rows", f"only {len(snapshot.drivers)} rows parsed"
+            )
         )
 
     source_names = [row.source_driver_name.casefold() for row in snapshot.drivers]
@@ -111,19 +147,29 @@ def validate_tyre_bank(
     numbers = [row.driver_number for row in snapshot.drivers if row.driver_number]
     if len(numbers) != len(set(numbers)):
         issues.append(
-            ExtractionIssue("tyre_bank_duplicate_driver_number", "canonical driver number duplicated")
+            ExtractionIssue(
+                "tyre_bank_duplicate_driver_number",
+                "canonical driver number duplicated",
+            )
         )
 
     for row in snapshot.drivers:
-        for label, count in (("hard", row.hard), ("medium", row.medium), ("soft", row.soft)):
+        for label, count in (
+            ("hard", row.hard),
+            ("medium", row.medium),
+            ("soft", row.soft),
+        ):
             if count.new < 0 or count.used < 0:
                 issues.append(
-                    ExtractionIssue("tyre_bank_negative_count", f"{row.source_driver_name} {label}")
+                    ExtractionIssue(
+                        "tyre_bank_negative_count", f"{row.source_driver_name} {label}"
+                    )
                 )
             if count.new + count.used > 13:
                 issues.append(
                     ExtractionIssue(
-                        "tyre_bank_total_implausible", f"{row.source_driver_name} {label} > 13"
+                        "tyre_bank_total_implausible",
+                        f"{row.source_driver_name} {label} > 13",
                     )
                 )
         if not 0.0 <= row.confidence <= 1.0:
@@ -132,12 +178,16 @@ def validate_tyre_bank(
             )
 
     if expected_driver_numbers is not None:
-        unresolved = [row.source_driver_name for row in snapshot.drivers if not row.driver_number]
+        unresolved = [
+            row.source_driver_name for row in snapshot.drivers if not row.driver_number
+        ]
         if unresolved:
             issues.append(
                 ExtractionIssue("tyre_bank_unresolved_driver", ", ".join(unresolved))
             )
-        parsed_numbers = {row.driver_number for row in snapshot.drivers if row.driver_number}
+        parsed_numbers = {
+            row.driver_number for row in snapshot.drivers if row.driver_number
+        }
         unknown = parsed_numbers - expected_driver_numbers
         missing = expected_driver_numbers - parsed_numbers
         if unknown:
@@ -224,15 +274,14 @@ def verify_source_evidence(
             evidence.text_start is not None
             and evidence.text_end is not None
             and artifact.text is not None
-        ):
-            if artifact.text[evidence.text_start : evidence.text_end] != evidence.text:
-                return (
-                    ExtractionIssue(
-                        "evidence_span_mismatch",
-                        "declared text span does not resolve to quoted evidence",
-                        evidence.artifact_id,
-                    ),
-                )
+        ) and artifact.text[evidence.text_start : evidence.text_end] != evidence.text:
+            return (
+                ExtractionIssue(
+                    "evidence_span_mismatch",
+                    "declared text span does not resolve to quoted evidence",
+                    evidence.artifact_id,
+                ),
+            )
 
     elif evidence.kind == EvidenceKind.REGION:
         if evidence.region is None:
@@ -339,6 +388,8 @@ def result_from_validation(
         issues=issues,
         methods_attempted=(method,),
         completeness=(
-            ExtractionCompleteness.PARTIAL if issues else ExtractionCompleteness.COMPLETE
+            ExtractionCompleteness.PARTIAL
+            if issues
+            else ExtractionCompleteness.COMPLETE
         ),
     )

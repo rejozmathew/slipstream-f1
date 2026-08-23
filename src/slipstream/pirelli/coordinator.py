@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
+from .contracts import WeekendDriverIdentity
 from .discovery import MeetingDiscoveryTarget
 from .ingest import PirelliIngestionService, PirelliIngestionTarget
 from .schedule import startup_refresh_due
-from .contracts import WeekendDriverIdentity
 
 
 class PirelliRuntimeCoordinator:
@@ -36,20 +36,21 @@ class PirelliRuntimeCoordinator:
             item
             for item in races
             if -timedelta(days=2)
-            <= _as_utc(getattr(item, "date_start")) - _as_utc(now)
+            <= _as_utc(item.date_start) - _as_utc(now)
             <= timedelta(days=8)
         ]
         default = descriptors.get(default_key)
-        if default is not None and getattr(default, "session_kind", None) in {"race", "sprint"}:
+        if default is not None and getattr(default, "session_kind", None) in {
+            "race",
+            "sprint",
+        }:
             near.append(default)
-        by_meeting = {str(getattr(item, "meeting_key")): item for item in near}
+        by_meeting = {str(item.meeting_key): item for item in near}
         for descriptor in list(by_meeting.values())[:2]:
-            meeting_key = str(getattr(descriptor, "meeting_key"))
+            meeting_key = str(descriptor.meeting_key)
             last_attempt = self._attempted_at.get(meeting_key)
             archived = self.service.archive.list_versions(meeting_key)
-            last_archive = max(
-                (item.retrieved_at for item in archived), default=None
-            )
+            last_archive = max((item.retrieved_at for item in archived), default=None)
             last_refresh = max(
                 (item for item in (last_attempt, last_archive) if item is not None),
                 default=None,
@@ -61,11 +62,11 @@ class PirelliRuntimeCoordinator:
                 (
                     item
                     for item in descriptors.values()
-                    if str(getattr(item, "meeting_key")) == meeting_key
+                    if str(item.meeting_key) == meeting_key
                 ),
-                key=lambda item: getattr(item, "date_start"),
+                key=lambda item: item.date_start,
             )
-            resource = resource_loader(str(getattr(descriptor, "key")))
+            resource = resource_loader(str(descriptor.key))
             drivers = tuple(
                 WeekendDriverIdentity(
                     driver_number=driver.number,
@@ -77,15 +78,15 @@ class PirelliRuntimeCoordinator:
                         if value is not None
                     ),
                 )
-                for driver in getattr(resource, "final_state").drivers.values()
+                for driver in resource.final_state.drivers.values()
             )
             target = PirelliIngestionTarget(
                 MeetingDiscoveryTarget(
                     meeting_key=meeting_key,
-                    canonical_name=str(getattr(descriptor, "meeting_name")),
-                    season=int(getattr(descriptor, "year")),
-                    weekend_start=_as_utc(getattr(inventory[0], "date_start")),
-                    weekend_end=_as_utc(getattr(inventory[-1], "date_end")),
+                    canonical_name=str(descriptor.meeting_name),
+                    season=int(descriptor.year),
+                    weekend_start=_as_utc(inventory[0].date_start),
+                    weekend_end=_as_utc(inventory[-1].date_end),
                     aliases=tuple(
                         dict.fromkeys(
                             value
@@ -97,7 +98,7 @@ class PirelliRuntimeCoordinator:
                         )
                     ),
                 ),
-                target_session_key=str(getattr(descriptor, "key")),
+                target_session_key=str(descriptor.key),
                 drivers=drivers,
             )
             await self.service.refresh(target, now=_as_utc(now))
@@ -117,17 +118,13 @@ class PirelliRuntimeCoordinator:
                     resource_loader=resource_loader,
                     now=clock(),
                 )
-            except Exception:  # noqa: BLE001 - optional context never stops replay
+            except Exception:  # noqa: BLE001, S110 - optional context never stops replay
                 pass
             await asyncio.sleep(30 * 60)
 
 
 def _as_utc(value: str | datetime) -> datetime:
-    parsed = (
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if isinstance(value, str)
-        else value
-    )
+    parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)

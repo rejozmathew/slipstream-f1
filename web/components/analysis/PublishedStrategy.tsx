@@ -49,7 +49,7 @@ export function PirelliBaseline({ baseline, compact = false, action }: { baselin
 
 export function RaceNow({ analytics, compact = false }: { analytics: AnalyticsSnapshot | null; compact?: boolean }) {
   const read = analytics?.raceRead;
-  const facts = analytics?.publishedStrategy.fieldFacts ?? [];
+  const facts = analytics?.publishedStrategy?.fieldFacts ?? [];
   return <Panel eyebrow="CURRENT SESSION" title="Race now" className={`race-now${compact ? " race-now-compact" : ""}`}>
     {!read && <div className="pirelli-unavailable"><strong>RACE READ UNAVAILABLE</strong><p>Normalized current-session evidence has not reached this cursor.</p></div>}
     {read && <div className="race-now-grid">
@@ -74,8 +74,8 @@ function relationLabel(relation: DriverPublishedStrategy["relation"]) {
 }
 
 export function DriverPirelliContext({ analytics, driverNumber, compact = false }: { analytics: AnalyticsSnapshot | null; driverNumber: string; compact?: boolean }) {
-  const baseline = analytics?.publishedStrategy.baseline;
-  const driver = analytics?.publishedStrategy.drivers[driverNumber];
+  const baseline = analytics?.publishedStrategy?.baseline;
+  const driver = analytics?.publishedStrategy?.drivers[driverNumber];
   const bank = baseline?.tyreBank.drivers[driverNumber];
   return <Panel eyebrow="PUBLISHED STRATEGY" title="Pirelli context" className={`driver-pirelli-context${compact ? " driver-pirelli-context-compact" : ""}`}>
     {baseline?.status !== "PRESENT" || !driver ? <div className="pirelli-unavailable"><strong>PIRELLI CONTEXT UNAVAILABLE</strong><p>Current-race facts remain available; no published baseline is fabricated.</p></div> : <div className="driver-pirelli-body">
@@ -88,10 +88,10 @@ export function DriverPirelliContext({ analytics, driverNumber, compact = false 
 }
 
 export function BattlePublishedContext({ analytics, driverNumbers }: { analytics: AnalyticsSnapshot | null; driverNumbers: [string, string] | null }) {
-  const baseline = analytics?.publishedStrategy.baseline;
+  const baseline = analytics?.publishedStrategy?.baseline;
   if (!driverNumbers || baseline?.status !== "PRESENT") return <div className="panel-empty">PUBLISHED STRATEGY CONTEXT UNAVAILABLE FOR THIS PAIR</div>;
   return <div className="battle-published-context">{driverNumbers.map((number) => {
-    const driver = analytics?.publishedStrategy.drivers[number];
+    const driver = analytics?.publishedStrategy?.drivers[number];
     return <div key={number}><span>CAR {number} · PIRELLI FIT</span><strong>{driver ? relationLabel(driver.relation) : "UNKNOWN"}</strong><div>{driver ? path(driver.observedCompounds) : "—"}</div><small>{driver?.windows[0] ? `L${driver.windows[0].startLap}–${driver.windows[0].endLap} · ${driver.windows[0].state}` : "NO PENDING PUBLISHED WINDOW"}</small></div>;
   })}</div>;
 }

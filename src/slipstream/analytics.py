@@ -14,8 +14,6 @@ from .context_types import absent_historical
 from .events import parse_timestamp
 from .evidence import LapObservation, PitEvent
 from .library import ReplayResource
-from .pirelli.store import PirelliAvailability
-from .published_strategy import build_published_strategy
 from .lifecycle import (
     active_participants as _canonical_active_participants,
 )
@@ -23,6 +21,8 @@ from .lifecycle import (
     is_battle_eligible,
     terminal_state,
 )
+from .pirelli.store import PirelliAvailability
+from .published_strategy import build_published_strategy
 from .race_intelligence import (
     BATTLE_HISTORY_MAX_SAMPLES,
     BATTLE_HOLD_SECONDS,
@@ -136,9 +136,7 @@ def build_analytics_snapshot(
         session_kind=resource.descriptor.session_kind,
     )
     stage = _analytics_stage(state, context.status, evidence_by_driver)
-    ordered = sorted(
-        state.drivers.values(), key=lambda item: item.position or 999
-    )
+    ordered = sorted(state.drivers.values(), key=lambda item: item.position or 999)
     rules = strategy_rule_profile(
         resource.descriptor.year, resource.descriptor.session_kind
     )
@@ -175,9 +173,7 @@ def build_analytics_snapshot(
                 stage,
                 rules=rules,
             ),
-            "weekendEvidence": _weekend_driver_evidence(
-                driver.number, context_laps
-            ),
+            "weekendEvidence": _weekend_driver_evidence(driver.number, context_laps),
         }
     battle = _decorate_battle_history(
         battle_recommendation(
@@ -275,7 +271,11 @@ def build_analytics_snapshot(
         # fields that depend on it are suppressed until it exists.
         "netPitLoss": {
             "status": "NOT_IMPLEMENTED",
-            "blocks": ["freeStopMargin", "projectedRejoinPosition", "undercutQuantified"],
+            "blocks": [
+                "freeStopMargin",
+                "projectedRejoinPosition",
+                "undercutQuantified",
+            ],
             "evidenceBasis": [
                 "v2.1 §17.1: free-stop margin, projected rejoin, and quantified undercut require a defensible Net Pit Loss; raw pit-lane duration is not a substitute."
             ],
@@ -347,15 +347,19 @@ def build_analytics_snapshot(
             "adminDeletion": {
                 "status": "MILESTONE_4",
                 "evidenceBasis": [
-                    ("v2.1 §5.5: v2.1 defines the data-ownership contract that "
-                     "Milestone 4 will enforce; actual Admin deletion is an M4 "
-                     "non-goal.")
+                    (
+                        "v2.1 §5.5: v2.1 defines the data-ownership contract that "
+                        "Milestone 4 will enforce; actual Admin deletion is an M4 "
+                        "non-goal."
+                    )
                 ],
             },
             "evidenceBasis": [
-                ("v2.1 §5.5: analytics state (hysteresis, cache, stabilization) "
-                 "is target-session-owned, session-scoped and cursor-keyed; "
-                 "never viewer-owned mutable state.")
+                (
+                    "v2.1 §5.5: analytics state (hysteresis, cache, stabilization) "
+                    "is target-session-owned, session-scoped and cursor-keyed; "
+                    "never viewer-owned mutable state."
+                )
             ],
         },
         "drivers": driver_models,
@@ -368,10 +372,7 @@ def pace_model(laps: tuple[LapObservation, ...]) -> dict[str, Any]:
     for lap in laps:
         key = str(lap.stint_number or f"compound:{lap.compound or 'unknown'}")
         grouped.setdefault(key, []).append(lap)
-    baselines = {
-        key: _robust_baseline(items)
-        for key, items in grouped.items()
-    }
+    baselines = {key: _robust_baseline(items) for key, items in grouped.items()}
     samples = []
     for lap in laps:
         key = str(lap.stint_number or f"compound:{lap.compound or 'unknown'}")
@@ -457,12 +458,8 @@ def battle_recommendation(
         factors: list[dict[str, Any]] = [
             {"name": "current_gap", "value": gap, "weight": round(score, 2)}
         ]
-        ahead_deg = _metric_number(
-            driver_models[ahead.number]["pace"]["degradation"]
-        )
-        behind_deg = _metric_number(
-            driver_models[behind.number]["pace"]["degradation"]
-        )
+        ahead_deg = _metric_number(driver_models[ahead.number]["pace"]["degradation"])
+        behind_deg = _metric_number(driver_models[behind.number]["pace"]["degradation"])
         if ahead_deg is not None and behind_deg is not None:
             advantage = ahead_deg - behind_deg
             contribution = max(-10.0, min(15.0, advantage * 80.0))
@@ -509,9 +506,7 @@ def battle_recommendation(
                 "weight": significance,
             }
         )
-        ahead_window = driver_models[ahead.number]["strategy"]["pitWindow"].get(
-            "value"
-        )
+        ahead_window = driver_models[ahead.number]["strategy"]["pitWindow"].get("value")
         behind_window = driver_models[behind.number]["strategy"]["pitWindow"].get(
             "value"
         )
@@ -567,7 +562,6 @@ def battle_recommendation(
     }
 
 
-
 def _decorate_battle_history(
     battle: dict[str, Any],
     resource: ReplayResource,
@@ -620,6 +614,7 @@ def _decorate_battle_history(
         "basis": "completed-lap source history at or before the cursor",
     }
     return battle
+
 
 def _transition_samples(
     evidence_by_driver: dict[str, tuple[LapObservation, ...]],
@@ -708,7 +703,11 @@ def _driver_transition_outlook(
         if supported and item["newCompound"] == next_compound["value"]
     )
     if len(lives) < 3:
-        return next_compound, unknown("insufficient comparable stint-life evidence"), common
+        return (
+            next_compound,
+            unknown("insufficient comparable stint-life evidence"),
+            common,
+        )
     lower_life = lives[len(lives) // 4]
     upper_life = lives[(len(lives) * 3) // 4]
     if upper_life <= current_age:
@@ -817,7 +816,10 @@ def _driver_strategy(
             evidence=[f"{common[1][1]} observed alternate transitions"],
             quality="low",
         )
-        if driver.compound and next_compound["value"] is not None and len(common) > 1 and common[1][1] >= 2
+        if driver.compound
+        and next_compound["value"] is not None
+        and len(common) > 1
+        and common[1][1] >= 2
         else unknown("no supported alternate compound consensus")
     )
     # v2.1 §17.1: freeStopMargin + projectedRejoinPosition are SUPPRESSED until
@@ -924,7 +926,6 @@ def _driver_strategy(
     return result
 
 
-
 def _context_race_like_transitions(
     context: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
@@ -1006,7 +1007,9 @@ def _race_strategy(
             quality="medium" if len(samples) >= 6 else "low",
         )
         if primary_pair
-        else unknown("no race-wide compound-transition consensus in current-meeting evidence")
+        else unknown(
+            "no race-wide compound-transition consensus in current-meeting evidence"
+        )
     )
     alternate = (
         metric(
@@ -1102,7 +1105,11 @@ def _race_strategy(
     degradation_value = _metric_number(degradation)
     tyre_stress = (
         metric(
-            "HIGH" if degradation_value >= 0.15 else "MEDIUM" if degradation_value >= 0.06 else "LOW",
+            "HIGH"
+            if degradation_value >= 0.15
+            else "MEDIUM"
+            if degradation_value >= 0.06
+            else "LOW",
             status="ESTIMATE",
             evidence=degradation["evidenceBasis"],
             quality=degradation["quality"],
@@ -1113,7 +1120,11 @@ def _race_strategy(
     stop_count = unknown("race-wide stop pattern is not yet established")
     if state.session.total_laps and state.session.lap:
         progress = state.session.lap / state.session.total_laps
-        observed = [driver.pit_count for driver in state.drivers.values() if driver.position is not None]
+        observed = [
+            driver.pit_count
+            for driver in state.drivers.values()
+            if driver.position is not None
+        ]
         if progress >= 0.65 and len(observed) >= 5:
             stop_count = metric(
                 round(median(observed)),
@@ -1124,9 +1135,15 @@ def _race_strategy(
             )
     undercut = (
         metric(
-            "STRONG" if degradation_value >= 0.15 else "MODERATE" if degradation_value >= 0.08 else "LIMITED",
+            "STRONG"
+            if degradation_value >= 0.15
+            else "MODERATE"
+            if degradation_value >= 0.08
+            else "LIMITED",
             status="ESTIMATE",
-            evidence=["race-wide clean-lap Pace Trend plus comparable race-like pit loss"],
+            evidence=[
+                "race-wide clean-lap Pace Trend plus comparable race-like pit loss"
+            ],
             quality=degradation["quality"],
         )
         if degradation_value is not None and pit_loss.get("value") is not None
@@ -1192,9 +1209,7 @@ def _likely_stop_count(
             return metric(
                 max(driver.pit_count, round(median(observed))),
                 status="ESTIMATE",
-                evidence=[
-                    f"field pit-count median after {progress:.0%} race distance"
-                ],
+                evidence=[f"field pit-count median after {progress:.0%} race distance"],
                 unit="stops",
                 quality="low",
             )
@@ -1211,11 +1226,11 @@ def _rejoin_metrics(
     if loss is None or driver_gap is None:
         reason = "numeric gaps and observed pit-lane loss are required"
         return unknown(reason), unknown(reason)
-    index = next((i for i, item in enumerate(ordered) if item.number == driver.number), -1)
+    index = next(
+        (i for i, item in enumerate(ordered) if item.number == driver.number), -1
+    )
     behind_gap = (
-        _gap_from_leader(ordered[index + 1])
-        if 0 <= index + 1 < len(ordered)
-        else None
+        _gap_from_leader(ordered[index + 1]) if 0 <= index + 1 < len(ordered) else None
     )
     free_margin = (
         metric(
@@ -1286,17 +1301,22 @@ def _degradation(laps: list[LapObservation]) -> dict[str, Any]:
     ]
     if len(filtered) < 4:
         return unknown("too few clean laps remain after robust filtering")
-    xs = [float(lap.tyre_age if lap.tyre_age is not None else lap.lap) for lap in filtered]
+    xs = [
+        float(lap.tyre_age if lap.tyre_age is not None else lap.lap) for lap in filtered
+    ]
     ys = [float(lap.duration) for lap in filtered if lap.duration is not None]
     x_mean = sum(xs) / len(xs)
     y_mean = sum(ys) / len(ys)
     denominator = sum((value - x_mean) ** 2 for value in xs)
     if denominator == 0:
         return unknown("clean laps do not span tyre age")
-    slope = sum(
-        (x_value - x_mean) * (y_value - y_mean)
-        for x_value, y_value in zip(xs, ys, strict=True)
-    ) / denominator
+    slope = (
+        sum(
+            (x_value - x_mean) * (y_value - y_mean)
+            for x_value, y_value in zip(xs, ys, strict=True)
+        )
+        / denominator
+    )
     residual = sqrt(
         sum(
             (y - (y_mean + slope * (x - x_mean))) ** 2
@@ -1304,7 +1324,13 @@ def _degradation(laps: list[LapObservation]) -> dict[str, Any]:
         )
         / len(xs)
     )
-    quality = "high" if len(xs) >= 8 and residual <= 0.35 else "medium" if len(xs) >= 6 else "low"
+    quality = (
+        "high"
+        if len(xs) >= 8 and residual <= 0.35
+        else "medium"
+        if len(xs) >= 6
+        else "low"
+    )
     return metric(
         round(slope, 3),
         status="DERIVED",
@@ -1340,9 +1366,7 @@ def _pit_loss_metric(
     center = median(plausible)
     mad = median(abs(value - center) for value in plausible)
     retained = [
-        value
-        for value in plausible
-        if abs(value - center) <= max(5.0, 3.0 * mad)
+        value for value in plausible if abs(value - center) <= max(5.0, 3.0 * mad)
     ]
     if len(retained) < 2:
         return unknown("pit-lane duration observations are not mutually comparable")
@@ -1352,14 +1376,22 @@ def _pit_loss_metric(
         "v2.1 §13: Sprint pit-lane durations excluded (not GP-comparable)",
     ]
     if len(retained) != len(candidates):
-        evidence.append("non-comparable or outlying durations were excluded, not clamped")
+        evidence.append(
+            "non-comparable or outlying durations were excluded, not clamped"
+        )
     return metric(
         round(median(retained), 3),
         status="DERIVED",
         evidence=evidence,
         unit="s",
-        quality="high" if len(retained) >= 8 else "medium" if len(retained) >= 4 else "low",
+        quality="high"
+        if len(retained) >= 8
+        else "medium"
+        if len(retained) >= 4
+        else "low",
     )
+
+
 def _context_laps(context: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not context:
         return []
@@ -1457,9 +1489,7 @@ def _context_observation(raw: dict[str, Any]) -> LapObservation | None:
 def _weekend_driver_evidence(
     driver_number: str, laps: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    matching = [
-        lap for lap in laps if str(lap.get("driver_number")) == driver_number
-    ]
+    matching = [lap for lap in laps if str(lap.get("driver_number")) == driver_number]
     representative = [lap for lap in matching if lap.get("quality") == "representative"]
     compounds = sorted(
         {str(lap["compound"]) for lap in matching if lap.get("compound")}
@@ -1500,9 +1530,13 @@ def _driver_read(driver: DriverState, model: dict[str, Any]) -> dict[str, Any]:
     elif driver.position is not None:
         headline = f"{driver.code or driver.number} is running P{driver.position}."
     else:
-        headline = f"{driver.code or driver.number} has no classified position at this cursor."
+        headline = (
+            f"{driver.code or driver.number} has no classified position at this cursor."
+        )
     if driver.compound and driver.tyre_age is not None:
-        facts.append(f"Current stint: {driver.compound} at {driver.tyre_age} laps of tyre age.")
+        facts.append(
+            f"Current stint: {driver.compound} at {driver.tyre_age} laps of tyre age."
+        )
     facts.append(f"Observed completed pit stops: {driver.pit_count}.")
     trend = model.get("pace", {}).get("paceTrend", {})
     value = trend.get("value")
@@ -1512,15 +1546,20 @@ def _driver_read(driver: DriverState, model: dict[str, Any]) -> dict[str, Any]:
         facts.append("Current clean-stint Pace Trend is unknown.")
     strategy = model.get("strategy", {})
     if strategy.get("finishAssessment", {}).get("canFinish") is True:
-        facts.append("Same-race evidence supports reaching the flag on the current stint.")
+        facts.append(
+            "Same-race evidence supports reaching the flag on the current stint."
+        )
     elif strategy.get("projectionGate", {}).get("publishAllowed") is False:
-        facts.append("Future outlook is withheld because every projection gate has not passed.")
+        facts.append(
+            "Future outlook is withheld because every projection gate has not passed."
+        )
     return {
         "status": "AVAILABLE",
         "headline": headline,
         "facts": facts,
         "modelVersion": ANALYTICS_MODEL_VERSION,
     }
+
 
 def _driver_context(
     ahead: DriverState, behind: DriverState, relationship: str
@@ -1542,7 +1581,10 @@ def _analytics_stage(
     context_status: str,
     evidence_by_driver: dict[str, tuple[LapObservation, ...]],
 ) -> str:
-    if any(items for items in evidence_by_driver.values()) or (state.session.lap or 0) > 1:
+    if (
+        any(items for items in evidence_by_driver.values())
+        or (state.session.lap or 0) > 1
+    ):
         return "LIVE_OUTLOOK"
     if context_status == "ready":
         return "WEEKEND_MODEL_READY"
@@ -1553,7 +1595,7 @@ def _signature(
     resource: ReplayResource,
     state: RaceState,
     context: ContextAvailability,
-    pirelli: PirelliAvailability | None,
+    pirelli: PirelliAvailability | None = None,
     *,
     sequence: int,
 ) -> tuple[Any, ...]:
@@ -1667,7 +1709,12 @@ def _projection_gate(
             "status": "PASS",
             "evidenceBasis": strategy["finishAssessment"]["evidenceBasis"],
         }
-    elif future and driver is not None and is_battle_eligible(driver) and dry_state in {"SATISFIED", "NOT_APPLICABLE"}:
+    elif (
+        future
+        and driver is not None
+        and is_battle_eligible(driver)
+        and dry_state in {"SATISFIED", "NOT_APPLICABLE"}
+    ):
         plausibility = {
             "status": "PASS",
             "evidenceBasis": [
@@ -1685,7 +1732,9 @@ def _projection_gate(
     if finish_supported:
         stability = {
             "status": "PASS",
-            "evidenceBasis": ["TO_FINISH is supported by multiple phase-weighted same-race stint samples"],
+            "evidenceBasis": [
+                "TO_FINISH is supported by multiple phase-weighted same-race stint samples"
+            ],
         }
     elif future and driver is not None and evidence_by_driver is not None:
         stability = _driver_projection_stability(driver, state, evidence_by_driver)
@@ -1729,9 +1778,7 @@ def _driver_projection_stability(
         cutoff = parse_timestamp(observation.started_at)
         truncated = {
             number: tuple(
-                item
-                for item in items
-                if parse_timestamp(item.started_at) <= cutoff
+                item for item in items if parse_timestamp(item.started_at) <= cutoff
             )
             for number, items in evidence_by_driver.items()
         }
@@ -1746,9 +1793,7 @@ def _driver_projection_stability(
             session=replace(state.session, lap=observation.lap),
             drivers={**state.drivers, driver.number: prior_driver},
         )
-        _, window, _ = _driver_transition_outlook(
-            prior_driver, truncated, prior_state
-        )
+        _, window, _ = _driver_transition_outlook(prior_driver, truncated, prior_state)
         value = window.get("value")
         if not isinstance(value, list) or len(value) != 2:
             return {
@@ -1788,7 +1833,8 @@ def _race_projection_gate(
     hard = {
         "status": "PASS" if not violations else "FAIL",
         "violations": len(violations),
-        "evidenceBasis": violations or ["no hard race-wide projection invariant was violated"],
+        "evidenceBasis": violations
+        or ["no hard race-wide projection invariant was violated"],
     }
     plausibility = {
         "status": "PASS" if future and plausibility_passes >= 3 else "INSUFFICIENT",
@@ -1802,7 +1848,10 @@ def _race_projection_gate(
     }
     if str(state.session.track_status or "").upper() in WHOLE_TRACK_RESET_STATES:
         plausibility = {"status": "RESETTING", "reason": "whole-track neutralization"}
-        stability = {"status": "RESETTING", "reason": "warm-reset after whole-track neutralization"}
+        stability = {
+            "status": "RESETTING",
+            "reason": "warm-reset after whole-track neutralization",
+        }
     allowed = all(
         item.get("status") == "PASS" for item in (hard, plausibility, stability)
     )
@@ -1819,17 +1868,28 @@ def _race_projection_gate(
 def _future_projection_present(strategy: dict[str, Any]) -> bool:
     return any(
         strategy.get(field, {}).get("value") is not None
-        for field in ("primaryStrategy", "alternateStrategy", "likelyNextCompound", "pitWindow")
+        for field in (
+            "primaryStrategy",
+            "alternateStrategy",
+            "likelyNextCompound",
+            "pitWindow",
+        )
     )
 
 
 def _suppress_future_projection(strategy: dict[str, Any], reason: str) -> None:
-    for field in ("primaryStrategy", "alternateStrategy", "likelyNextCompound", "pitWindow"):
+    for field in (
+        "primaryStrategy",
+        "alternateStrategy",
+        "likelyNextCompound",
+        "pitWindow",
+    ):
         strategy[field] = unknown(reason)
     if strategy.get("disposition") == "PIT_EXPECTED":
         strategy["disposition"] = "UNKNOWN"
     if strategy.get("windowState") not in {"FINAL", "RESETTING", "TO_FINISH"}:
         strategy["windowState"] = "UNKNOWN"
+
 
 def _active_runner_numbers(state: RaceState) -> list[str]:
     """v2.1 §8/§18: active race participants at the cursor.
@@ -1930,20 +1990,24 @@ def _dry_tyre_state(
     obligation = str(rules.dry_compound_obligation or "").upper()
     if obligation in {"NONE", "NOT_APPLICABLE", "N/A", ""}:
         return "NOT_APPLICABLE"
-    
+
     compounds_used = set()
     if driver.compound and str(driver.compound).upper() in _DRY_COMPOUNDS:
         compounds_used.add(str(driver.compound).upper())
-        
+
     for obs in evidence:
         if obs.compound and str(obs.compound).upper() in _DRY_COMPOUNDS:
             compounds_used.add(str(obs.compound).upper())
-        if obs.pit_out is True and obs.new_compound and str(obs.new_compound).upper() in _DRY_COMPOUNDS:
+        if (
+            obs.pit_out is True
+            and obs.new_compound
+            and str(obs.new_compound).upper() in _DRY_COMPOUNDS
+        ):
             compounds_used.add(str(obs.new_compound).upper())
-            
+
     if len(compounds_used) >= 2:
         return "SATISFIED"
-    
+
     if not evidence and not driver.compound:
         return "UNKNOWN"
     return "UNSATISFIED"
@@ -1985,5 +2049,3 @@ def _terminal_suppression(
         "projectedRejoinPosition": unknown(reason),
         "freeStopMargin": unknown(reason),
     }
-
-

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 @dataclass(frozen=True)
@@ -23,14 +23,14 @@ class RefreshPolicy:
 
 
 def _aware(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def startup_refresh_due(
     *,
     now: datetime,
     last_refresh_at: datetime | None,
-    policy: RefreshPolicy = RefreshPolicy(),
+    policy: RefreshPolicy = RefreshPolicy(),  # noqa: B008
 ) -> bool:
     if last_refresh_at is None:
         return True
@@ -42,7 +42,7 @@ def pre_weekend_refresh_due(
     now: datetime,
     weekend_start: datetime,
     last_refresh_at: datetime | None,
-    policy: RefreshPolicy = RefreshPolicy(),
+    policy: RefreshPolicy = RefreshPolicy(),  # noqa: B008
 ) -> bool:
     """Occasional refresh in the week leading into a meeting; never page-driven."""
     now = _aware(now)
@@ -59,7 +59,7 @@ def planned_weekend_triggers(
     session_ends: tuple[tuple[str, datetime], ...],
     race_start: datetime | None,
     race_end: datetime | None,
-    policy: RefreshPolicy = RefreshPolicy(),
+    policy: RefreshPolicy = RefreshPolicy(),  # noqa: B008
 ) -> tuple[RefreshTrigger, ...]:
     triggers = [
         RefreshTrigger(_aware(end) + policy.after_session_delay, f"post_session:{kind}")
@@ -73,8 +73,13 @@ def planned_weekend_triggers(
         ]
     if race_end:
         triggers.append(
-            RefreshTrigger(_aware(race_end) + policy.post_race_delay, "post_race_archive")
+            RefreshTrigger(
+                _aware(race_end) + policy.post_race_delay, "post_race_archive"
+            )
         )
     return tuple(
-        sorted({(item.at, item.reason): item for item in triggers}.values(), key=lambda item: item.at)
+        sorted(
+            {(item.at, item.reason): item for item in triggers}.values(),
+            key=lambda item: item.at,
+        )
     )

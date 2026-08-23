@@ -67,7 +67,7 @@ export function RaceView({ state, analytics, replayAvailable, positionMode, layo
         <div className="mobile-session-content">
           <div className="mobile-primary">
             {mobileTab === "timing" && <TimingTower drivers={drivers} variant="race" analytics={analytics} replayAvailable={replayAvailable} onSelectDriver={onSelectDriver} />}
-            {mobileTab === "strategy" && <div className="mobile-strategy-foundation"><PirelliBaseline baseline={analytics?.publishedStrategy.baseline} compact /><RaceNow analytics={analytics} compact /></div>}
+        {mobileTab === "strategy" && <div className="mobile-strategy-foundation"><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} compact /><RaceNow analytics={analytics} compact /></div>}
             {mobileTab === "map" && <div className="mobile-map-stack"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /><Conditions weather={state.weather} session={state.session} /></div>}
             {mobileTab === "control" && <RaceControl messages={state.race_control} />}
           </div>

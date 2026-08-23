@@ -16,6 +16,12 @@ OpenF1 meeting records can link to circuit information served by the MultiViewer
 
 Circuit geometry is static track shape. It must not be represented as driver GPS or proof of a precise racing line.
 
+### Pirelli official newsroom
+
+Slipstream uses the public Pirelli Formula 1 RSS/newsroom as an official pre-race strategy source. One sparse server-owned coordinator archives source bytes and metadata, then runs deterministic HTML/prose/structured extraction. Native machine-readable PDF tyre-bank text is optional through `pypdf`; image-only assets are not processed. OCR, PaddleOCR, VLM/LLM extraction, and a normal-product manual transcription workflow are deliberately excluded.
+
+Meeting, Race/Sprint target, and exact evidence cutoff are enforced before publication. Browser code never requests Pirelli or its asset hosts directly. Published strategy is presented as Pirelli's baseline, not team intent or a guaranteed result.
+
 ### Public Formula 1 SignalR endpoint
 
 Slipstream independently implements the SignalR Core framing used by its public recorder and live adapter. On 2026-08-22 the public endpoint accepted POST negotiation and a real initial subscription without credentials; an OPTIONS request returned 405, so the server-owned client does not require a browser-style preflight. The observed session exposed the public topic subset documented in `src/slipstream/live.py`.

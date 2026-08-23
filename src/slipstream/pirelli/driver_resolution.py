@@ -33,10 +33,18 @@ def resolve_driver(
         exact = False
         if source_number and source_number.strip().lstrip("#") == driver.driver_number:
             exact = True
-        if source_code and source_code.strip().casefold() == driver.driver_code.casefold():
+        if (
+            source_code
+            and source_code.strip().casefold() == driver.driver_code.casefold()
+        ):
             exact = True
         source_norm = _norm(source_name)
-        names = (driver.full_name, driver.driver_code, driver.driver_number, *driver.aliases)
+        names = (
+            driver.full_name,
+            driver.driver_code,
+            driver.driver_number,
+            *driver.aliases,
+        )
         if source_norm and source_norm in {_norm(item) for item in names if item}:
             exact = True
         if exact:

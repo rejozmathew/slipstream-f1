@@ -176,7 +176,9 @@ class StrategyOption:
         if self.published_delta_seconds_range is not None:
             low, high = self.published_delta_seconds_range
             if low < 0 or high < low:
-                raise ValueError("published delta range must be non-negative and ordered")
+                raise ValueError(
+                    "published delta range must be non-negative and ordered"
+                )
         if self.order != StrategyOrder.ORDERED and any(
             window is not None for window in self.pit_windows
         ):
@@ -215,7 +217,9 @@ class TyreBankSnapshot:
     source_evidence: tuple[SourceEvidence, ...]
     coverage: TyreBankCoverage = TyreBankCoverage.UNKNOWN
     expected_driver_count: int | None = None
-    applicability: FactApplicability = FactApplicability(session_scope=SessionScope.RACE)
+    applicability: FactApplicability = FactApplicability(
+        session_scope=SessionScope.RACE
+    )
 
 
 @dataclass(frozen=True)
@@ -281,7 +285,9 @@ class UnresolvedClaim:
     source_evidence: tuple[SourceEvidence, ...] = ()
 
 
-NormalizedFact: TypeAlias = CompoundSelection | StrategyOption | TyreBankSnapshot | ContextFact
+NormalizedFact: TypeAlias = (
+    CompoundSelection | StrategyOption | TyreBankSnapshot | ContextFact
+)
 
 
 @dataclass(frozen=True)
@@ -318,5 +324,3 @@ class DriverResolution:
     driver_number: str | None = None
     driver_code: str | None = None
     issue: ExtractionIssue | None = None
-
-

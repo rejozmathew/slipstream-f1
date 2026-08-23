@@ -43,7 +43,9 @@ _COMPOUND_HEADER = "hard medium soft"
 
 
 def _normalized_lines(text: str) -> tuple[str, ...]:
-    return tuple(re.sub(r"\s+", " ", line).strip() for line in text.splitlines() if line.strip())
+    return tuple(
+        re.sub(r"\s+", " ", line).strip() for line in text.splitlines() if line.strip()
+    )
 
 
 def detect_benchmarked_text_template(text: str) -> str | None:
@@ -163,14 +165,20 @@ def parse_tyre_bank_text(
             status=ExtractionStatus.UNPARSED,
             issues=(
                 ExtractionIssue(
-                    "tyre_bank_no_rows", "no driver rows matched the benchmarked table", artifact_id
+                    "tyre_bank_no_rows",
+                    "no driver rows matched the benchmarked table",
+                    artifact_id,
                 ),
             ),
             methods_attempted=(method,),
             completeness=ExtractionCompleteness.UNKNOWN,
         )
 
-    expected_numbers = {driver.driver_number for driver in weekend_drivers} if weekend_drivers else None
+    expected_numbers = (
+        {driver.driver_number for driver in weekend_drivers}
+        if weekend_drivers
+        else None
+    )
     parsed_numbers = {row.driver_number for row in rows if row.driver_number}
     fully_resolved = bool(
         expected_numbers is not None
@@ -178,14 +186,18 @@ def parse_tyre_bank_text(
         and all(row.driver_number is not None for row in rows)
         and len(rows) == len(expected_numbers)
     )
-    coverage = TyreBankCoverage.COMPLETE if fully_resolved else (
-        TyreBankCoverage.PARTIAL if expected_numbers is not None else TyreBankCoverage.UNKNOWN
+    coverage = (
+        TyreBankCoverage.COMPLETE
+        if fully_resolved
+        else (
+            TyreBankCoverage.PARTIAL
+            if expected_numbers is not None
+            else TyreBankCoverage.UNKNOWN
+        )
     )
 
     header_lines = [
-        line for line in lines
-        if line.casefold() in {_SUBHEADER, _COMPOUND_HEADER}
-
+        line for line in lines if line.casefold() in {_SUBHEADER, _COMPOUND_HEADER}
     ]
     header_evidence = tuple(
         SourceEvidence(
@@ -209,7 +221,9 @@ def parse_tyre_bank_text(
         drivers=tuple(rows),
         source_evidence=header_evidence,
         coverage=coverage,
-        expected_driver_count=(len(expected_numbers) if expected_numbers is not None else None),
+        expected_driver_count=(
+            len(expected_numbers) if expected_numbers is not None else None
+        ),
         applicability=app,
     )
 
@@ -239,5 +253,3 @@ def parse_tyre_bank_text(
             else ExtractionCompleteness.PARTIAL
         ),
     )
-
-

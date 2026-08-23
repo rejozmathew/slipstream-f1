@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .archive import PirelliArchive, list_normalized_releases
@@ -12,14 +12,10 @@ from .snapshot import PirelliEvidenceSnapshot, aggregate_releases
 
 
 def _utc(value: str | datetime) -> datetime:
-    parsed = (
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if isinstance(value, str)
-        else value
-    )
+    parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 @dataclass(frozen=True)
@@ -55,7 +51,7 @@ class PirelliEvidenceStore:
             if published is None or _utc(published) > cutoff:
                 continue
             retrieved = _utc(release.retrieved_at)
-            if retrieved > cutoff:
+            if retrieved > cutoff:  # noqa: SIM102
                 if release.modified_at is None or _utc(release.modified_at) > cutoff:
                     continue
             admitted.append(release)
@@ -69,9 +65,7 @@ class PirelliEvidenceStore:
         evidence_cutoff: str | datetime,
         session_scope: SessionScope = SessionScope.RACE,
     ) -> PirelliAvailability:
-        releases = self.releases_as_of(
-            meeting_key, evidence_cutoff=evidence_cutoff
-        )
+        releases = self.releases_as_of(meeting_key, evidence_cutoff=evidence_cutoff)
         snapshot = aggregate_releases(
             releases,
             meeting_key=str(meeting_key),
@@ -79,7 +73,10 @@ class PirelliEvidenceStore:
         )
         if not snapshot.release_ids:
             return PirelliAvailability("ABSENT", error="no_admissible_pirelli_release")
-        if snapshot.latest_strategy_release is None and not snapshot.compound_selections:
+        if (
+            snapshot.latest_strategy_release is None
+            and not snapshot.compound_selections
+        ):
             return PirelliAvailability(
                 "ABSENT", snapshot=snapshot, error="no_admissible_published_strategy"
             )

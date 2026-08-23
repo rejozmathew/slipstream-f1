@@ -13,7 +13,9 @@ def jsonable(value: object) -> object:
     if isinstance(value, Enum):
         return value.value
     if is_dataclass(value) and not isinstance(value, type):
-        return {field.name: jsonable(getattr(value, field.name)) for field in fields(value)}
+        return {
+            field.name: jsonable(getattr(value, field.name)) for field in fields(value)
+        }
     if isinstance(value, tuple):
         return [jsonable(item) for item in value]
     if isinstance(value, list):

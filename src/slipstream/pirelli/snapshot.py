@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .contracts import (
     CompoundSelection,
@@ -72,9 +72,15 @@ def aggregate_releases(
 
     Caller ordering is ignored. No category-wide latest-non-empty overwrite occurs.
     """
-    floor = datetime.min.replace(tzinfo=timezone.utc)
+    floor = datetime.min.replace(tzinfo=UTC)
     ordered = tuple(
-        sorted(releases, key=lambda release: (release.published_at or release.retrieved_at or floor, release.release_id))
+        sorted(
+            releases,
+            key=lambda release: (
+                release.published_at or release.retrieved_at or floor,
+                release.release_id,
+            ),
+        )
     )
     selections: list[CompoundSelection] = []
     strategy_releases: list[StrategyReleaseView] = []
@@ -131,7 +137,11 @@ def aggregate_releases(
                 fact.applicability.session_scope,
             ):
                 continue
-            source = fact.source_evidence[0].source_url if fact.source_evidence else release.source_url
+            source = (
+                fact.source_evidence[0].source_url
+                if fact.source_evidence
+                else release.source_url
+            )
             key = (fact.category, fact.statement, source)
             if key not in seen_facts:
                 seen_facts.add(key)
@@ -145,5 +155,3 @@ def aggregate_releases(
         tyre_bank_snapshots=tuple(banks),
         context_facts=tuple(facts),
     )
-
-

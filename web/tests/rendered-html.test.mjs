@@ -92,7 +92,7 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
     readFile(new URL("../components/shell/AppShell.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(strategyView, /publishedStrategy\.baseline/);
+  assert.match(strategyView, /publishedStrategy\?\.baseline/);
   assert.match(strategyView, /PirelliBaseline/);
   assert.match(strategyView, /RaceNow/);
   assert.doesNotMatch(strategyView, /dryRuleStates/);

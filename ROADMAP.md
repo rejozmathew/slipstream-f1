@@ -41,7 +41,7 @@ Strategy calculations, Recommended Battle, authentication, Sync Groups, devices,
 
 Historical replay remains the development and regression harness for analytics. Unsupported or insufficient evidence remains `UNKNOWN`; no frontend strategy calculations or parallel factual model are introduced.
 
-Milestone 3.5 clean-restart work is a review candidate, not an accepted release. Historical/official context ingestion, Net Pit Loss, and deterministic archived-session backtesting remain explicit future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
+Milestone 3.5 clean-restart work is a review candidate, not an accepted release. Its Pirelli pass adds sparse official newsroom acquisition, immutable evidence archives, cutoff-safe target-session admission, the server-authored `publishedStrategy` sidecar, and published-baseline Race/Driver/Battle/TV surfaces. OCR/VLM/manual transcription and image-only tyre-bank extraction remain deliberately absent. General historical context, Net Pit Loss, and deterministic archived-session backtesting remain future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
 
 ## Milestone 4 - persistent control plane and access
 

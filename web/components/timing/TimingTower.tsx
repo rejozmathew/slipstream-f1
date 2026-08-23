@@ -65,7 +65,7 @@ function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (drive
 
 function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
   const lifecycle = driverLifecycle(driver);
-  const published = analytics?.publishedStrategy.drivers[driver.number];
+  const published = analytics?.publishedStrategy?.drivers[driver.number];
   const window = published?.windows[0];
   return <button type="button" className={"timing-row timing-race-strategy " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} />

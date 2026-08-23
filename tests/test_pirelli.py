@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import UTC, datetime
 
 from slipstream.pirelli.archive import PirelliArchive, save_normalized_release
 from slipstream.pirelli.contracts import (
@@ -6,8 +7,8 @@ from slipstream.pirelli.contracts import (
     EvidenceKind,
     ExtractionMethod,
     FactApplicability,
-    PitWindow,
     PirelliRelease,
+    PitWindow,
     SessionScope,
     SourceEvidence,
     SourceType,
@@ -16,9 +17,8 @@ from slipstream.pirelli.contracts import (
     StrategyRank,
 )
 from slipstream.pirelli.extractors.prose import extract_strategy_prose
+from slipstream.pirelli.extractors.structured import extract_compound_nominations
 from slipstream.pirelli.store import PirelliEvidenceStore
-
-UTC = timezone.utc
 
 
 def _release(*, meeting: str, retrieved: datetime, modified: datetime | None = None):
@@ -87,7 +87,9 @@ def test_store_is_meeting_scoped_and_cursor_safe(tmp_path):
     )
     assert result.status == "PRESENT"
     assert result.snapshot is not None
-    assert [item.id for item in result.snapshot.latest_strategy_release.strategies] == ["mh"]
+    assert [item.id for item in result.snapshot.latest_strategy_release.strategies] == [
+        "mh"
+    ]
 
 
 def test_post_cutoff_content_without_exact_version_proof_is_rejected(tmp_path):
@@ -95,9 +97,7 @@ def test_post_cutoff_content_without_exact_version_proof_is_rejected(tmp_path):
     save_normalized_release(
         archive,
         meeting_key="hungary",
-        release=_release(
-            meeting="hungary", retrieved=datetime(2026, 8, 1, tzinfo=UTC)
-        ),
+        release=_release(meeting="hungary", retrieved=datetime(2026, 8, 1, tzinfo=UTC)),
     )
     result = PirelliEvidenceStore(tmp_path).load(
         meeting_key="hungary",
@@ -129,7 +129,7 @@ def test_source_version_timestamp_can_prove_late_archive_existed_at_cutoff(tmp_p
 
 def test_three_leg_strategy_is_not_truncated_into_false_two_leg_fact():
     text = (
-        "A two-stopper is also possible, albeit not as quick as stopping just once. "
+        "A two-stopper is also possible: soft-hard-medium, albeit not as quick as stopping once. "
         "The fastest tactic in that case would be to start on soft, switch to hard "
         "between laps 10 and 15, and then go onto medium between laps 38 and 45."
     )
@@ -143,3 +143,67 @@ def test_three_leg_strategy_is_not_truncated_into_false_two_leg_fact():
         for window in options[0].pit_windows
         if window is not None
     ] == [(10, 15), (38, 45)]
+
+
+def test_multi_event_nomination_keeps_each_meeting_binding():
+    result = extract_compound_nominations(
+        "Belgium will use C1, C2 and C3. Hungary will use C3, C4 and C5.",
+        source_url="https://press.pirelli.com/selection",
+        artifact_id="selection",
+        meeting_aliases={"Belgium": "belgium", "Hungary": "hungary"},
+    )
+    assert [fact.applicability.meeting_key for fact in result.facts] == [
+        "belgium",
+        "hungary",
+    ]
+    assert result.facts[1].code_map() == {
+        "C3": Compound.HARD,
+        "C4": Compound.MEDIUM,
+        "C5": Compound.SOFT,
+    }
+
+
+def test_sprint_and_race_strategy_releases_remain_isolated(tmp_path):
+    archived_at = datetime(2026, 7, 25, tzinfo=UTC)
+    race = _release(meeting="hungary", retrieved=archived_at)
+    sprint_option = replace(
+        race.strategies[0],
+        id="sprint-mh",
+        applicability=FactApplicability(
+            meeting_key="hungary",
+            session_scope=SessionScope.SPRINT,
+            target_session_key="sprint",
+        ),
+    )
+    sprint = replace(
+        race,
+        release_id="release-hungary-sprint",
+        applicability=FactApplicability(
+            meeting_key="hungary", session_scope=SessionScope.SPRINT
+        ),
+        strategies=(sprint_option,),
+    )
+    archive = PirelliArchive(tmp_path)
+    save_normalized_release(archive, meeting_key="hungary", release=race)
+    save_normalized_release(archive, meeting_key="hungary", release=sprint)
+    store = PirelliEvidenceStore(tmp_path)
+
+    race_result = store.load(
+        meeting_key="hungary",
+        target_session_key="race",
+        evidence_cutoff="2026-07-26T12:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+    sprint_result = store.load(
+        meeting_key="hungary",
+        target_session_key="sprint",
+        evidence_cutoff="2026-07-26T12:00:00Z",
+        session_scope=SessionScope.SPRINT,
+    )
+
+    assert [
+        item.id for item in race_result.snapshot.latest_strategy_release.strategies
+    ] == ["mh"]
+    assert [
+        item.id for item in sprint_result.snapshot.latest_strategy_release.strategies
+    ] == ["sprint-mh"]

@@ -29,7 +29,7 @@ OpenF1 sessions/meetings ---> lightweight catalog ---> session library
 
 Race-intelligence path
 
-Static/circuit facts + RaceState + SessionEvidence
+Pirelli baseline + Static/circuit facts + RaceState + SessionEvidence
                     + same-meeting WeekendContext v1
                     + optional, separately labelled External Intelligence
                                       |
@@ -69,6 +69,8 @@ public F1 SignalR ---> F1LiveAdapter ---> NormalizedEvent ---> RaceState ---> AP
 | `session.py` | Normalize discovered session labels into `SessionKind` and `LayoutFamily` |
 | `weekend.py` | Prepare and cache compact meeting context asynchronously under `/data/.slipstream` |
 | `analytics.py` | Orchestrate cached, cursor-safe Strategy, RaceRead, driver, and Battle analytics with provenance |
+| `pirelli/` | Discover, archive, deterministically extract, validate, and cutoff-admit official Pirelli pre-race evidence |
+| `published_strategy.py` | Compare factual compound paths with admitted published options and author driver/window/field context |
 | `race_intelligence.py` | Own explicit race-phase comparability, TO_FINISH evidence, field distributions, RaceRead, and hard projection invariants |
 | `strategy_rules.py` | Hold narrow season/session rule profiles without applying current rules to unverified historical events |
 | `external.py` | Define the optional external-intelligence boundary, disabled by default |
@@ -99,7 +101,11 @@ Eligible sessions are discovered rather than assumed. A standard weekend may pro
 
 `AnalyticsSnapshot` is synchronized to the replay cursor/time and cached by meaningful factual and context revisions. It exposes explicit `raceStrategy` for field/session Strategy plus separate `drivers[number].strategy` models; Race and TV Strategy never default to the first driver. Each metric is `OBSERVED`, `DERIVED`, `ESTIMATE`, or `UNKNOWN` and carries its evidence basis, model version, and evidence/sample quality where useful. The clean-lap pace baseline is the median of at least three representative laps in a stint after median-absolute-deviation filtering; contaminated, pit, and neutralized laps remain visible but do not move that baseline.
 
-Prior-season `HistoricalContext` and attributed `OfficialPreRaceContext` are optional sidecars, distinct from same-meeting `WeekendContext`. They are absent unless real compatible evidence has been deliberately ingested; 2025→2026 historical comparability is `LIMITED`. Automated Pirelli acquisition and deterministic archive backtesting are not implemented, so the server publishes no sample context or quality metrics.
+Prior-season `HistoricalContext` and attributed `OfficialPreRaceContext` are optional sidecars, distinct from same-meeting `WeekendContext`. `OfficialPreRaceContext` now carries the lossless admitted Pirelli baseline used by `publishedStrategy`; legacy two-slot fields remain compatibility-only. Deterministic archived-session backtesting remains unimplemented and publishes no sample metrics.
+
+One application-owned `PirelliRuntimeCoordinator` refreshes relevant meetings sparsely and never from a browser request path. Raw responses and normalized releases live below `/data/.slipstream/pirelli/<meeting_key>/`. Admission requires the exact meeting, target session, Race/Sprint scope, and evidence cutoff. Content retrieved after the cutoff is admitted only when source metadata proves that exact version existed by the cutoff. Missing publication, extraction, native-PDF tyre bank, or writable storage produces an explicit absent baseline and never blocks replay.
+
+`publishedStrategy` is authored in `published_strategy.py`. It preserves Pirelli ranking/order, compares each factual distinct-compound path only with comparable ordered options, and returns `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPARABLE`, `TERMINAL`, or `UNKNOWN`. Window state is replay-lap derived; final snapshots retain the baseline but suppress future windows. React renders this contract and never selects or calculates a strategy.
 
 The normative derivation reference is [docs/analytics.md](docs/analytics.md). It records the current formulas, evidence thresholds, quality rules, replay-time behavior, Battle Score weights, and limitations that require `UNKNOWN`.
 

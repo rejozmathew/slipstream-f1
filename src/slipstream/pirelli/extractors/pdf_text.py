@@ -16,7 +16,9 @@ def extract_pdf_text(data: bytes) -> tuple[PdfPageText, ...]:
     try:
         from pypdf import PdfReader  # type: ignore[import-not-found]
     except ImportError as error:
-        raise RuntimeError("pypdf is not installed; tyre-bank extraction is unavailable") from error
+        raise RuntimeError(
+            "pypdf is not installed; tyre-bank extraction is unavailable"
+        ) from error
 
     reader = PdfReader(io.BytesIO(data))
     pages: list[PdfPageText] = []
@@ -24,4 +26,3 @@ def extract_pdf_text(data: bytes) -> tuple[PdfPageText, ...]:
         value = (page.extract_text() or "").strip()
         pages.append(PdfPageText(index, value))
     return tuple(pages)
-

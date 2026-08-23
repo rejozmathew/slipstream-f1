@@ -203,3 +203,19 @@ Recordings are private operational inputs. Their formats may need migrations ind
 `sportingRules.dryTyreRequirement.perDriverState` is a map keyed by driver number, not a scalar. `historical` and `officialPreRace` are separately attributed, target-session-owned optional artifacts; absence is explicit and neither is silently blended into `WeekendContext`. `backtest.status` is `NOT_IMPLEMENTED` and `backtest.metrics` is `null` until a deterministic archived-session evaluator exists.
 
 `netPitLoss.status = NOT_IMPLEMENTED` blocks free-stop, projected-rejoin, and quantified-undercut claims. Raw pit-lane duration does not satisfy that dependency.
+
+
+## Published strategy sidecar
+
+Every analytics snapshot contains `publishedStrategy`, even when no admissible Pirelli evidence exists. The server authors it; clients must not infer a preferred option.
+
+- `status`: `PRESENT` or `ABSENT`.
+- `lifecycle`: current strategy lifecycle.
+- `baseline`: source metadata, `evidenceCutoff`, ordered published options, physical compound nomination, optional native tyre bank, context facts, and absence reason.
+- `fieldFacts`: at most three cursor-valid race-context statements.
+- `drivers`: observed compound path, relation, every compatible option ID, published window states, and concise facts.
+- `modelVersion`: `pirelli-published-strategy-v1`.
+
+Driver relations are `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPARABLE`, `TERMINAL`, or `UNKNOWN`. Window states are `BEFORE`, `ACTIVE`, `PASSED`, `COMPLETED`, or `UNKNOWN`; V1 emits the first three/UNKNOWN and reserves `COMPLETED` for an explicit future completion representation. Final state keeps the baseline but emits no future windows.
+
+Pirelli raw/normalized archives live below `/data/.slipstream/pirelli/<meeting_key>/` and are operational evidence, not API payloads. See [Published Pirelli strategy](pirelli-strategy.md) for admission and derivation semantics.

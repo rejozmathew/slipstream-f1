@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .acquisition import PirelliPublicClient
 from .archive import PirelliArchive, save_normalized_release
@@ -70,7 +70,7 @@ class PirelliIngestionService:
         *,
         now: datetime | None = None,
     ) -> PirelliIngestionReport:
-        retrieved_at = now or datetime.now(timezone.utc)
+        retrieved_at = now or datetime.now(UTC)
         rss = await self.client.acquire(
             archive=self.archive,
             meeting_key=target.meeting.meeting_key,
