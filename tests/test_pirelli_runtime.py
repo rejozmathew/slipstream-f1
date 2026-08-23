@@ -114,6 +114,183 @@ def _resource():
     return SimpleNamespace(final_state=RaceState())
 
 
+def _run_race_article_pipeline(
+    tmp_path,
+    *,
+    meeting_key: str,
+    meeting_name: str,
+    title: str,
+    article: str,
+    published_at: datetime,
+    race_start: datetime,
+    current_lap: int,
+):
+    session_key = f"race-{meeting_key}"
+    release_url = f"https://press.pirelli.com/{meeting_key}-strategy"
+    category = pirelli_event_tag(2026, meeting_name)
+    payloads = {
+        PIRELLI_F1_RSS_URL: _Payload(
+            _feed(
+                (
+                    title,
+                    release_url,
+                    published_at.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+                    category,
+                )
+            ),
+            SourceType.RSS,
+            media_type="application/rss+xml",
+        ),
+        release_url: _Payload(
+            _page(article),
+            SourceType.NEWSROOM_HTML,
+            published_at=published_at,
+            modified_at=published_at,
+        ),
+    }
+    descriptor = SimpleNamespace(
+        key=session_key,
+        session_kind="race",
+        meeting_key=meeting_key,
+        date_start=race_start,
+        date_end=race_start + timedelta(hours=2),
+        year=2026,
+        meeting_name=meeting_name,
+        location=meeting_name.removesuffix(" Grand Prix"),
+        circuit=meeting_name,
+    )
+    archive = PirelliArchive(tmp_path)
+    coordinator = PirelliRuntimeCoordinator(
+        PirelliIngestionService(archive, _FakeClient(payloads))
+    )
+    asyncio.run(
+        coordinator.refresh_relevant(
+            {session_key: descriptor},
+            default_key=session_key,
+            resource_loader=lambda _key: _resource(),
+            now=race_start - timedelta(hours=2),
+        )
+    )
+    availability = PirelliEvidenceStore(tmp_path).load(
+        meeting_key=meeting_key,
+        target_session_key=session_key,
+        evidence_cutoff=race_start,
+        session_scope=SessionScope.RACE,
+    )
+    published = build_published_strategy(
+        availability=availability,
+        evidence_cutoff=race_start.isoformat(),
+        state=RaceState(
+            session=SessionState(
+                key=session_key,
+                lap=current_lap,
+                total_laps=70,
+            ),
+            drivers={"1": DriverState(number="1", compound="MEDIUM")},
+        ),
+        evidence_by_driver={"1": ()},
+        lifecycle="LIVE",
+    )
+    return availability, published
+
+
+def _published_option(published, compounds, windows):
+    return any(
+        option["compounds"] == compounds and option["pitWindows"] == windows
+        for option in published["baseline"]["options"]
+    )
+
+
+def test_china_qualifying_day_article_admits_race_strategy_despite_sprint_language(
+    tmp_path,
+):
+    availability, published = _run_race_article_pipeline(
+        tmp_path,
+        meeting_key="china-2026",
+        meeting_name="Chinese Grand Prix",
+        title="Mercedes strike twice as Antonelli breaks record",
+        published_at=datetime(2026, 3, 14, 10, tzinfo=UTC),
+        race_start=datetime(2026, 3, 15, 7, tzinfo=UTC),
+        current_lap=20,
+        article=(
+            "George Russell won the first Sprint of the season. Following the Sprint race, "
+            "the teams prepared for Formula 1 qualifying, where Antonelli secured pole. "
+            "A one-stop strategy is clearly the fastest for tomorrow. Whether to start on "
+            "the Mediums or the Softs will depend on grid position. In both cases, the longer "
+            "stint will be on the Hard tyres, to be fitted between laps 17 and 23, or between "
+            "15 and 21. Formula 2 also held a Sprint before its Feature Race qualifying."
+        ),
+    )
+
+    assert availability.status == "PRESENT"
+    assert published["baseline"]["status"] == "PRESENT"
+    assert _published_option(
+        published,
+        ["MEDIUM", "HARD"],
+        [{"startLap": 17, "endLap": 23}],
+    )
+    assert _published_option(
+        published,
+        ["SOFT", "HARD"],
+        [{"startLap": 15, "endLap": 21}],
+    )
+
+
+def test_hungary_qualifying_day_article_admits_grand_prix_strategy_before_support_sprints(
+    tmp_path,
+):
+    availability, published = _run_race_article_pipeline(
+        tmp_path,
+        meeting_key="hungary-2026",
+        meeting_name="Hungarian Grand Prix",
+        title="Norris on pole in Hungary, tyre sets will shape tomorrow's strategies",
+        published_at=datetime(2026, 7, 25, 17, tzinfo=UTC),
+        race_start=datetime(2026, 7, 26, 13, tzinfo=UTC),
+        current_lap=28,
+        article=(
+            "Norris secured pole after Formula 1 qualifying and the final practice session. "
+            "There is no difference in overall race time between a one-stop and a two-stop "
+            "strategy for the Hungarian Grand Prix. The Medium tyre is still likely to be the "
+            "preferred compound for the start. Those opting for a one-stop strategy could then "
+            "complete the race on the Hard compound, with the pit stop window falling between "
+            "laps 26 and 32. A two-stop strategy has windows between laps 16 and 22 and between "
+            "laps 40 and 46. Formula 2 and Formula 3 Sprint races were followed by qualifying."
+        ),
+    )
+
+    assert availability.status == "PRESENT"
+    assert published["baseline"]["status"] == "PRESENT"
+    assert _published_option(
+        published,
+        ["MEDIUM", "HARD"],
+        [{"startLap": 26, "endLap": 32}],
+    )
+    assert any(
+        window["state"] == "ACTIVE"
+        for window in published["drivers"]["1"]["windows"]
+    )
+
+
+def test_genuine_sprint_strategy_article_never_enters_race_published_baseline(tmp_path):
+    availability, published = _run_race_article_pipeline(
+        tmp_path,
+        meeting_key="sprint-only-2026",
+        meeting_name="Chinese Grand Prix",
+        title="Sprint strategy for the Chinese Grand Prix weekend",
+        published_at=datetime(2026, 3, 13, 10, tzinfo=UTC),
+        race_start=datetime(2026, 3, 15, 7, tzinfo=UTC),
+        current_lap=10,
+        article=(
+            "The fastest Sprint strategy is Soft-Medium, with the change between laps 8 and 10. "
+            "Sprint Qualifying set the grid and Formula 2 qualifying followed later in the day."
+        ),
+    )
+
+    assert availability.status == "ABSENT"
+    assert published["baseline"]["status"] == "ABSENT"
+    assert published["baseline"]["options"] == []
+
+
 def test_runtime_exact_tag_discovers_ingests_stores_and_publishes_race_baseline(
     tmp_path,
 ):

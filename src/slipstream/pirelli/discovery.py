@@ -107,42 +107,92 @@ def parse_formula1_feed(xml_text: str) -> tuple[FeedEntry, ...]:
     return tuple(out)
 
 
-def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
-    lower = f"{title} {summary}".casefold()
-    if "compound" in lower and any(
-        word in lower for word in ("selected", "selection", "choices")
-    ):
-        return ReleasePurpose.COMPOUND_NOMINATION
-    if "sprint" in lower and any(word in lower for word in ("pole", "qualifying")):
-        return ReleasePurpose.SPRINT_QUALIFYING
-    if "sprint" in lower and any(
-        phrase in lower
+def _explicit_sprint_strategy(text: str) -> bool:
+    return any(
+        phrase in text
         for phrase in (
             "sprint strategy",
             "sprint strategies",
             "strategy for the sprint",
             "strategies for the sprint",
         )
+    )
+
+
+def _explicit_race_strategy(text: str) -> bool:
+    """Recognize current-event Grand Prix guidance, not incidental session words."""
+
+    historical_markers = (
+        "last year's",
+        "last year’s",
+        "previous year's",
+        "previous year’s",
+        "in the previous race",
+        "historically",
+    )
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if any(marker in sentence for marker in historical_markers):
+            continue
+        if any(
+            phrase in sentence
+            for phrase in (
+                "race strategy",
+                "race strategies",
+                "strategy for the race",
+                "strategies for the race",
+                "possible race strategy",
+                "possible race strategies",
+            )
+        ):
+            return True
+        if re.search(
+            r"\b(?:one|two|three)[ -]stop strateg(?:y|ies)\b[^.]{0,180}"
+            r"\b(?:fastest for tomorrow|for (?:tomorrow's |tomorrow’s )?(?:the )?"
+            r"[a-z0-9 -]*grand prix|complete the race|pit stop window)\b",
+            sentence,
+        ):
+            return True
+    return False
+
+
+def _localized_sprint_qualifying(title: str, text: str) -> bool:
+    segments = (title, *re.split(r"(?<=[.!?])\s+", text))
+    return any(
+        "sprint" in segment
+        and any(word in segment for word in ("pole", "qualifying"))
+        for segment in segments
+    )
+
+
+def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
+    title_lower = title.casefold()
+    lower = f"{title} {summary}".casefold()
+    if "compound" in lower and any(
+        word in lower for word in ("selected", "selection", "choices")
     ):
+        return ReleasePurpose.COMPOUND_NOMINATION
+    if _explicit_sprint_strategy(title_lower):
         return ReleasePurpose.SPRINT
-    if any(
-        phrase in lower
-        for phrase in (
-            "race strategy",
-            "race strategies",
-            "strategy for the race",
-            "strategies for the race",
-            "possible race strategy",
-            "possible race strategies",
+    if any(word in title_lower for word in ("friday", "practice", "fp1", "fp2", "fp3")):
+        return ReleasePurpose.PRACTICE
+    if any(marker in title_lower for marker in ("last year", "previous race", "history of")):
+        return ReleasePurpose.UNKNOWN
+    if any(word in title_lower for word in ("wins", "victory", "winner")):
+        return (
+            ReleasePurpose.SPRINT
+            if "sprint" in title_lower
+            else ReleasePurpose.RACE_REPORT
         )
-    ):
+    if _explicit_race_strategy(title_lower):
         return ReleasePurpose.RACE_STRATEGY
-    if re.search(
-        r"\b(?:one|two|three)[ -]stop strategy\b[^.]{0,100}"
-        r"\b(?:fastest|quickest|for (?:the )?race|for tomorrow)\b",
-        lower,
-    ):
+    # Explicit prospective Grand Prix strategy evidence outranks incidental words
+    # from the earlier Sprint, F1 qualifying, or support-series boilerplate.
+    if _explicit_race_strategy(lower):
         return ReleasePurpose.RACE_STRATEGY
+    if _explicit_sprint_strategy(lower):
+        return ReleasePurpose.SPRINT
+    if _localized_sprint_qualifying(title_lower, lower):
+        return ReleasePurpose.SPRINT_QUALIFYING
     if "sprint" in lower and any(
         word in lower for word in ("wins", "victory", "winner")
     ):
