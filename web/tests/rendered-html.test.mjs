@@ -183,7 +183,7 @@ test("uses server-authored status and preserves same-session live replay handoff
 });
 
 test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", async () => {
-  const [timingTower, qualifyingView, practiceView, tvMode, lifecycle, trackMap, strategyView, sessionSnapshot] = await Promise.all([
+  const [timingTower, qualifyingView, practiceView, tvMode, lifecycle, trackMap, strategyView, sessionSnapshot, driverFocus, battleView] = await Promise.all([
     readFile(new URL("../components/timing/TimingTower.tsx", import.meta.url), "utf8"),
     readFile(new URL("../views/QualifyingView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../views/PracticeView.tsx", import.meta.url), "utf8"),
@@ -192,6 +192,8 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
     readFile(new URL("../components/analysis/TrackMap.tsx", import.meta.url), "utf8"),
     readFile(new URL("../views/StrategyView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/analysis/SessionStrategySnapshot.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/DriverFocusView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/BattleView.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(timingTower, /standard: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "LAST", "PIT"\]/);
@@ -204,6 +206,12 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(lifecycle, /RETIRED: "RET"/);
   assert.match(lifecycle, /WITHDRAWN: "WD"/);
   assert.doesNotMatch(lifecycle, /NO_RECENT_PROGRESS|NO RECENT PROGRESS/);
+  assert.match(timingTower, /driverClassificationLabel/);
+  assert.match(driverFocus, /driverLifecycle\(driver\)/);
+  assert.match(driverFocus, /driver-status-badge/);
+  assert.match(battleView, /driverLifecycle\(driver\)\.battleEligible/);
+  assert.match(tvMode, /driverLifecycle\(driver\)\.battleEligible/);
+  assert.match(tvMode, /driver-status-badge terminal/);
 
   assert.match(qualifyingView, /title="SESSION"/);
   assert.match(qualifyingView, /SEGMENT TIMING WAS NOT RECORDED FOR THIS REPLAY/);
@@ -219,6 +227,8 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.doesNotMatch(tvMode, /QUALIFYING CUT LINE|CLOCK UNKNOWN|PHASE UNKNOWN|ANALYTICS · UNKNOWN/);
 
   assert.match(strategyView, /raceRead/);
+  assert.match(strategyView, /showPublished/);
+  assert.match(strategyView, /baseline\?\.status === "PRESENT"/);
   assert.match(sessionSnapshot, /raceRead/);
   for (const source of [strategyView, sessionSnapshot, tvMode]) {
     assert.doesNotMatch(source, /\braceStrategy\b|\.primaryStrategy\b|\.alternateStrategy\b|\.likelyNextCompound\b|\.pitWindow\b|\.undercutStrength\b|\.projectedRejoinPosition\b|\.freeStopMargin\b/);

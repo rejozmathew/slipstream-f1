@@ -209,9 +209,13 @@ def test_unknown_phase_uses_cursor_safe_session_benchmark(tmp_path: Path) -> Non
         (2025, 20, "Q2", 10),
         (2025, 20, "SQ1", 15),
         (2025, 20, "SQ2", 10),
+        (2026, 22, "Q1", 16),
+        (2026, 22, "Q2", 10),
+        (2026, 22, "SQ1", 16),
+        (2026, 22, "SQ2", 10),
     ],
 )
-def test_verified_2024_and_2025_advancement_profiles(
+def test_verified_advancement_profiles(
     year: int, field_size: int, phase: str, expected: int
 ) -> None:
     assert _advancing_count(year, field_size, phase) == expected
