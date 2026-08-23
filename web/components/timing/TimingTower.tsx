@@ -4,7 +4,7 @@ import { formatSector } from "../../domain/format";
 import { driverLifecycle, lifecycleClassName } from "../../domain/lifecycle";
 import type { TowerView } from "../../domain/layout";
 import type { AnalyticsSnapshot, Driver } from "../../domain/protocol";
-import { CompoundBadge, StrategyCompoundTransition } from "../shared/CompoundBadge";
+import { CompoundBadge } from "../shared/CompoundBadge";
 import { DataValue } from "../shared/DataValue";
 import { Panel } from "../shared/Panel";
 
@@ -65,15 +65,15 @@ function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (drive
 
 function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
   const lifecycle = driverLifecycle(driver);
-  const strategy = analytics?.drivers[driver.number]?.strategy;
-  const window = strategy?.pitWindow.value;
+  const published = analytics?.publishedStrategy.drivers[driver.number];
+  const window = published?.windows[0];
   return <button type="button" className={"timing-row timing-race-strategy " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
-    {lifecycle.terminal ? <span>—</span> : <StrategyCompoundTransition value={strategy?.primaryStrategy.value} compact />}
-    {lifecycle.terminal ? <span>—</span> : <DataValue compact value={window ? "L" + window[0] + "–" + window[1] : null} />}
+    {lifecycle.terminal ? <span>TERMINAL</span> : <span>{published?.relation.replaceAll("_", " ") ?? "—"}</span>}
+    {lifecycle.terminal ? <span>—</span> : <DataValue compact value={window ? `L${window.startLap}–${window.endLap} · ${window.state}` : null} />}
   </button>;
 }
 
@@ -110,7 +110,7 @@ const headers = {
 const raceModeHeaders = {
   standard: ["P", "DRIVER", "INT", "TYRE", "GAP", "AGE", "LAST", "PIT"],
   timing: ["P", "DRIVER", "INT", "TYRE", "S1", "S2", "S3", "LAST", "BEST"],
-  strategy: ["P", "DRIVER", "INT", "TYRE", "AGE", "STINT", "PIT", "PLAN", "WINDOW"],
+  strategy: ["P", "DRIVER", "INT", "TYRE", "AGE", "STINT", "PIT", "PIRELLI FIT", "PUBLISHED WINDOW"],
 };
 
 export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, toolbar, onSelectDriver }: TimingTowerProps) {
@@ -133,3 +133,4 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
     </div>
   </Panel>;
 }
+

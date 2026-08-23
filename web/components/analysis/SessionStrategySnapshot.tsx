@@ -1,4 +1,5 @@
 import type { AnalyticsSnapshot } from "../../domain/protocol";
+import { PublishedOptionCard } from "./PublishedStrategy";
 import { Panel } from "../shared/Panel";
 
 type SessionStrategySnapshotProps = {
@@ -7,21 +8,15 @@ type SessionStrategySnapshotProps = {
   compact?: boolean;
 };
 
-function distribution(value: Record<string, number> | undefined) {
-  if (!value || Object.keys(value).length === 0) return "—";
-  return Object.entries(value).map(([label, count]) => `${label} ${count}`).join(" · ");
-}
-
 export function SessionStrategySnapshot({ analytics, onOpenStrategy, compact = false }: SessionStrategySnapshotProps) {
+  const intelligence = analytics?.publishedStrategy;
+  const baseline = intelligence?.baseline;
   const read = analytics?.raceRead;
-  const final = analytics?.strategyLifecycle === "FINAL";
-  return <Panel eyebrow="RACE READ" title="Race strategy snapshot" className={`session-strategy-read${compact ? " session-strategy-read-compact" : ""}`} action={<button type="button" className="panel-action-button" onClick={onOpenStrategy}>VIEW STRATEGY →</button>}>
-    {!read && <div className="strategy-unavailable" role="status"><strong>—</strong><p>Race Read is unavailable until normalized race evidence reaches this cursor.</p></div>}
-    {read && <div className="session-read-grid">
-      <div><span>FIELD SHAPE</span><strong>{read.strategyArchetype.value ?? "NOT ESTABLISHED"}</strong><small>{read.population.active} active · {read.population.terminal} terminal</small></div>
-      <div><span>CURRENT TYRES</span><strong>{distribution(read.currentTyreDistribution)}</strong><small>{distribution(read.completedStopDistribution)} stops</small></div>
-      <div><span>CONSTRAINTS</span><strong>{read.dryRequirementLandscape.unsatisfied > 0 ? `${read.dryRequirementLandscape.unsatisfied} REQUIRE DRY SPEC` : read.dryRequirementLandscape.unknown > 0 ? `${read.dryRequirementLandscape.unknown} RULE UNKNOWN` : "FIELD SATISFIED"}</strong><small>{final ? "RETROSPECTIVE · SESSION FINAL" : analytics?.projectionGate?.publishAllowed ? "OUTLOOK EARNED" : "OUTLOOK WITHHELD"}</small></div>
-      {!compact && <div className="session-read-summary"><span>RACE READ</span><strong>{read.summaryFacts[0] ?? "No unusual field fact is established yet."}</strong></div>}
-    </div>}
+  return <Panel eyebrow="STRATEGY CONTEXT" title="Pirelli baseline · Race now" className={`session-strategy-read${compact ? " session-strategy-read-compact" : ""}`} action={<button type="button" className="panel-action-button" onClick={onOpenStrategy}>VIEW STRATEGY →</button>}>
+    <div className="session-strategy-zones">
+      <section><header><span>PIRELLI BASELINE</span><b>{baseline?.status ?? "ABSENT"}</b></header>{baseline?.status === "PRESENT" && baseline.options.length ? <div className="session-published-options">{baseline.options.slice(0, compact ? 1 : 2).map((option) => <PublishedOptionCard key={option.id} option={option} compact />)}</div> : <p>No replay-admissible published strategy is available. Current race facts remain usable.</p>}</section>
+      <section><header><span>RACE NOW</span><b>{analytics?.strategyLifecycle ?? "UNAVAILABLE"}</b></header>{read ? <div className="session-race-now"><strong>{read.population.active} ACTIVE · {read.population.terminal} TERMINAL</strong><small>{Object.entries(read.completedStopDistribution).map(([stops, count]) => `${count}×${stops}-stop`).join(" · ") || "NO FIELD STOP SHAPE"}</small></div> : <p>Race Read is unavailable at this cursor.</p>}</section>
+      <section><header><span>NOW</span><b>FACTUAL</b></header><p>{intelligence?.fieldFacts[0] ?? read?.summaryFacts[0] ?? "No unusual current-race fact is established yet."}</p></section>
+    </div>
   </Panel>;
 }

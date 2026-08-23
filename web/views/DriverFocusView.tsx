@@ -1,7 +1,7 @@
 import { useMemo, type CSSProperties } from "react";
 
 import { PaceDeltaChart } from "../components/analysis/PaceDeltaChart";
-import { StrategyOutlook } from "../components/analysis/StrategyOutlook";
+import { DriverPirelliContext } from "../components/analysis/PublishedStrategy";
 import { TrackMap } from "../components/analysis/TrackMap";
 import { CompoundBadge, CompoundTransition } from "../components/shared/CompoundBadge";
 import { DataValue } from "../components/shared/DataValue";
@@ -58,7 +58,7 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
         <div className="driver-battle-context"><BattleContext label="AHEAD" value={model?.ahead ?? null} /><BattleContext label="BEHIND" value={model?.behind ?? null} /></div><div className="driver-read"><span>DRIVER READ</span><strong>{model?.read.headline ?? "Driver Read unavailable at this cursor."}</strong>{model?.read.facts.map((fact) => <p key={fact}>{fact}</p>)}</div>
       </section>
       <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} focusedDriverNumbers={[driverNumber]} focusLabel={driver.code ?? driver.number} /></div>
-      <StrategyOutlook analytics={analytics} driverNumber={driverNumber} driverStatus={driver.status} />
+      <DriverPirelliContext analytics={analytics} driverNumber={driverNumber} />
       <Panel eyebrow="PACE DELTA" title="Stint trend" className="driver-history-panel" action={<span className="pace-baseline-badge">VS CLEAN STINT BASELINE <InfoPopover meaning="Signed lap-time delta versus the robust median of representative laps in the same stint. Faster laps are above zero; slower laps are below." why="Pit, neutralized, contaminated, and robust outlier laps do not set the chart scale. They remain visible as capped grey hatched markers." /></span>}>
         {historyError && <div className="panel-empty">HISTORY UNAVAILABLE · {historyError}</div>}
         {!historyError && !history && !model && <div className="panel-empty">LOADING NORMALIZED LAP EVIDENCE</div>}
@@ -68,3 +68,4 @@ export function DriverFocusView({ state, analytics, driverNumber, history, histo
     </div>
   </div>;
 }
+

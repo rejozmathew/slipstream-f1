@@ -26,7 +26,11 @@ test("builds the replay-driven desktop shell as static files", async () => {
   assert.match(bundle, /TOWER WIDE/);
   assert.match(bundle, /ANALYSIS WIDE/);
   assert.match(bundle, /TOWER VIEW/);
-  assert.match(bundle, /WEEKEND CONTEXT/);
+  assert.match(bundle, /PIRELLI BASELINE/);
+  assert.match(bundle, /RACE NOW/);
+  assert.match(bundle, /PUBLISHED STRATEGY CONTEXT/);
+  assert.doesNotMatch(bundle, /Strategy Outlook/);
+  assert.doesNotMatch(bundle, /NET PIT LOSS/);
   assert.match(bundle, /PACE DELTA/);
   assert.match(bundle, /CHANGE DRIVER/);
   assert.match(bundle, /No sample race has been substituted/);
@@ -88,15 +92,16 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
     readFile(new URL("../components/shell/AppShell.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(strategyView, /analytics\?\.raceRead/);
-  assert.match(strategyView, /dryRequirementLandscape/);
+  assert.match(strategyView, /publishedStrategy\.baseline/);
+  assert.match(strategyView, /PirelliBaseline/);
+  assert.match(strategyView, /RaceNow/);
   assert.doesNotMatch(strategyView, /dryRuleStates/);
-  assert.match(snapshot, /Race strategy snapshot/);
+  assert.match(snapshot, /Pirelli baseline · Race now/);
   assert.match(driverView, /model\?\.read\.headline/);
   assert.match(driverView, /focusedDriverNumbers=\{\[driverNumber\]\}/);
   assert.match(battleView, /analytics\?\.battle\.histories/);
   assert.doesNotMatch(battleView, /stateHistory/);
-  assert.match(battleView, /SHARED STRATEGY INTERACTION UNAVAILABLE/);
+  assert.match(battleView, /Published strategy context/);
   assert.match(trackMap, /car-deemphasized/);
   assert.match(shell, /layout === "race" \|\| \(view !== "strategy" && view !== "battle"\)/);
   assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
@@ -114,4 +119,7 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.match(protocol, /perDriverState\?: Record<string, DryTyreRequirementState>/);
   assert.match(protocol, /status: "NOT_IMPLEMENTED"/);
   assert.match(protocol, /metrics: null/);
+  assert.match(protocol, /publishedStrategy: PublishedStrategyIntelligence/);
+  assert.doesNotMatch(tvMode, /UNDERCUT/);
 });
+

@@ -18,7 +18,7 @@ export type LayoutLayer = {
 };
 
 export const ANALYSIS_MODULES: Array<{ id: AnalysisModuleId; label: string; description: string }> = [
-  { id: "strategy", label: "Strategy Outlook", description: "Production analytics when enabled" },
+  { id: "strategy", label: "Published strategy", description: "Pirelli baseline and current-race context" },
   { id: "map", label: "Track Map", description: "Circuit shape and factual car position" },
   { id: "conditions", label: "Conditions", description: "Weather and track-local context" },
   { id: "raceControl", label: "Race Control", description: "Flags, notices, and control messages" },

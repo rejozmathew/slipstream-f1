@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 
 import { PaceDeltaChart } from "../components/analysis/PaceDeltaChart";
-import { StrategyOutlook } from "../components/analysis/StrategyOutlook";
+import { DriverPirelliContext, PirelliBaseline, RaceNow } from "../components/analysis/PublishedStrategy";
 import { TrackMap } from "../components/analysis/TrackMap";
 import { CompoundBadge, CompoundTransition } from "../components/shared/CompoundBadge";
 import { Panel } from "../components/shared/Panel";
@@ -46,15 +46,14 @@ function DriverTV({ driver, analytics, state, positionMode }: {
     <div className="tv-driver-zones">
       <section className="tv-driver-facts"><h3>DRIVER STATE</h3><div><span>AHEAD</span><strong>{model?.ahead?.code ?? "—"}</strong><small>{model?.ahead?.gapSeconds == null ? "—" : `${model.ahead.gapSeconds.toFixed(3)}s`}</small></div><div><span>BEHIND</span><strong>{model?.behind?.code ?? "—"}</strong><small>{model?.behind?.gapSeconds == null ? "—" : `${model.behind.gapSeconds.toFixed(3)}s`}</small></div><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>STRATEGY · DISPOSITION</span><strong>{model?.strategy.disposition ?? "—"}</strong><small>{model?.strategy.windowState ? `WINDOW ${model.strategy.windowState}` : "WINDOW —"}</small></div><div><span>LAST / BEST</span><strong>{driver.last_lap ?? "—"} · {driver.best_lap ?? "—"}</strong></div>{latestPit && <div><span>LATEST PIT · L{latestPit.lap}</span><strong><CompoundTransition from={latestPit.previousCompound} to={latestPit.newCompound} compact /></strong><small>PIT-LANE {latestPit.stopDuration == null ? "—" : `${latestPit.stopDuration.toFixed(1)}s`}</small></div>}</section>
       <div className="tv-driver-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[driver.number]} focusLabel={`${driver.code ?? driver.number} · FOCUS`} /></div>
-      <div className="tv-driver-analysis"><section className="tv-driver-pace"><h3>PACE TREND</h3><PaceDeltaChart samples={samples} compact serverScale={model?.pace.scale} /></section><StrategyOutlook analytics={analytics} driverNumber={driver.number} compact /></div>
+      <div className="tv-driver-analysis"><section className="tv-driver-pace"><h3>PACE TREND</h3><PaceDeltaChart samples={samples} compact serverScale={model?.pace.scale} /></section><DriverPirelliContext analytics={analytics} driverNumber={driver.number} compact /></div>
     </div>
   </div>;
 }
 
 function BattleCard({ driver, analytics }: { driver: Driver; analytics: AnalyticsSnapshot | null }) {
   const model = analytics?.drivers[driver.number];
-  const window = model?.strategy.pitWindow.value;
-  return <section className="tv-battle-card" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as React.CSSProperties}><header><b>P{driver.position ?? "—"}</b><strong>{driver.code ?? driver.number}</strong><span>#{driver.number}</span></header><p>{driver.name ?? "Driver"} · {driver.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{driver.last_lap ?? "—"} · {model?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div><div><span>STRATEGY WINDOW</span><strong>{window ? `L${window[0]}–${window[1]}` : "—"}</strong></div><div><span>UNDERCUT</span><strong>{model?.strategy.undercutStrength.value ?? "—"}</strong></div></section>;
+  return <section className="tv-battle-card" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as React.CSSProperties}><header><b>P{driver.position ?? "—"}</b><strong>{driver.code ?? driver.number}</strong><span>#{driver.number}</span></header><p>{driver.name ?? "Driver"} · {driver.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{driver.last_lap ?? "—"} · {model?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div><div><span>PIRELLI FIT</span><strong>{analytics?.publishedStrategy.drivers[driver.number]?.relation.replaceAll("_", " ") ?? "UNKNOWN"}</strong></div><div><span>PUBLISHED WINDOW</span><strong>{analytics?.publishedStrategy.drivers[driver.number]?.windows[0] ? `L${analytics.publishedStrategy.drivers[driver.number].windows[0].startLap}–${analytics.publishedStrategy.drivers[driver.number].windows[0].endLap} · ${analytics.publishedStrategy.drivers[driver.number].windows[0].state}` : "—"}</strong></div></section>;
 }
 
 function TVBattle({ drivers, analytics, mode, state, positionMode }: {
@@ -136,7 +135,7 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
     <main className={`tv-stage tv-stage-${visibleState}`}>
       {visibleState === "tower" && <div className="tv-tower"><TimingTower drivers={drivers} variant={layout === "race" ? "race" : layout === "qualifying" ? "qualifying" : "practice"} mode="standard" replayAvailable={replayAvailable} analytics={analytics} /></div>}
       {visibleState === "track" && (layout === "race" ? <TVTrack state={state} drivers={drivers} analytics={analytics} positionMode={positionMode} replayAvailable={replayAvailable} /> : <div className="tv-track"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div>)}
-      {visibleState === "strategy" && <div className="tv-strategy"><StrategyOutlook analytics={analytics} /><div className="tv-insight-note"><span>RACE READ · FACTUAL</span><strong>{analytics?.strategyLifecycle?.replaceAll("_", " ") ?? "UNAVAILABLE"}</strong>{raceReadFacts.length ? raceReadFacts.map((fact) => <p key={fact}>{fact}</p>) : <p>Race-wide evidence is unavailable at this cursor. No strategy is fabricated.</p>}</div></div>}
+      {visibleState === "strategy" && <div className="tv-strategy pirelli-tv-strategy"><PirelliBaseline baseline={analytics?.publishedStrategy.baseline} /><RaceNow analytics={analytics} /></div>}
       {visibleState === "battle" && <TVBattle drivers={battle} analytics={analytics} mode={preferences.battleMode} state={state} positionMode={positionMode} />}
       {visibleState === "driver" && <DriverTV driver={selectedDriver} analytics={analytics} state={state} positionMode={positionMode} />}
       {!(["tower", "track", "strategy", "battle", "driver"] as TVState[]).includes(visibleState) && <Panel eyebrow={layout.toUpperCase()} title={unavailableTitle} className="tv-unavailable-panel"><div className="unknown-block"><strong>ANALYTICS · UNKNOWN</strong><p>The current evidence does not yet support this authored state.</p></div></Panel>}
@@ -144,3 +143,4 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
     <footer className="tv-rotation"><div>{authoredStates.map((item, index) => <button className={visibleState === item ? "active" : ""} key={item} onClick={() => setActive(item)}><span>{String(index + 1).padStart(2, "0")}</span>{item.toUpperCase()}</button>)}</div><button className={rotating ? "rotation-toggle active" : "rotation-toggle"} onClick={() => setRotating((value) => !value)}>{rotating ? "AUTO ROTATION ON" : "AUTO ROTATION OFF"}</button><button className="tv-alert-toggle" onClick={() => onPreferencesChange({ ...preferences, alertOnCriticalStatus: !preferences.alertOnCriticalStatus })}>ALERTS {preferences.alertOnCriticalStatus ? "ON" : "OFF"}</button></footer>
   </div>;
 }
+
