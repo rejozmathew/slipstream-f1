@@ -10,11 +10,15 @@ Architecture rules:
 
 - Preserve immutable `RaceState` as the canonical boundary for every output.
 - Put provider-specific acquisition and translation in adapters; never expose raw provider fields through state or API v1.
-- Treat the public live recorder as raw evidence, not as an integrated live source.
+- Treat optional raw SignalR capture as diagnostic evidence; the canonical normalized live event recording is the product replay artifact.
 - Maintain one upstream live connection per application instance.
 - Declare capabilities explicitly and keep public and authenticated capabilities separate.
 - Do not extract a common source interface until a real-session live implementation validates the shared lifecycle.
 - Keep replay cursors, speed, seek, and delay per viewer.
+- Author persistent reversible sporting/control state at the source boundary only when that source supplies explicit entry and exit semantics. Never use `TRACK CLEAR`, lap/sector progress, gaps, or timing resumption as a sporting restart.
+- Treat `STOPPED` as non-terminal and explicit `RETIRED`/DNF/DNS/DSQ/withdrawal as terminal. Do not restore `NO_RECENT_PROGRESS` in M3.5.
+- Use stable session/source capability for column presence. Missing row values render `—`; capability-wide absence omits the element instead of exposing raw `UNKNOWN`/`UNAVAILABLE` enums.
+- React renders server-authored Race/Qualifying/Strategy semantics. Legacy projection fields may remain on the wire but M3.5 product components must not read them.
 - Preserve the one-process, one-container production model. Do not add a runtime Node or Nginx service without an explicit architectural reason.
 
 Local application preview:

@@ -17,9 +17,9 @@ Adding optional fields is compatible within version 1. Removing a field, changin
 
 `session.session_kind` distinguishes `practice_1`, `practice_2`, `practice_3`, `qualifying`, `sprint_qualifying`, `sprint`, `race`, and `unknown`. `session.layout_family` maps those discovered kinds to the shared `practice`, `qualifying`, `race`, or `unsupported` presentation family. Catalog entries expose the same values as `sessionKind` and `layoutFamily`.
 
-Qualifying session facts use `session.qualifying_phase` (`Q1`, `Q2`, `Q3`, `SQ1`, `SQ2`, `SQ3`, or `UNKNOWN`), `session.session_clock`, and `session.session_clock_running`. Driver facts add `activity` (`ON_TRACK`, `IN_PIT`, `NO_RECENT_PROGRESS`, or `UNKNOWN`), `progress_observed_at_lap`, `qualifying_eliminated`, and `tyre_usage` (`NEW`, `USED`, or `UNKNOWN`). Activity is not lifecycle: `NO_RECENT_PROGRESS` and `STOPPED` are non-terminal, while retirement/DNF requires explicit terminal evidence.
+Qualifying session facts use `session.qualifying_phase` (`Q1`, `Q2`, `Q3`, `SQ1`, `SQ2`, `SQ3`, or `UNKNOWN`), `session.session_clock`, `session.session_clock_running`, and stable `session.eligible_field_size`. Driver facts add source-observed `activity` (`ON_TRACK`, `IN_PIT`, or `UNKNOWN`), `progress_observed_at_lap`, `qualifying_eliminated`, session-end `qualifying_results`/`qualifying_phase_reached`, and `tyre_usage` (`NEW`, `USED`, or `UNKNOWN`). Activity is not lifecycle: `STOPPED` is non-terminal, while retirement/DNF requires explicit terminal evidence. `NO_RECENT_PROGRESS` is not derived in M3.5.
 
-Session control is deliberately split across factual axes. `session.status` is `SCHEDULED`, `RUNNING`, `SUSPENDED`, `FINISHED`, or `UNKNOWN`. `session.control_status` is `NORMAL`, `RED_FLAG`, `SAFETY_CAR`, `VSC`, `VSC_ENDING`, `CHEQUERED`, or `UNKNOWN`. `session.marshal_status` is `ALL_CLEAR`, `YELLOW`, `RED`, or `UNKNOWN`. Server-authored `session.display_status` applies the global UI precedence: suspended/red flag, then Safety Car/VSC, then marshal red/yellow, then all-clear. The compatibility field `track_status` mirrors that effective result for older consumers; new clients use `display_status`.
+Session control is deliberately split across factual axes. `session.status` is `SCHEDULED`, `RUNNING`, `SUSPENDED`, `FINISHED`, or `UNKNOWN`. `session.control_status` is `NORMAL`, `RED_FLAG`, `SAFETY_CAR`, `VSC`, `VSC_ENDING`, `CHEQUERED`, or `UNKNOWN`. `session.marshal_status` is `ALL_CLEAR`, `YELLOW`, `RED`, or `UNKNOWN`. Server-authored `session.display_status` applies global UI precedence: suspended/red flag, then Safety Car/VSC, then marshal red/yellow, then user-facing `GREEN` for all-clear. It may deliberately be `UNKNOWN`/omitted when a source proves a red-flag event but cannot prove the later sporting endpoint; clients must not synthesize GREEN/YELLOW from marshal changes in that case. The compatibility field `track_status` mirrors effective state for older consumers; new clients use `display_status`.
 
 ```text
 RaceState
@@ -101,7 +101,7 @@ The allowed sequence is discovered from the catalog: a normal meeting can contri
 
 Every `AnalyticsSnapshot` contains `qualifying`. Outside the Qualifying layout it is `NOT_APPLICABLE`; otherwise it is server-authored and contains `phase`, `phaseEvidence`, `sessionClock`, `sessionClockRunning`, current `benchmark`, `cutLine`, per-driver intelligence, and `modelVersion`.
 
-Per-driver fields are `activity`, `benchmarkDelta`, `cutState`, `attempts`, and `tyreUsage`. Cut state is `ADVANCING`, `BELOW_CUT`, `ELIMINATED`, or `UNKNOWN`. A current advancement boundary exists only for an explicit season/field-size/segment rule profile; `ELIMINATED` additionally requires explicit source evidence. An attempt is a completed-lap observation available by the inclusive cursor and contains only phase, lap/time/sectors, compound, age/usage, factual validity, and occurrence time. Missing phase, clock, rule profile, validity, or usage remains `UNKNOWN`/`null`.
+Per-driver fields include `scopeBest`, `benchmarkDelta`, `cutState`, `qStatus`, completed-lap history, `tyreUsage`, and a server-authored teammate comparison. Benchmark `scope` is `SEGMENT` when factual Q phase is known and `SESSION` when phase is unknown. A current advancement boundary exists only for an explicit season/field-size/segment rule profile selected from stable roster metadata; partial current timing rows never determine field size. `ELIMINATED` additionally requires explicit source/final-result evidence. Completed-lap history is available only by the inclusive cursor. Missing phase, clock, rule profile, validity, usage, or teammate evidence remains internal `UNKNOWN`/`null` and is omitted or rendered as `—` by product UI.
 
 ## Catalog semantics
 
@@ -163,6 +163,7 @@ Session/source descriptors use these boolean capabilities:
 - `race_control`
 - `weather`
 - `local_time`
+- `sector_timing`
 - `authenticated`
 
 Consumers select behavior from capabilities and `positionMode`, never from provider names.
@@ -190,11 +191,11 @@ Whole-track contamination is derived from timestamped intervals opened only by g
 
 `RaceState.circuit.path` is an ordered array of `[x, y]` points. `rotation` is the source display rotation and `source` preserves geometry provenance.
 
-`circuit_shape` means the outline is available. `location_xy` means driver source coordinates may be present in `x`, `y`, and optional `z`. Placement prefers a driver's X/Y when present and otherwise retains that driver's timing-derived `track_position`; a sparse provider packet does not erase either value. Static catalog geometry is seeded independently and survives later live session updates. When neither per-car mode exists, the circuit remains visible with `CAR POSITION UNSUPPORTED`.
+`circuit_shape` means the outline is available. `location_xy` means driver source coordinates may be present in `x`, `y`, and optional `z`. Placement prefers a driver's X/Y when present and otherwise retains that driver's timing-derived `track_position`; a sparse provider packet does not erase either value. Static catalog geometry is seeded independently and survives later live session updates. When neither per-car mode exists, the circuit remains visible and product UI says that car position is not available for the replay rather than exposing an internal capability enum.
 
 Weather carries observation time, air and track temperature in degrees Celsius, humidity percentage, pressure in hPa, rain detection, wind speed in m/s, and wind direction in degrees. Rain detection is a sensor observation; it must not be presented as a guaranteed wet/dry surface classification.
 
-Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` when supplied. Whole-track messages may update the appropriate control or marshal axis; driver- and sector-scoped flags remain messages only. An observed all-clear/normal transition ends SC/VSC control, but `TRACK CLEAR` cannot clear `SUSPENDED` or `RED_FLAG`. Red flag remains latched until explicit session-level resumption evidence.
+Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` when supplied. Whole-track messages may update the appropriate control or marshal axis; driver- and sector-scoped flags remain messages only. A persistent reversible control transition is authored only when the source can represent its explicit exit. Public Live therefore uses explicit session-status suspension/restart semantics. Historical OpenF1 retains a red-flag Race Control message but does not create a persistent suspended/red latch for the Dutch replay because that recording has no explicit actual restart event. `TRACK CLEAR`, marshal green/yellow, laps, sectors, and gaps never serve as sporting restart evidence.
 
 ## Recording formats
 
@@ -214,7 +215,7 @@ Recordings are private operational inputs. Their formats may need migrations ind
 
 ### Race-intelligence publication rules
 
-`raceRead` is a deterministic server-side interpretation of factual current-session evidence; clients must not recalculate it. `startingTyreDistribution` uses first-stint evidence and `currentTyreDistribution` uses active runners at the cursor. Each includes an explicit denominator.
+`raceRead` is a deterministic server-side interpretation of factual current-session evidence; clients must not recalculate it. `startingTyreDistribution` uses first-stint evidence and `currentTyreDistribution` uses active runners at the cursor. Each includes an explicit denominator. M3.5 Strategy/Session/Driver/TV product components use factual `raceRead` and published Pirelli context; legacy `raceStrategy`/projection fields remain version-1 compatibility data and are not product inputs.
 
 `drivers[number].strategy.projectionGate` and top-level `projectionGate` contain hard-validity, plausibility, stability, and `publishAllowed`. Future strategy values are absent/`UNKNOWN` unless all gates pass. `finishAssessment` is the positive evidence record behind `TO_FINISH`; the absence of a pit window never implies a run to the flag. `paceTrend` is raw clean-stint pace slope, not isolated tyre degradation; `degradation` remains a compatibility alias.
 

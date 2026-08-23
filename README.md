@@ -14,7 +14,7 @@ The product supports historical replay and a conservative public live-timing sli
 | Live recording | Normalized live events are finalized atomically and become an immediately selectable replay |
 | Viewer delay | Independent 0/5/10/15/30-second live delay with one-click return to LIVE; no live seek/pause/speed controls |
 | Replay timing | Race, Qualifying, and Practice layouts driven by canonical timing, lap, tyre, stint, sector, pit, and race-control facts |
-| Qualifying intelligence | Server-authored phase/clock, cutline, attempts, benchmark, advancing/eliminated state, and session-aware Driver Focus |
+| Qualifying intelligence | Server-authored phase/clock, scoped benchmark, verified elimination zone, final Q1/Q2/Q3 facts, teammate comparison, lap history, and session-aware Driver Focus |
 | Focused views | Contextual Driver Focus with on-demand normalized lap evidence, plus factual any-two-driver Battle |
 | Race intelligence | As-of-time Strategy, clean-lap pace/degradation, pit history, Driver context, and stabilized Recommended Battle with explicit provenance |
 | Weekend context | Compact prior-session evidence prepares asynchronously and never blocks replay startup |
@@ -28,7 +28,7 @@ The product supports historical replay and a conservative public live-timing sli
 | Outputs | Browser, API v1, WebSocket snapshots, and terminal output |
 | Deployment | One container, one process, and one internal port |
 
-Not yet implemented: deterministic archived-session backtesting, general historical pre-race context, Net Pit Loss, authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status and source status remain separate; driver inactivity is also not treated as factual retirement.
+Not yet implemented: deterministic archived-session backtesting, general historical pre-race context, Net Pit Loss, authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status, transport status, sporting status, and marshal state remain separate; driver inactivity is not treated as factual retirement.
 
 ## Run it with Docker
 
@@ -125,6 +125,9 @@ npm test
 - Playback assets are session-scoped while compact analytics context is strictly limited to earlier sessions in the same `meeting_key` and is cutoff-safe; prior weekends and prior circuit editions are not direct V1 inputs.
 - Source-specific fields stay inside adapters; upstream payloads do not leak into the public API.
 - One application instance owns at most one upstream live connection.
+- Persistent sporting/control latches are source-capability dependent: public Live may use explicit suspension/restart semantics, while historical OpenF1 does not invent a restart endpoint it cannot observe.
+- Explicit terminal driver states remain terminal; `STOPPED` remains resumable and M3.5 does not derive `NO_RECENT_PROGRESS`.
+- Stable source/session capability controls whole-column presence; row-level missing values use `—` rather than shifting the layout or exposing raw capability enums.
 
 The formulas, evidence thresholds, confidence rules, UNKNOWN behavior, Battle Score, and current limitations are documented in [docs/analytics.md](docs/analytics.md).
 - Capabilities are explicit, especially where public and authenticated sources differ.

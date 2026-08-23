@@ -69,4 +69,4 @@ A separate bounded live check on 2026-08-22 used four official modern pages: 202
 | P26 | Race/Sprint purpose isolation and meeting-scoped WEEKEND nomination reuse through discovery+ingestion |
 | P27 | Child-artifact cutoff proof, failed-refresh retry/observability, and a persisted PRESENT state matrix |
 
-The implementation tests semantics rather than claiming visual acceptance. Product surfaces still require human replay inspection with real admitted Pirelli evidence.
+M3.5 product Strategy surfaces pair this admitted baseline with factual `raceRead` fields (current tyre and completed-stop distributions, observed compound sequences, stint context, dry-requirement landscape, recent pits, and factual pace/population context). They remain useful when no Pirelli baseline is present. Legacy projection-heavy `raceStrategy` fields remain wire-compatible but are not read by Strategy/Session/Driver/TV product components. Automated tests cover those ownership boundaries; final visual/product acceptance still requires human replay inspection.

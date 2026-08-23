@@ -46,11 +46,13 @@ Historical replay remains the development and regression harness for analytics. 
 - explicit public-live lifecycle from pre-event through replay-ready, without treating source connectivity as event status
 - normalized in-progress live recording with a completion drain and atomic promotion into the replay library
 - independent per-viewer live delay while `RaceState` and `AnalyticsSnapshot` share one delayed cursor
-- server-authored Qualifying phase, clock, benchmark, cutline, attempts, advancing/eliminated state, and session-aware Driver Focus
-- factual driver activity/no-recent-progress presentation without fabricating DNF/retirement
+- server-authored Qualifying phase, clock, scoped benchmark, stable-roster advancement rules, final segment facts, completed-lap history, teammate comparison, and session-aware Driver Focus
+- explicit resumable `STOPPED` versus persistent terminal lifecycle, with `NO_RECENT_PROGRESS` disabled rather than used as a classification heuristic
 - timing-derived live track progress retained across sparse packets; precise X/Y remains capability-gated
 - sparse official Pirelli newsroom acquisition, immutable evidence archives, cutoff-safe target-session admission, and the server-authored `publishedStrategy` sidecar
-- published-baseline Race/Driver/Battle/TV surfaces with conservative UNKNOWN and terminal behavior
+- factual Race UI plus Pirelli-present/absent Strategy behavior, restricted Qualifying/Practice TV rotations, and capability-stable missing-data presentation
+- source-dependent red-flag truth: explicit public-Live suspension/restart, conservative OpenF1 historical degradation when restart evidence is absent
+- zero-delay incremental Live state/evidence plus same-session `FINALIZING → REPLAY_READY` retention and hard-refresh selection
 
 Milestone 3.5 is implementation-complete and awaiting final owner acceptance. OCR/VLM/manual transcription and image-only tyre-bank extraction remain deliberately absent. General historical context, Net Pit Loss, deterministic archived-session backtesting, authenticated live data, and precise live car X/Y remain future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
 

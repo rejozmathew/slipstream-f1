@@ -11,17 +11,17 @@ See the [CHANGELOG](../CHANGELOG.md) for release history.
 
 ## Qualifying intelligence
 
-`qualifying-intelligence-v1` is a deterministic `AnalyticsSnapshot.qualifying` sidecar. The server—not React—authors phase, session clock, benchmark, current cut boundary, per-driver benchmark delta/activity/cut state, and completed-lap attempts at the inclusive replay or delayed-live cursor.
+`qualifying-intelligence-v1` is a deterministic `AnalyticsSnapshot.qualifying` sidecar. The server—not React—authors phase, session clock, benchmark scope, verified advancement boundary, per-driver best/delta/elimination state, teammate comparison, and completed-lap history at the inclusive replay or delayed-live cursor.
 
-Phase is accepted only from normalized `SessionData`/session evidence as `Q1`–`Q3` or `SQ1`–`SQ3`. The benchmark is the best parseable current driver lap only after phase is established. `benchmarkDelta` is `driver_best_seconds - benchmark_seconds`; absent or unparseable laps remain `null`.
+Phase is accepted only from normalized `SessionData`/session evidence as `Q1`–`Q3` or `SQ1`–`SQ3`. With factual phase, the benchmark is the best lap in that segment. With phase unknown, the benchmark is the fastest qualifying lap known anywhere in the session at that cursor and is explicitly marked session-wide. `benchmarkDelta` is the driver's scope-best minus that benchmark; absent or unparseable laps remain `null`.
 
-Current cut state requires an explicit season, field-size, and phase rule profile. M3.5 verifies 2023/20-car and 2026/22-car Q1/SQ1 and Q2/SQ2 boundaries; other sizes/segments return `UNKNOWN`. Being below the current boundary is not elimination. `ELIMINATED` requires factual source elimination evidence.
+Current advancement state requires an explicit season, stable roster field size, and phase rule profile. M3.5 verifies the normal 20-car 2024 and 2025 profiles (Q1/SQ1 top 15; Q2/SQ2 top 10) and preserves the separately verified 2026 profile. A partial timing snapshot never changes the advancement count. If stable roster/profile evidence is insufficient, elimination-zone treatment is omitted. Being below the current boundary is not factual elimination; `ELIMINATED` requires source/final-result evidence.
 
-Attempts are source-neutral completed-lap observations with `sequence <= snapshot.sequence`. Rewinding therefore removes future attempts. Phase, tyre NEW/USED, and validity remain `UNKNOWN` unless the normalized observation established them. No run boundary, predictive safe/at-risk label, minisector, or telemetry claim is inferred.
+Lap-history entries are source-neutral completed-lap observations with `sequence <= snapshot.sequence`. Rewinding therefore removes future laps. Historical OpenF1 final Q1/Q2/Q3 result arrays are normalized only at official session end, so they are physically unreachable one event before that point. Phase, tyre NEW/USED, and validity remain `UNKNOWN` unless normalized evidence established them. No run boundary, predictive safe/at-risk label, minisector, or telemetry claim is inferred.
 
-## Driver activity and no-recent-progress
+## Driver activity and lifecycle
 
-Activity is separate from lifecycle. Explicit timing/app data can establish `ON_TRACK` or `IN_PIT`. During a progressing Race, `NO_RECENT_PROGRESS` is derived when a non-terminal, non-pit driver's own last proven completed lap trails the canonical session/leader lap by at least two. This is a conservative circulation-gap presentation state, not STOPPED, DNF, or retirement. Any later completed-lap progress immediately restores `ON_TRACK`; completed/final sessions do not newly derive it.
+Activity is separate from lifecycle. Explicit timing/app data can establish `ON_TRACK` or `IN_PIT`; missing recent progress does not establish another product state in M3.5. `STOPPED` remains non-terminal. Explicit `RETIRED`, DNF, DNS, DSQ, and withdrawal are terminal and sparse later timing cannot resurrect a driver.
 
 
 ## Published Pirelli strategy
