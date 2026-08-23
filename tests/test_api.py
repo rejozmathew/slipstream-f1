@@ -134,10 +134,10 @@ def test_websocket_uses_per_client_seek_cursor() -> None:
         socket.send_json({"type": "seek", "at": "2023-09-17T13:59:10Z"})
         sought = socket.receive_json()
 
-    assert initial["data"]["session"]["status"] == "STARTED"
+    assert initial["data"]["session"]["status"] == "RUNNING"
     assert initial["analytics"]["type"] == "analytics.snapshot"
     assert initial["analytics"]["sequence"] == initial["seq"]
-    assert sought["data"]["session"]["status"] == "STARTED"
+    assert sought["data"]["session"]["status"] == "RUNNING"
     assert sought["seq"] > initial["seq"]
 
 
@@ -151,7 +151,7 @@ def test_websocket_seeks_by_event_cursor() -> None:
         sought = socket.receive_json()
 
     assert sought["seq"] == 1
-    assert sought["data"]["session"]["status"] == "STARTED"
+    assert sought["data"]["session"]["status"] == "RUNNING"
 
 
 def test_websocket_delay_is_per_client() -> None:

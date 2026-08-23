@@ -557,3 +557,58 @@ def test_openf1_final_qualifying_segments_arrive_only_at_session_end() -> None:
     assert final.drivers["55"].qualifying_results == (73.574, None, None)
     assert final.drivers["55"].qualifying_phase_reached == "Q1"
     assert final.drivers["55"].qualifying_eliminated is True
+
+
+def test_openf1_dnf_is_not_fabricated_before_session_end() -> None:
+    raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
+    session = raw["endpoints"]["sessions"][0]
+    session.update({"session_name": "Race", "session_type": "Race"})
+    raw["endpoints"].update(
+        {
+            "drivers": [
+                {
+                    "driver_number": 18,
+                    "name_acronym": "STR",
+                    "team_name": "Aston Martin",
+                }
+            ],
+            "laps": [],
+            "position": [],
+            "intervals": [],
+            "stints": [],
+            "pit": [],
+            "race_control": [],
+            "weather": [],
+            "session_result": [
+                {
+                    "driver_number": 18,
+                    "position": None,
+                    "dnf": True,
+                    "dns": False,
+                    "dsq": False,
+                    "number_of_laps": 45,
+                }
+            ],
+        }
+    )
+    events = recording_to_events(raw)
+    dnf_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.kind == "timing"
+        and event.payload.get("number") == "18"
+        and event.payload.get("status") == "DNF"
+    )
+
+    before_end = replay(events, event_limit=dnf_index)
+    at_end = replay(events, event_limit=dnf_index + 1)
+
+    assert before_end.drivers["18"].status not in {
+        "RETIRED",
+        "DNF",
+        "DNS",
+        "DSQ",
+        "WITHDRAWN",
+    }
+    assert at_end.drivers["18"].status == "DNF"
+    assert events[dnf_index].occurred_at == session["date_end"]
