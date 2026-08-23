@@ -1107,15 +1107,20 @@ class PublicLiveSession:
             self._phase_history.append(phase)
 
     def _schedule_finalization(self) -> None:
-        if self._finalization_task is None or self._finalization_task.done():
-            self._finalization_task = asyncio.create_task(self._finalize_after_drain())
+        # Every factual post-chequered packet extends the deterministic drain.
+        # This preserves late classification/timing updates before atomic close.
+        if self._finalization_task is not None and not self._finalization_task.done():
+            self._finalization_task.cancel()
+        self._finalization_task = asyncio.create_task(self._finalize_after_drain())
 
     async def _finalize_after_drain(self) -> None:
         if self._finalization_drain:
             await asyncio.sleep(self._finalization_drain)
-        if not self._completion_observed or self._normalized_recorder is None:
+        if not self._completion_observed:
             return
         self._set_phase("COMPLETE")
+        if self._normalized_recorder is None:
+            return
         final_path = self._normalized_recorder.finalize()
         self._final_recording = final_path
         ready = True

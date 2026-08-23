@@ -5,6 +5,7 @@ export type DriverLifecycle = {
   label: string | null;
   terminal: boolean;
   stopped: boolean;
+  noRecentProgress: boolean;
   circulating: boolean;
   battleEligible: boolean;
 };
@@ -36,25 +37,28 @@ export function canonicalDriverStatus(value: unknown): string {
   return aliases[raw] ?? raw ?? "UNKNOWN";
 }
 
-export function driverLifecycle(driver: Pick<Driver, "status" | "position">): DriverLifecycle {
+export function driverLifecycle(driver: Pick<Driver, "status" | "position"> & Partial<Pick<Driver, "activity">>): DriverLifecycle {
   const status = canonicalDriverStatus(driver.status);
   const terminal = status in terminalLabels;
   const stopped = status === "STOPPED";
+  const noRecentProgress = driver.activity === "NO_RECENT_PROGRESS" && !terminal && !stopped;
   const circulating = status === "RUNNING";
   return {
     status,
-    label: stopped ? "STOPPED" : terminalLabels[status] ?? null,
+    label: stopped ? "STOPPED" : terminalLabels[status] ?? (noRecentProgress ? "NO RECENT PROGRESS" : null),
     terminal,
     stopped,
+    noRecentProgress,
     circulating,
-    battleEligible: circulating && driver.position != null,
+    battleEligible: circulating && !noRecentProgress && driver.position != null,
   };
 }
 
-export function lifecycleClassName(driver: Pick<Driver, "status" | "position">): string {
+export function lifecycleClassName(driver: Pick<Driver, "status" | "position"> & Partial<Pick<Driver, "activity">>): string {
   const lifecycle = driverLifecycle(driver);
   if (lifecycle.terminal) return "driver-terminal";
   if (lifecycle.stopped) return "driver-stopped";
+  if (lifecycle.noRecentProgress) return "driver-no-recent-progress";
   if (!lifecycle.circulating) return "driver-lifecycle-unknown";
   return "driver-running";
 }

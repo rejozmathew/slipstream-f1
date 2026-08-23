@@ -34,21 +34,23 @@ test("builds the replay-driven desktop shell as static files", async () => {
   assert.match(bundle, /PACE DELTA/);
   assert.match(bundle, /CHANGE DRIVER/);
   assert.match(bundle, /No sample race has been substituted/);
-  assert.match(bundle, /SQ1\/SQ2\/SQ3/);
-  assert.match(bundle, /ANALYTICS - NOT ENABLED/);
+  assert.match(bundle, /QUALIFYING CUT LINE/);
+  assert.match(bundle, /WAITING FOR PUBLIC TIMING FEED/);
+  assert.match(bundle, /LIVE DELAY/);
   assert.match(bundle, /SYNC DELAY/);
   assert.doesNotMatch(bundle, /Carlos Sainz|Singapore Grand Prix/);
   assert.doesNotMatch(index + bundle, /codex-preview|react-loading-skeleton|Building your site/);
 });
 
 test("keeps versioned API and WebSocket transport in typed clients", async () => {
-  const [apiClient, socketClient, page, packageJson, viteConfig, replayControls, replayLibrary, sessionHook, raceView, preferences] = await Promise.all([
+  const [apiClient, socketClient, page, packageJson, viteConfig, replayControls, liveControls, replayLibrary, sessionHook, raceView, preferences] = await Promise.all([
     readFile(new URL("../api/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../api/replaySocket.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/shell/ReplayControls.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/shell/LiveControls.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/shell/ReplayLibrary.tsx", import.meta.url), "utf8"),
     readFile(new URL("../hooks/useSlipstreamSession.ts", import.meta.url), "utf8"),
     readFile(new URL("../views/RaceView.tsx", import.meta.url), "utf8"),
@@ -70,10 +72,14 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(replayControls, /if \(isPlaying && commandAvailable\).*type: "play"/);
   assert.match(replayControls, /type: "delay"/);
   assert.match(replayControls, /disabled={!enabled}/);
+  assert.match(liveControls, /\[0, 5, 10, 15, 30\]/);
+  assert.match(liveControls, /RESET \/ LIVE/);
+  assert.doesNotMatch(liveControls, /seek|pause|speed/);
   assert.match(replayLibrary, /aria-label="Season"/);
   assert.match(replayLibrary, /aria-label="Race weekend"/);
   assert.match(replayLibrary, /aria-label="Weekend session"/);
   assert.match(sessionHook, /commandAvailable && socketRef\.current\?\.send/);
+  assert.doesNotMatch(sessionHook, /setAnalytics\(null\).*viewingMode === "live"/s);
   assert.match(raceView, /\["standard", "timing", "strategy"\]/);
   assert.match(preferences, /slipstream\.device-preferences\.v1/);
   assert.match(preferences, /includedRaceStates/);
@@ -99,6 +105,8 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(snapshot, /Pirelli baseline · Race now/);
   assert.match(driverView, /model\?\.read\.headline/);
   assert.match(driverView, /focusedDriverNumbers=\{\[driverNumber\]\}/);
+  assert.match(driverView, /sessionLayout === "qualifying"/);
+  assert.match(driverView, /CURSOR-SAFE LAP EVIDENCE/);
   assert.match(battleView, /analytics\?\.battle\.histories/);
   assert.doesNotMatch(battleView, /stateHistory/);
   assert.match(battleView, /Published strategy context/);
@@ -120,6 +128,8 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.match(tvMode, /focusedDriverNumbers=\{\[left\.number, right\.number\]\}/);
   assert.match(tvMode, /focusedDriverNumbers=\{\[driver\.number\]\}/);
   assert.match(tvMode, /tv-status-chequered|return "chequered"/);
+  assert.match(tvMode, /qualifyingStates/);
+  assert.match(tvMode, /TVQualifyingCutline/);
   assert.match(protocol, /perDriverState\?: Record<string, DryTyreRequirementState>/);
   assert.match(protocol, /status: "NOT_IMPLEMENTED"/);
   assert.match(protocol, /metrics: null/);

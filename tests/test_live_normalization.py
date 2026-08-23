@@ -102,9 +102,9 @@ def test_api_separates_live_transport_from_replay_availability(tmp_path: Path) -
                     "name": "Zandvoort",
                     "year": 2026,
                     "rotation": 0,
-                    "path": [],
-                    "source": None,
-                    "availability": {"path": "unavailable"},
+                    "path": [[0, 0], [10, 0], [5, 10]],
+                    "source": "catalog-cache",
+                    "availability": {"path": "available"},
                 },
             }
         },
@@ -143,6 +143,7 @@ def test_api_separates_live_transport_from_replay_availability(tmp_path: Path) -
     assert live_state["mode"] == "live"
     assert live_state["live"]["status"] == "LIVE"
     assert live_state["data"]["drivers"]["12"]["position"] == 5
+    assert live_state["data"]["circuit"]["path"] == [[0.0, 0.0], [10.0, 0.0], [5.0, 10.0]]
     assert replay_state["mode"] == "replay"
     assert replay_state["data"]["drivers"] == {}
     assert capabilities["replayAvailable"] is False
@@ -282,3 +283,61 @@ def test_two_live_viewers_own_independent_cursor_safe_delays(
     assert delayed["live"]["delaySeconds"] == 15
     assert latest_again["live"]["delaySeconds"] == 0
     assert latest_again["seq"] == latest["seq"]
+
+
+def test_live_product_phase_history_separates_transport_from_completion() -> None:
+    async def scenario() -> tuple[str, ...]:
+        async def rows():
+            yield {
+                "received_at": "2026-08-22T01:15:00Z",
+                "stream": "SessionStatus",
+                "source_timestamp": None,
+                "initial": True,
+                "payload": {"Status": "Started"},
+            }
+            await asyncio.sleep(1)
+
+        live = PublicLiveSession(
+            row_source=rows,
+            stale_after=0.01,
+            maximum_backoff=0.01,
+        )
+        await live.start("11344", scheduled_start="2026-08-22T00:00:00+00:00")
+        await asyncio.sleep(0.06)
+        phases = live.phase_history
+        assert live.view("11344").phase == "RECONNECTING"
+        assert live.view("11344").replay_ready is False
+        await live.stop()
+        return phases
+
+    phases = asyncio.run(scenario())
+    assert {"CONNECTING", "LIVE", "STALE", "RECONNECTING"}.issubset(phases)
+    assert not {"FINALIZING", "COMPLETE", "REPLAY_READY"}.intersection(phases)
+
+
+def test_pre_event_and_completed_phase_paths_are_explicit(tmp_path: Path) -> None:
+    future = datetime(2026, 8, 22, 2, 0, tzinfo=UTC)
+
+    async def pre_event() -> str:
+        async def no_rows():
+            if False:
+                yield {}
+
+        live = PublicLiveSession(
+            row_source=no_rows,
+            now=lambda: datetime(2026, 8, 22, 1, 0, tzinfo=UTC),
+        )
+        await live.start("11344", scheduled_start=future.isoformat())
+        await asyncio.sleep(0)
+        phase = live.view("11344").phase
+        await live.stop()
+        return phase
+
+    assert asyncio.run(pre_event()) == "PRE_EVENT"
+
+    live = PublicLiveSession(
+        normalized_recording_dir=tmp_path,
+        finalization_drain=0,
+    )
+    asyncio.run(live.apply_rows("11344", fixture_rows()))
+    assert live.phase_history[-3:] == ("FINALIZING", "COMPLETE", "REPLAY_READY")

@@ -365,3 +365,39 @@ def test_openf1_lifecycle_requires_explicit_timestamped_driver_evidence() -> Non
         ("2025-01-01T12:00:15Z", "4", "STOPPED"),
         ("2025-01-01T12:02:15Z", "4", "RETIRED"),
     ]
+
+
+def test_no_recent_progress_uses_driver_laps_and_clears_on_later_progress() -> None:
+    from slipstream.events import NormalizedEvent
+    from slipstream.state import RaceState
+
+    state = RaceState().apply(NormalizedEvent(kind="session", occurred_at="2026-01-01T12:00:00Z", source="test", payload={"layout_family": "race", "status": "STARTED"}))
+    for number in ("1", "2"):
+        state = state.apply(NormalizedEvent(kind="driver", occurred_at="2026-01-01T12:00:01Z", source="test", payload={"number": number, "status": "RUNNING"}))
+        state = state.apply(NormalizedEvent(kind="timing", occurred_at="2026-01-01T12:01:00Z", source="test", payload={"number": number, "lap": 1}))
+    state = state.apply(NormalizedEvent(kind="timing", occurred_at="2026-01-01T12:02:00Z", source="test", payload={"number": "1", "lap": 2}))
+    state = state.apply(NormalizedEvent(kind="timing", occurred_at="2026-01-01T12:03:00Z", source="test", payload={"number": "1", "lap": 3}))
+
+    assert state.drivers["2"].activity == "NO_RECENT_PROGRESS"
+    assert state.drivers["2"].status == "RUNNING"
+
+    state = state.apply(NormalizedEvent(kind="timing", occurred_at="2026-01-01T12:03:30Z", source="test", payload={"number": "2", "lap": 2}))
+    assert state.drivers["2"].activity == "ON_TRACK"
+
+
+def test_historical_sparse_updates_preserve_full_field_track_progress() -> None:
+    raw = json.loads(RECORDING.read_text(encoding="utf-8"))
+    numbers = [str(number) for number in range(1, 7)]
+    raw["endpoints"]["drivers"] = [{"driver_number": int(number), "full_name": f"Driver {number}", "name_acronym": f"D{number}", "team_colour": f"{int(number) * 100000:06d}", "team_name": f"Team {number}"} for number in numbers]
+    raw["endpoints"]["laps"] = [{"date_start": f"2023-09-17T13:56:{40 + index:02d}+00:00", "driver_number": int(number), "lap_duration": 96.0 + index, "lap_number": 62} for index, number in enumerate(numbers)]
+    raw["endpoints"]["position"] = [{"date": "2023-09-17T13:56:50+00:00", "driver_number": 1, "position": 1}]
+    raw["endpoints"]["intervals"] = [{"date": "2023-09-17T13:56:51+00:00", "driver_number": 1, "gap_to_leader": 0, "interval": 0}]
+    raw["endpoints"]["stints"] = []
+    raw["endpoints"]["session_result"] = []
+    raw["endpoints"]["race_control"] = []
+
+    state = replay(tuple(recording_to_events(raw)), at="2023-09-17T13:56:55Z")
+
+    assert set(state.drivers) == set(numbers)
+    assert all(state.drivers[number].track_position is not None for number in numbers)
+    assert state.drivers["1"].track_position != state.drivers["2"].track_position

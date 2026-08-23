@@ -178,7 +178,8 @@ class RaceState:
                 session = replace(session, lap=event_lap)
             if progressed:
                 updates.setdefault("activity", "ON_TRACK")
-                updates["progress_observed_at_lap"] = session.lap or event_lap
+                # Store the driver's own last proven lap for the deterministic gap rule.
+                updates["progress_observed_at_lap"] = event_lap
             if str(updates.get("status") or "").upper() in {
                 "RETIRED", "DNF", "DNS", "DISQUALIFIED", "DSQ", "WITHDRAWN"
             }:
