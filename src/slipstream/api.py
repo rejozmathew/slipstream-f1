@@ -361,7 +361,7 @@ def create_app(
         return envelope
 
     @app.get("/api/v1/state")
-    def get_state(
+    async def get_state(
         session_key: str | None = None, mode: str = "auto"
     ) -> dict[str, Any]:
         selected = resource(session_key)

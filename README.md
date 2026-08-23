@@ -1,8 +1,8 @@
 # Slipstream F1
 
-Slipstream F1 is an open-source, self-hosted Formula 1 historical timing and replay application. It turns source data into one canonical `RaceState` and presents that state through a browser pit wall, a versioned REST/WebSocket API, and a terminal renderer.
+Slipstream F1 is an open-source, self-hosted Formula 1 timing, live-viewing, and replay application. It turns source data into one canonical `RaceState` and presents that state through a browser pit wall, a versioned REST/WebSocket API, and a terminal renderer.
 
-The product supports historical replay and a minimum public live-timing slice. One server-owned public SignalR connection normalizes proven timing, session, track-status, race-control, and weather topics through the same `NormalizedEvent` → `RaceState` path used by replay.
+The product supports historical replay and a conservative public live-timing slice. One server-owned public SignalR connection normalizes proven timing, session, track-status, race-control, and weather topics through the same `NormalizedEvent` → `RaceState` path used by replay. Each viewer may apply an independent display delay while factual state and analytics remain on the same delayed cursor.
 
 ## What works today
 
@@ -10,7 +10,11 @@ The product supports historical replay and a minimum public live-timing slice. O
 | --- | --- |
 | Recent-season session catalog | Loads the current season and two preceding seasons by default |
 | Historical session download | Finished practice, qualifying, sprint, and race sessions can be downloaded from the browser or CLI |
+| Public live timing | Explicit pre-event, connecting, live, stale/reconnecting, finalizing, complete, and replay-ready lifecycle |
+| Live recording | Normalized live events are finalized atomically and become an immediately selectable replay |
+| Viewer delay | Independent 0/5/10/15/30-second live delay with one-click return to LIVE; no live seek/pause/speed controls |
 | Replay timing | Race, Qualifying, and Practice layouts driven by canonical timing, lap, tyre, stint, sector, pit, and race-control facts |
+| Qualifying intelligence | Server-authored phase/clock, cutline, attempts, benchmark, advancing/eliminated state, and session-aware Driver Focus |
 | Focused views | Contextual Driver Focus with on-demand normalized lap evidence, plus factual any-two-driver Battle |
 | Race intelligence | As-of-time Strategy, clean-lap pace/degradation, pit history, Driver context, and stabilized Recommended Battle with explicit provenance |
 | Weekend context | Compact prior-session evidence prepares asynchronously and never blocks replay startup |
@@ -24,7 +28,7 @@ The product supports historical replay and a minimum public live-timing slice. O
 | Outputs | Browser, API v1, WebSocket snapshots, and terminal output |
 | Deployment | One container, one process, and one internal port |
 
-Not yet implemented: deterministic archived-session backtesting, general historical pre-race context, Net Pit Loss, authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status and source status remain separate: the UI distinguishes LIVE CONNECTING, LIVE, LIVE STALE, and LIVE SOURCE UNAVAILABLE.
+Not yet implemented: deterministic archived-session backtesting, general historical pre-race context, Net Pit Loss, authentication/SQLite, Sync Groups and device pairing, expanded/authenticated live-source coverage, complete remaining-tyre inventory, live per-car X/Y, external strategy-intelligence providers, or hardware clients. Schedule status and source status remain separate; driver inactivity is also not treated as factual retirement.
 
 ## Run it with Docker
 
@@ -132,6 +136,7 @@ The formulas, evidence thresholds, confidence rules, UNKNOWN behavior, Battle Sc
 
 - [Architecture](ARCHITECTURE.md) — current data flows, module boundaries, and invariants
 - [Protocol](docs/protocol.md) — RaceState, API v1, WebSocket commands, and file formats
+- [Session experience](docs/session-experience.md) — live lifecycle, viewer delay, replay finalization, Qualifying, and availability semantics
 - [Published Pirelli strategy](docs/pirelli-strategy.md) — evidence admission, derivation, missing-data semantics, and corpus metrics
 - [Roadmap](ROADMAP.md) — shipped baseline and the next milestones
 - [Source notes](docs/sources.md) — reference and license boundaries

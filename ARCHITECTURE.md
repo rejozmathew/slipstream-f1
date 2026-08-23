@@ -1,6 +1,6 @@
 # Architecture
 
-Slipstream is a historical replay and deterministic race-intelligence application with a minimum public live-timing path. Replay and proven public live topics both enter the canonical `NormalizedEvent` → `RaceState` pipeline; raw public capture remains available for evidence and debugging.
+Slipstream is a historical replay, public live-timing, and deterministic race-intelligence application. Replay and proven public live topics both enter the canonical `NormalizedEvent` → `RaceState` pipeline; raw public capture remains optional evidence, while canonical normalized events are the product recording.
 
 ## System shape
 
@@ -39,11 +39,14 @@ Pirelli baseline + Static/circuit facts + RaceState + SessionEvidence
 
 Public live path
 
-public F1 SignalR ---> F1LiveAdapter ---> NormalizedEvent ---> RaceState ---> API/WebSocket viewers
+public F1 SignalR ---> F1LiveAdapter ---> shared ordered NormalizedEvent history
+                         |                     |                 |
+                         |                     |                 +--> atomic normalized replay
+                         |                     +--> per-viewer delayed RaceState + AnalyticsSnapshot
                          \-> optional versioned raw JSONL evidence
 ```
 
-`PublicLiveSession` owns at most one upstream connection, verifies the provider session key, maintains sparse provider state inside `F1LiveAdapter`, and publishes only canonical state. Schedule-active, live-available, connected, stale, and replay-available are separate states.
+`PublicLiveSession` owns at most one upstream connection, verifies the provider session key, maintains sparse provider state inside `F1LiveAdapter`, and publishes only canonical events/state. Every viewer derives `RaceState` and `AnalyticsSnapshot` at the same private delayed cursor. Schedule activity, transport health, product lifecycle, and replay availability are separate states.
 
 ## Core invariants
 
@@ -69,6 +72,7 @@ public F1 SignalR ---> F1LiveAdapter ---> NormalizedEvent ---> RaceState ---> AP
 | `session.py` | Normalize discovered session labels into `SessionKind` and `LayoutFamily` |
 | `weekend.py` | Prepare and cache compact meeting context asynchronously under `/data/.slipstream` |
 | `analytics.py` | Orchestrate cached, cursor-safe Strategy, RaceRead, driver, and Battle analytics with provenance |
+| `qualifying.py` | Author cursor-safe phase, clock, benchmark, cut line, activity, and attempt intelligence |
 | `pirelli/` | Discover, archive, deterministically extract, validate, and cutoff-admit official Pirelli pre-race evidence |
 | `published_strategy.py` | Compare factual compound paths with admitted published options and author driver/window/field context |
 | `race_intelligence.py` | Own explicit race-phase comparability, TO_FINISH evidence, field distributions, RaceRead, and hard projection invariants |
@@ -77,7 +81,8 @@ public F1 SignalR ---> F1LiveAdapter ---> NormalizedEvent ---> RaceState ---> AP
 | `replay.py` | Load supported recordings and reconstruct state deterministically |
 | `playback.py` | Own replay cursor, source clock, seek, delay, pause, and play behavior |
 | `api.py` | Expose API v1, per-client WebSocket playback, downloads, and compiled browser files |
-| `live.py` | Record public SignalR evidence and normalize the proven public subset into canonical events/state through one reconnecting upstream |
+| `live.py` | Normalize the proven public subset through one reconnecting upstream and own the product-facing lifecycle |
+| `live_recording.py` | Append canonical live events to an in-progress artifact and atomically expose the finalized replay |
 | `terminal.py` | Render canonical state for command-line inspection |
 | `web/` | Typed API/WebSocket clients, session context, shared factual panels, and Race/Qualifying/Practice views; never read a provider directly |
 
@@ -85,10 +90,10 @@ public F1 SignalR ---> F1LiveAdapter ---> NormalizedEvent ---> RaceState ---> AP
 
 `RaceState` is an immutable snapshot with schema version 1. Its main children are:
 
-- `session`: identity, official time window, lap, total race laps, local time, status, and whole-track state
+- `session`: identity, official time window, lap/total race laps, qualifying phase/clock, local time, status, and whole-track state
 - `circuit`: exact ordered outline, display rotation, provenance, and availability
 - `weather`: observation time, temperatures, humidity, pressure, rain detection, and wind
-- `drivers`: identity, classification, timing, tyre/stint state, sectors, estimated progress, optional source X/Y, field availability, and current factual values
+- `drivers`: identity, classification, timing, tyre/stint and NEW/USED evidence, sectors, activity, estimated progress, optional source X/Y, field availability, and current factual values
 - `race_control`: ordered messages with track, sector, driver, and lap scope where provided
 
 Every event produces a new snapshot. Seeking resets the reducer and reapplies all events through the inclusive target time or cursor. This is intentionally simple and deterministic; checkpointing can be added later without changing the state contract.
@@ -99,7 +104,7 @@ Full lap history is not part of `RaceState`. `SessionEvidence` reconstructs appe
 
 Eligible sessions are discovered rather than assumed. A standard weekend may progressively contribute FP1, FP2, FP3, and Qualifying evidence before the Grand Prix; a Sprint weekend may contribute FP1, Sprint Qualifying, Sprint, and Qualifying evidence. Only sessions actually present, completed before the cutoff, and carrying the same `meeting_key` are admitted.
 
-`AnalyticsSnapshot` is synchronized to the replay cursor/time and cached by meaningful factual and context revisions. It exposes explicit `raceStrategy` for field/session Strategy plus separate `drivers[number].strategy` models; Race and TV Strategy never default to the first driver. Each metric is `OBSERVED`, `DERIVED`, `ESTIMATE`, or `UNKNOWN` and carries its evidence basis, model version, and evidence/sample quality where useful. The clean-lap pace baseline is the median of at least three representative laps in a stint after median-absolute-deviation filtering; contaminated, pit, and neutralized laps remain visible but do not move that baseline.
+`AnalyticsSnapshot` is synchronized to the replay or delayed-live cursor/time and cached by meaningful factual and context revisions. It exposes explicit `raceStrategy` for field/session Strategy plus separate `drivers[number].strategy` models; Race and TV Strategy never default to the first driver. Each metric is `OBSERVED`, `DERIVED`, `ESTIMATE`, or `UNKNOWN` and carries its evidence basis, model version, and evidence/sample quality where useful. The clean-lap pace baseline is the median of at least three representative laps in a stint after median-absolute-deviation filtering; contaminated, pit, and neutralized laps remain visible but do not move that baseline.
 
 Prior-season `HistoricalContext` and attributed `OfficialPreRaceContext` are optional sidecars, distinct from same-meeting `WeekendContext`. `OfficialPreRaceContext` now carries the lossless admitted Pirelli baseline used by `publishedStrategy`; legacy two-slot fields remain compatibility-only. Deterministic archived-session backtesting remains unimplemented and publishes no sample metrics.
 
@@ -118,6 +123,8 @@ Sporting-rule facts are versioned by season and session kind. The 2026 profile f
 The Vite application has a thin entry page. `web/api` owns versioned HTTP and WebSocket transport, `web/domain` owns canonical TypeScript contracts, session classification, appearance, and layout resolution, and `web/hooks` coordinates one selected replay resource plus device-local presentation preferences. The global product shell exposes Session, Driver, Battle, TV Mode, and My Settings. Race, Qualifying, and Practice remain shared layout families; Driver Focus opens from navigation, a driver picker, or a timing row. Practice 1/2/3, Qualifying, Sprint Qualifying, Sprint, and Grand Prix remain distinct session kinds without becoming separate applications.
 
 The Race view alone owns the draggable Timing-to-Analysis split and its Balanced, Tower Wide, and Analysis Wide presets. Separate Standard, Timing, and Strategy Timing Tower modes change content rather than width. Analysis modules resolve through the `Instance default -> User preference -> Device override` layout model and can be reordered, resized, or hidden. Qualifying and Practice have authored layouts rather than inheriting that divider. Responsive session layouts are re-authored for portrait and landscape instead of scaling desktop columns. Missing capabilities render `UNKNOWN`, `UNSUPPORTED`, or unavailable states; production code never substitutes plausible sample race data.
+
+Qualifying renders the server-authored `qualifying` analytics contract: factual phase/session clock, benchmark and delta, a rule-profile-gated current cut line, explicit elimination, source activity, tyre usage, and cursor-safe lap attempts. Qualifying Driver Focus never substitutes Race pit/Pirelli panels. TV rotation is capability-authored and omits cut-line, sector, or track states when they have no meaningful factual content.
 
 Driver Focus requests normalized lap evidence on demand from `/api/v1/driver-history`; full history never returns to the high-frequency state snapshot. Driver, Battle, Race Strategy, and TV consume the same backend analytics sidecar. Device-local TV rotation, Driver target, Battle mode, appearance, and layout settings use browser storage; user and instance persistence wait for the authenticated control plane.
 
@@ -140,7 +147,7 @@ Circuit shape and car position are separate capabilities:
 - `positions` means timing supports an approximate lap-progress value.
 - `location_xy` means source X/Y samples are present for drivers.
 
-A normal historical recording maps timing-derived progress onto the circuit outline. A recording fetched with `--include-location` can instead display source X/Y samples. These coordinates are still source observations and should not be described as precise lateral racing-line telemetry.
+A normal historical recording maps timing-derived progress onto the circuit outline. A recording fetched with `--include-location` prefers source X/Y per driver and falls back to that driver's retained timing progress when an X/Y update is sparse. Sparse updates never erase another driver's last factual position. These coordinates are still source observations and should not be described as precise lateral racing-line telemetry.
 
 If neither timing progress nor X/Y is available, the circuit remains visible and the UI explains why cars cannot be placed.
 
@@ -165,9 +172,13 @@ Routes and message compatibility are defined in [docs/protocol.md](docs/protocol
 
 `PublicLiveSession` owns one reconnecting unauthenticated SignalR connection for the currently scheduled session. `F1LiveAdapter` keeps source-specific sparse-update merging at the boundary and rejects a provider session whose `SessionInfo.Key` differs from the selected catalog session. Browser clients receive canonical API v1 snapshots, never provider payloads.
 
-The proven public subset is `DriverList`, `TimingData`, `TimingAppData`, `LapCount`, `SessionInfo`, `SessionStatus`, `TrackStatus`, `RaceControlMessages`, and `WeatherData`. Protected GPS, car data, team radio, and other enhanced topics are not requested. Because precise X/Y is absent from the public slice, `positionMode` is `unavailable`; the product does not invent car positions.
+The proven public subset is `DriverList`, `TimingData`, `TimingAppData`, `LapCount`, `SessionInfo`, `SessionData`, `ExtrapolatedClock`, `SessionStatus`, `TrackStatus`, `RaceControlMessages`, and `WeatherData`. `SessionData` and `ExtrapolatedClock` provide factual Qualifying segment/clock evidence where present. Protected GPS, car data, team radio, and other enhanced topics are not requested. Because precise X/Y is absent from the public slice, `positionMode` is `unavailable`; the product renders the circuit but does not invent car locations.
 
-Connection state is explicit (`OFFLINE`, `CONNECTING`, `LIVE`, `STALE`, `UNAVAILABLE`) and independent from schedule activity and replay availability. Raw versioned JSONL capture remains an operational evidence format.
+Transport status (`OFFLINE`, `CONNECTING`, `LIVE`, `STALE`, `UNAVAILABLE`) is internal evidence. The authoritative product lifecycle is `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, or `UNAVAILABLE`. A disconnect never completes a session. Only explicit source completion evidence begins `FINALIZING`; every later factual packet extends a deterministic drain. The final canonical state remains visible, then the normalized recorder atomically renames its in-progress artifact into the ordinary ReplayLibrary format. Catalog invalidation makes it `REPLAY_READY` without an OpenF1 download.
+
+The live WebSocket keeps one shared immutable event history and a private delay per viewer (0–300 seconds). It reconstructs both `RaceState` and `AnalyticsSnapshot` at the same inclusive event sequence. A viewer can reset to live or select a compact delay but cannot pause, seek backward, or alter playback speed. Raw versioned JSONL remains optional provider evidence and is not the replay artifact.
+
+Driver lifecycle and activity are independent. `RETIRED`/DNF require explicit evidence and are terminal; `STOPPED` is non-terminal. `NO_RECENT_PROGRESS` means only that a non-terminal, non-pit driver trails the still-progressing Race's proven leader/session lap by at least two laps. It clears immediately on later completed-lap progress and never becomes retirement evidence.
 
 ## Deployment
 
@@ -193,3 +204,22 @@ A new source should:
 6. include focused reducer/adapter tests and capability fallback tests.
 
 Do not introduce a generic source interface merely for symmetry. Extract it when a second validated implementation demonstrates the common operations.
+
+## Milestone boundary
+
+M3.5 now contains historical replay, the public one-upstream live path, per-viewer delayed state plus analytics, normalized live recording/immediate replay, Race intelligence/Pirelli Strategy, and factual Qualifying intelligence and experiences. Acceptance is still a product decision; this statement describes the implemented boundary, not acceptance status.
+
+Milestone 4 owns SQLite, first-run Admin creation, authentication/login, Viewer Profiles, persistent instance/user preferences, Storage/Data Management and retention ownership, Sync Groups, device pairing/hardware, and authenticated live-source adapters. None of those control-plane concerns may be inferred from the M3.5 browser-local preferences.
+
+## Architecture change checklist
+
+For changes that cross a canonical boundary, verify:
+
+- provider fields terminate in an adapter;
+- `RaceState` remains factual and lightweight;
+- calculations remain in a cursor-safe `AnalyticsSnapshot` sidecar;
+- replay and live derive state/analytics from the same inclusive cursor;
+- source/product lifecycle and capabilities remain explicit;
+- missing evidence stays `UNKNOWN`/unavailable;
+- Python/TypeScript, protocol, analytics, source, README, roadmap, and tests are reconciled;
+- no secrets, recordings, raw provider captures, or licensed third-party code enter Git.

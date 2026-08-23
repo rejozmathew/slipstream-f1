@@ -262,17 +262,16 @@ def test_two_live_viewers_own_independent_cursor_safe_delays(
             live_session=live,
             prepare_weekend_context=lambda **_: {},
         )
-    ) as client:
-        with client.websocket_connect(
-            "/api/v1/stream?session_key=11344&mode=live"
-        ) as viewer_live, client.websocket_connect(
-            "/api/v1/stream?session_key=11344&mode=live"
-        ) as viewer_delayed:
-            latest = viewer_live.receive_json()
-            delayed_initial = viewer_delayed.receive_json()
-            viewer_delayed.send_json({"type": "delay", "seconds": 15})
-            delayed = viewer_delayed.receive_json()
-            latest_again = viewer_live.receive_json()
+    ) as client, client.websocket_connect(
+        "/api/v1/stream?session_key=11344&mode=live"
+    ) as viewer_live, client.websocket_connect(
+        "/api/v1/stream?session_key=11344&mode=live"
+    ) as viewer_delayed:
+        latest = viewer_live.receive_json()
+        delayed_initial = viewer_delayed.receive_json()
+        viewer_delayed.send_json({"type": "delay", "seconds": 15})
+        delayed = viewer_delayed.receive_json()
+        latest_again = viewer_live.receive_json()
 
     assert latest["seq"] == delayed_initial["seq"]
     assert delayed["seq"] < latest["seq"]
@@ -288,6 +287,13 @@ def test_two_live_viewers_own_independent_cursor_safe_delays(
 def test_live_product_phase_history_separates_transport_from_completion() -> None:
     async def scenario() -> tuple[str, ...]:
         async def rows():
+            yield {
+                "received_at": "2026-08-22T01:14:59Z",
+                "stream": "SessionInfo",
+                "source_timestamp": None,
+                "initial": True,
+                "payload": {"Key": 11344, "Name": "Race"},
+            }
             yield {
                 "received_at": "2026-08-22T01:15:00Z",
                 "stream": "SessionStatus",

@@ -26,7 +26,11 @@ Meeting, Race/Sprint target, and exact evidence cutoff are enforced before publi
 
 Slipstream independently implements the SignalR Core framing used by its public recorder and live adapter. On 2026-08-22 the public endpoint accepted POST negotiation and a real initial subscription without credentials; an OPTIONS request returned 405, so the server-owned client does not require a browser-style preflight. The observed session exposed the public topic subset documented in `src/slipstream/live.py`.
 
-The recorder/live adapter requests only the topics listed in `src/slipstream/live.py`. Protected GPS, car data, team radio, and similar enhanced topics are intentionally excluded. The observed public slice did not provide precise X/Y, so live position capability remains unavailable rather than estimated.
+The recorder/live adapter requests only the topics listed in `src/slipstream/live.py`. `SessionData` and `ExtrapolatedClock` provide factual phase and clock evidence; timing, lap, interval, tyre-usage, track-status, race-control, and weather topics feed the canonical state. `TimingAppData` may indicate recent driver activity and tyre usage, but silence is not retirement evidence.
+
+Protected GPS, high-frequency car data, team radio, and similar enhanced topics are intentionally excluded. The observed public slice did not provide per-car X/Y (including a usable `Position.z` progression channel), so live map placement falls back to retained timing-derived lap progress when available and otherwise reports position as unavailable. Static circuit geometry remains separately catalogued and is never presented as car-location evidence.
+
+The optional raw SignalR capture is a provider diagnostic artifact. Product replay uses the normalized live recording written in the same source-neutral event vocabulary used by historical replay. That recording remains in progress while live, is finalized atomically after the completion drain, and is then exposed through the replay library.
 
 ## References used for verification only
 

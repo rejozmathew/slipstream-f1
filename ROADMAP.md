@@ -41,7 +41,18 @@ Strategy calculations, Recommended Battle, authentication, Sync Groups, devices,
 
 Historical replay remains the development and regression harness for analytics. Unsupported or insufficient evidence remains `UNKNOWN`; no frontend strategy calculations or parallel factual model are introduced.
 
-Milestone 3.5 clean-restart work is a review candidate, not an accepted release. Its Pirelli pass adds sparse official newsroom acquisition, immutable evidence archives, cutoff-safe target-session admission, the server-authored `publishedStrategy` sidecar, and published-baseline Race/Driver/Battle/TV surfaces. OCR/VLM/manual transcription and image-only tyre-bank extraction remain deliberately absent. General historical context, Net Pit Loss, and deterministic archived-session backtesting remain future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
+## Milestone 3.5 - live, Qualifying, replay, and Pirelli closure
+
+- explicit public-live lifecycle from pre-event through replay-ready, without treating source connectivity as event status
+- normalized in-progress live recording with a completion drain and atomic promotion into the replay library
+- independent per-viewer live delay while `RaceState` and `AnalyticsSnapshot` share one delayed cursor
+- server-authored Qualifying phase, clock, benchmark, cutline, attempts, advancing/eliminated state, and session-aware Driver Focus
+- factual driver activity/no-recent-progress presentation without fabricating DNF/retirement
+- timing-derived live track progress retained across sparse packets; precise X/Y remains capability-gated
+- sparse official Pirelli newsroom acquisition, immutable evidence archives, cutoff-safe target-session admission, and the server-authored `publishedStrategy` sidecar
+- published-baseline Race/Driver/Battle/TV surfaces with conservative UNKNOWN and terminal behavior
+
+Milestone 3.5 is implementation-complete and awaiting final owner acceptance. OCR/VLM/manual transcription and image-only tyre-bank extraction remain deliberately absent. General historical context, Net Pit Loss, deterministic archived-session backtesting, authenticated live data, and precise live car X/Y remain future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
 
 ## Milestone 4 - persistent control plane and access
 
@@ -66,7 +77,7 @@ V1 does not use controller leases or locks.
 
 ## Milestone 6 - expanded live-source coverage
 
-- extend the M3.5 minimum public live slice from additional complete real-session captures
+- extend the M3.5 conservative public live slice from additional complete real-session captures
 - add source-neutral live evidence needed by analytics without leaking provider payloads
 - retain one upstream connection per instance and explicit stale/unavailable capability states
 - add optional authenticated source adapters when configured at runtime

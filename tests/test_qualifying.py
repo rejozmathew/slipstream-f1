@@ -48,7 +48,7 @@ def _resource(tmp_path: Path):
                     "tyre_age": 1,
                     "tyre_usage": "NEW",
                     "activity": "ON_TRACK" if position == 1 else "IN_PIT",
-                    "qualifying_eliminated": True if position == 22 else False,
+                    "qualifying_eliminated": position == 22,
                 },
             )
         )

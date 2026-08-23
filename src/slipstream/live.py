@@ -987,9 +987,25 @@ class PublicLiveSession:
         seed_events: Iterable[NormalizedEvent] = (),
     ) -> None:
         key = str(session_key)
+        seeded = tuple(seed_events)
         if key == self._target_session_key and (
             (self._task is not None and not self._task.done()) or self._events
         ):
+            static_circuit = tuple(
+                event
+                for event in seeded
+                if event.kind == "circuit"
+                and isinstance(event.payload.get("path"), (list, tuple))
+                and len(event.payload["path"]) >= 3
+            )
+            if not self._state.circuit.path and static_circuit:
+                if self._normalized_recorder is not None:
+                    self._normalized_recorder.append(static_circuit)
+                self._events.extend(static_circuit)
+                self._events.sort(key=lambda event: event.occurred_at)
+                self._state = RaceState()
+                for event in self._events:
+                    self._state = self._state.apply(event)
             return
         await self.stop()
         self._target_session_key = key
@@ -1011,7 +1027,6 @@ class PublicLiveSession:
             if self._normalized_recording_dir is not None
             else None
         )
-        seeded = tuple(seed_events)
         if seeded:
             if self._normalized_recorder is not None:
                 self._normalized_recorder.append(seeded)

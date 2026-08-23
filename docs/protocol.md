@@ -17,6 +17,8 @@ Adding optional fields is compatible within version 1. Removing a field, changin
 
 `session.session_kind` distinguishes `practice_1`, `practice_2`, `practice_3`, `qualifying`, `sprint_qualifying`, `sprint`, `race`, and `unknown`. `session.layout_family` maps those discovered kinds to the shared `practice`, `qualifying`, `race`, or `unsupported` presentation family. Catalog entries expose the same values as `sessionKind` and `layoutFamily`.
 
+Qualifying session facts use `session.qualifying_phase` (`Q1`, `Q2`, `Q3`, `SQ1`, `SQ2`, `SQ3`, or `UNKNOWN`), `session.session_clock`, and `session.session_clock_running`. Driver facts add `activity` (`ON_TRACK`, `IN_PIT`, `NO_RECENT_PROGRESS`, or `UNKNOWN`), `progress_observed_at_lap`, `qualifying_eliminated`, and `tyre_usage` (`NEW`, `USED`, or `UNKNOWN`). Activity is not lifecycle: `NO_RECENT_PROGRESS` and `STOPPED` are non-terminal, while retirement/DNF requires explicit terminal evidence.
+
 ```text
 RaceState
 â”œâ”€â”€ schema_version
@@ -51,7 +53,9 @@ REST state responses and WebSocket snapshots use:
 
 `seq` is the number of normalized events applied to the snapshot. `sessionTime` is the viewerâ€™s replay playhead. `sourceTime` currently follows the same clock and is reserved for distinguishing source receipt time later.
 
-`analytics` is optional and additive. Replay WebSocket snapshots include it when the analytics service is available. It is synchronized to the same `seq` and `sessionTime` but is not part of canonical `RaceState`.
+`analytics` is optional and additive. Replay and live WebSocket snapshots include it when the analytics service is available. It is always reconstructed at the same inclusive `seq` and `sessionTime` as `data`; it is not part of canonical `RaceState`.
+
+Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, and the connection-owned `delaySeconds`. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`.
 
 ## HTTP API
 
@@ -64,7 +68,7 @@ REST state responses and WebSocket snapshots use:
 | `GET /api/v1/driver-history` | Return one driver's normalized lap evidence on demand, outside high-frequency state snapshots |
 | `GET /api/v1/analytics` | Return the versioned analytics sidecar at an optional inclusive `at` or `seq` cutoff and start non-blocking Weekend Context preparation |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
-| `WS /api/v1/stream` | Create an independent interactive replay controller for one client |
+| `WS /api/v1/stream` | Create an independent replay controller or delayed-live cursor for one client |
 
 Pass `session_key` as a query parameter where a session can be selected. Omitting it uses the library default.
 
@@ -91,6 +95,12 @@ Context packs use `slipstream.weekend-context.v1` and live under `/data/.slipstr
 
 The allowed sequence is discovered from the catalog: a normal meeting can contribute FP1 → FP2 → FP3 → Qualifying → Grand Prix evidence, while an Alternative Format meeting can contribute FP1 → Sprint Qualifying → Sprint → Qualifying → Grand Prix evidence. The arrows describe possible evidence progression, not a hardcoded session inventory.
 
+### Qualifying intelligence
+
+Every `AnalyticsSnapshot` contains `qualifying`. Outside the Qualifying layout it is `NOT_APPLICABLE`; otherwise it is server-authored and contains `phase`, `phaseEvidence`, `sessionClock`, `sessionClockRunning`, current `benchmark`, `cutLine`, per-driver intelligence, and `modelVersion`.
+
+Per-driver fields are `activity`, `benchmarkDelta`, `cutState`, `attempts`, and `tyreUsage`. Cut state is `ADVANCING`, `BELOW_CUT`, `ELIMINATED`, or `UNKNOWN`. A current advancement boundary exists only for an explicit season/field-size/segment rule profile; `ELIMINATED` additionally requires explicit source evidence. An attempt is a completed-lap observation available by the inclusive cursor and contains only phase, lap/time/sectors, compound, age/usage, factual validity, and occurrence time. Missing phase, clock, rule profile, validity, or usage remains `UNKNOWN`/`null`.
+
 ## Catalog semantics
 
 Catalog session fields have specific meanings:
@@ -100,9 +110,12 @@ Catalog session fields have specific meanings:
 - `isLive`: the current clock is inside the scheduled start/end window.
 - `circuitShapeAvailable`: cached circuit geometry exists; this says nothing about car position.
 - `positionMode`: `precise_xy`, `timing_estimate`, or `unavailable`.
+- `gmtOffset`: official circuit offset used for pre-event local-start presentation.
+- `livePhase`: authoritative product lifecycle for the selected public-live target.
+- `replayReady`: the finalized canonical recording is visible in ReplayLibrary.
 - `downloadsEnabled`: the server is using a writable recording directory.
 
-`isLive` is schedule status, not proof that a live source is connected. `replayAvailable`, `liveAvailable`, `liveConnected`, `liveStale`, and `liveStatus` are separate. The catalog also exposes `liveSessionKey`; an active scheduled session is selected in live mode by default, while a viewer already watching replay is not forcibly switched.
+`isLive` is schedule status, not proof that a live source is connected. `replayAvailable`, `liveAvailable`, `liveConnected`, `liveStale`, `liveStatus`, `livePhase`, and `replayReady` are separate. The catalog also exposes `liveSessionKey`; an active scheduled session is selected in live mode by default, while a viewer already watching replay is not forcibly switched.
 
 For an active scheduled session, replay `endTime` is capped at the earlier of the scheduled end and the current time. Clients must not create future seek targets.
 
@@ -132,6 +145,8 @@ Invalid input produces a versioned error frame:
 ```
 
 Playback advances in clock batches and emits snapshots at the transport cadence rather than once per source event.
+
+With `mode=live`, only `snapshot`, `delay`, and `reset`/`live` are accepted. Delay is clamped to 0–300 seconds and selects an inclusive cursor from the shared live event history. `reset`/`live` returns that viewer to delay zero. Live has no pause, backward seek, step, or speed command, and one viewer's delay never mutates another viewer.
 
 ## Capability vocabulary
 
@@ -163,7 +178,7 @@ Driver and weather fields carry an `availability` map separate from their values
 
 Full accumulated lap history is deliberately excluded from `RaceState` and therefore from high-frequency REST/WebSocket state snapshots. Completed-lap observations remain source-neutral facts in the normalized event stream. The internal `SessionEvidence` sidecar reconstructs them deterministically and can query the evidence available at an inclusive replay timestamp or event-count cursor.
 
-An observation records lap number and start time, duration and sectors when supplied, compound, stint number, tyre age, pit-in/pit-out evidence, and provenance-friendly quality fields. `quality` is `representative`, `contaminated`, or `unknown`. `contamination_reasons` names only observed conditions such as `pit_in`, `pit_out`, `neutralized_track`, `neutralization_end_unknown`, or `missing_duration`; it is not a strategy verdict.
+An observation records lap number and start time, duration and sectors when supplied, compound, stint number, tyre age, `qualifying_phase`, `tyre_usage`, factual `lap_validity`, pit-in/pit-out evidence, and provenance-friendly quality fields. `quality` is `representative`, `contaminated`, or `unknown`. `contamination_reasons` names only observed conditions such as `pit_in`, `pit_out`, `neutralized_track`, `neutralization_end_unknown`, or `missing_duration`; it is not a strategy verdict.
 
 Pit observations may additionally carry `pit_occurred_at`, `previous_compound`, `new_compound`, `stop_duration`, and `pit_lane_duration`. These remain optional and source-capability dependent.
 
@@ -173,7 +188,7 @@ Whole-track contamination is derived from timestamped intervals opened only by g
 
 `RaceState.circuit.path` is an ordered array of `[x, y]` points. `rotation` is the source display rotation and `source` preserves geometry provenance.
 
-`circuit_shape` means the outline is available. `location_xy` means driver source coordinates are present in `x`, `y`, and optional `z`. Otherwise `track_position` may contain a timing-derived lap fraction mapped onto the outline.
+`circuit_shape` means the outline is available. `location_xy` means driver source coordinates may be present in `x`, `y`, and optional `z`. Placement prefers a driver's X/Y when present and otherwise retains that driver's timing-derived `track_position`; a sparse provider packet does not erase either value. Static catalog geometry is seeded independently and survives later live session updates. When neither per-car mode exists, the circuit remains visible with `CAR POSITION UNSUPPORTED`.
 
 Weather carries observation time, air and track temperature in degrees Celsius, humidity percentage, pressure in hPa, rain detection, wind speed in m/s, and wind direction in degrees. Rain detection is a sensor observation; it must not be presented as a guaranteed wet/dry surface classification.
 
@@ -186,9 +201,12 @@ Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` whe
 | `slipstream.openf1-recording.v1` | Historical OpenF1 session capture with unmodified endpoint arrays and declared source capabilities |
 | `slipstream.openf1-catalog.v1` | Lightweight session/meeting metadata and normalized circuit geometry; no timing events |
 | `slipstream.f1-signalr-recording.v1` | Optional raw public live SignalR JSONL evidence; live viewers still consume canonical state |
+| normalized event-list JSON | Canonical live product recording; ordinary ReplayLibrary-supported `NormalizedEvent` mappings finalized atomically |
 | `slipstream.weekend-context.v1` | Compact operational meeting context for one target-session cutoff; not a replay asset |
 
 Historical recording envelopes include capture time, session key, source capabilities, and endpoint arrays. Raw live files begin with a header, followed by rows containing `received_at`, `stream`, optional `source_timestamp`, raw `payload`, and whether the row came from the initial subscription result.
+
+Canonical live recording first appends JSONL mappings to `live-<session>.in-progress.jsonl`, which is never catalog-visible. Explicit completion starts a deterministic drain that is extended by later factual updates. Finalization writes the ordinary normalized event-list JSON to a temporary sibling and atomically replaces `live-<session>.json`; ReplayLibrary refresh then publishes `REPLAY_READY`. A disconnect alone never finalizes either artifact.
 
 Recordings are private operational inputs. Their formats may need migrations independently of API v1, and they must never contain committed credentials or authenticated captures.
 
