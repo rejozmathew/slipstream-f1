@@ -107,9 +107,13 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
 });
 test("keeps Packet E TV and analytics contracts truthful", async () => {
-  const [tvMode, protocol] = await Promise.all([
+  const [tvMode, protocol, publishedStrategy, battleCard, timingTower, strategyView] = await Promise.all([
     readFile(new URL("../views/TVModeView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../domain/protocol.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/analysis/PublishedStrategy.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/battle/BattleDriverCard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/timing/TimingTower.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../views/StrategyView.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.doesNotMatch(tvMode, /drivers\.slice\(/);
@@ -121,5 +125,11 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.match(protocol, /metrics: null/);
   assert.match(protocol, /publishedStrategy: PublishedStrategyIntelligence/);
   assert.doesNotMatch(tvMode, /UNDERCUT/);
+  assert.doesNotMatch(tvMode, /STRATEGY · DISPOSITION/);
+  assert.match(publishedStrategy, /ordered \? "→" : "\+"/);
+  assert.match(publishedStrategy, /publishedWindowSummary/);
+  for (const source of [publishedStrategy, battleCard, timingTower, strategyView, tvMode]) {
+    assert.doesNotMatch(source, /windows\[0\]/);
+  }
 });
 

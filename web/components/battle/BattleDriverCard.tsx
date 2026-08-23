@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 
 import { formatSector } from "../../domain/format";
 import type { Driver, DriverPublishedStrategy } from "../../domain/protocol";
+import { publishedWindowSummary } from "../analysis/PublishedStrategy";
 import { CompoundBadge } from "../shared/CompoundBadge";
 import { DataValue } from "../shared/DataValue";
 
@@ -17,7 +18,7 @@ export function BattleDriverCard({ driver, side, published }: { driver: Driver |
       <div><span>BEST LAP</span><DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} /></div>
     </div>
     <div className="battle-sectors"><span>S1 <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} /></span><span>S2 <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} /></span><span>S3 <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} /></span></div>
-    <div className="battle-pirelli-strip"><span>PIRELLI FIT</span><strong>{published?.relation.replaceAll("_", " ") ?? "UNKNOWN"}</strong><small>{published?.windows[0] ? `L${published.windows[0].startLap}–${published.windows[0].endLap} · ${published.windows[0].state}` : "NO PENDING PUBLISHED WINDOW"}</small></div>
+    <div className="battle-pirelli-strip"><span>PIRELLI FIT</span><strong>{published?.relation.replaceAll("_", " ") ?? "UNKNOWN"}</strong><small>{publishedWindowSummary(published)}</small></div>
   </section>;
 }
 

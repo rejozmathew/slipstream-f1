@@ -44,8 +44,10 @@ class PirelliEvidenceSnapshot:
 def _applies(
     meeting_key: str | None,
     session_scope: SessionScope | None,
+    target_session_key: str | None,
     fact_meeting: str | None,
     fact_scope: SessionScope,
+    fact_target_session_key: str | None,
 ) -> bool:
     # When a caller asks for a specific meeting, UNKNOWN is not a wildcard. Facts must
     # be explicitly bound to that meeting before they can enter a replay/session view.
@@ -59,7 +61,12 @@ def _applies(
         return True
     if fact_scope == SessionScope.UNKNOWN:
         return False
-    return fact_scope == session_scope
+    if fact_scope != session_scope:
+        return False
+    return (
+        target_session_key is None
+        or fact_target_session_key == target_session_key
+    )
 
 
 def aggregate_releases(
@@ -67,6 +74,7 @@ def aggregate_releases(
     *,
     meeting_key: str | None = None,
     session_scope: SessionScope | None = None,
+    target_session_key: str | None = None,
 ) -> PirelliEvidenceSnapshot:
     """Aggregate in explicit chronology and retain release/snapshot identity.
 
@@ -95,8 +103,10 @@ def aggregate_releases(
             if _applies(
                 meeting_key,
                 session_scope,
+                target_session_key,
                 strategy.applicability.meeting_key,
                 strategy.applicability.session_scope,
+                strategy.applicability.target_session_key,
             )
         )
         if scoped_strategies:
@@ -115,8 +125,10 @@ def aggregate_releases(
             if _applies(
                 meeting_key,
                 session_scope,
+                target_session_key,
                 selection.applicability.meeting_key,
                 selection.applicability.session_scope,
+                selection.applicability.target_session_key,
             )
         )
         banks.extend(
@@ -125,16 +137,20 @@ def aggregate_releases(
             if _applies(
                 meeting_key,
                 session_scope,
+                target_session_key,
                 bank.applicability.meeting_key,
                 bank.applicability.session_scope,
+                bank.applicability.target_session_key,
             )
         )
         for fact in release.context_facts:
             if not _applies(
                 meeting_key,
                 session_scope,
+                target_session_key,
                 fact.applicability.meeting_key,
                 fact.applicability.session_scope,
+                fact.applicability.target_session_key,
             ):
                 continue
             source = (

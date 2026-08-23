@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { Conditions } from "../components/analysis/Conditions";
-import { PirelliBaseline, RaceNow } from "../components/analysis/PublishedStrategy";
+import { PirelliBaseline, RaceNow, publishedWindowSummary } from "../components/analysis/PublishedStrategy";
 import { CompoundBadge } from "../components/shared/CompoundBadge";
 import { Panel } from "../components/shared/Panel";
 import { driverLifecycle, lifecycleClassName } from "../domain/lifecycle";
@@ -15,8 +15,7 @@ function observedPath(values: string[] | undefined) {
 
 function pendingWindow(driver: AnalyticsSnapshot["publishedStrategy"]["drivers"][string] | undefined, final: boolean) {
   if (final) return "FINAL";
-  const window = driver?.windows[0];
-  return window ? `L${window.startLap}–${window.endLap} · ${window.state}` : "—";
+  return publishedWindowSummary(driver, "—");
 }
 
 export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewProps) {

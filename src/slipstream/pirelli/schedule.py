@@ -20,6 +20,7 @@ class RefreshPolicy:
     race_morning_lead: timedelta = timedelta(hours=6)
     final_pre_race_lead: timedelta = timedelta(minutes=75)
     post_race_delay: timedelta = timedelta(hours=2)
+    failed_retry_interval: timedelta = timedelta(minutes=30)
 
 
 def _aware(value: datetime) -> datetime:
@@ -83,3 +84,55 @@ def planned_weekend_triggers(
             key=lambda item: item.at,
         )
     )
+
+
+def scheduled_refresh_reason(
+    *,
+    now: datetime,
+    weekend_start: datetime,
+    weekend_end: datetime,
+    session_ends: tuple[tuple[str, datetime], ...],
+    race_start: datetime | None,
+    race_end: datetime | None,
+    last_success_at: datetime | None,
+    last_attempt_at: datetime | None,
+    last_error: str | None,
+    policy: RefreshPolicy = RefreshPolicy(),  # noqa: B008
+) -> str | None:
+    """Return the one sparse trigger currently due for an app-owned refresh."""
+
+    now = _aware(now)
+    if last_error and last_attempt_at is not None:
+        if now - _aware(last_attempt_at) >= policy.failed_retry_interval:
+            return "retry_after_failure"
+        return None
+
+    due = [
+        trigger
+        for trigger in planned_weekend_triggers(
+            session_ends=session_ends,
+            race_start=race_start,
+            race_end=race_end,
+            policy=policy,
+        )
+        if trigger.at <= now
+        and (last_success_at is None or _aware(last_success_at) < trigger.at)
+    ]
+    if due:
+        return due[-1].reason
+    if pre_weekend_refresh_due(
+        now=now,
+        weekend_start=weekend_start,
+        last_refresh_at=last_success_at,
+        policy=policy,
+    ):
+        return "pre_weekend"
+    if last_success_at is None:
+        return "startup_missing"
+    if now <= _aware(weekend_end) + timedelta(days=2) and startup_refresh_due(
+        now=now,
+        last_refresh_at=last_success_at,
+        policy=policy,
+    ):
+        return "startup_stale"
+    return None

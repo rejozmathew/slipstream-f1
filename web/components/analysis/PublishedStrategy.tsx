@@ -13,9 +13,16 @@ function rankLabel(rank: PublishedStrategyOption["rank"]) {
   return rank.replaceAll("_", " ");
 }
 
-function path(compounds: string[], empty = "—") {
+function path(compounds: string[], empty = "—", ordered = true) {
   if (!compounds.length) return <span className="published-path-empty">{empty}</span>;
-  return <span className="published-path">{compounds.map((compound, index) => <span key={`${compound}-${index}`}>{index > 0 && <i>→</i>}<CompoundBadge compound={compound} compact /></span>)}</span>;
+  return <span className="published-path">{compounds.map((compound, index) => <span key={`${compound}-${index}`}>{index > 0 && <i>{ordered ? "→" : "+"}</i>}<CompoundBadge compound={compound} compact /></span>)}</span>;
+}
+
+export function publishedWindowSummary(driver: DriverPublishedStrategy | undefined, empty = "NO PENDING PUBLISHED WINDOW") {
+  if (!driver?.windows.length) return empty;
+  const options = new Set(driver.windows.map((window) => window.optionId)).size;
+  const details = driver.windows.map((window) => `${window.optionId} L${window.startLap}–${window.endLap} ${window.state}`).join(" · ");
+  return options > 1 ? `${options} OPTIONS · ${details}` : details;
 }
 
 function windows(option: PublishedStrategyOption) {
@@ -26,7 +33,7 @@ function windows(option: PublishedStrategyOption) {
 export function PublishedOptionCard({ option, compact = false }: { option: PublishedStrategyOption; compact?: boolean }) {
   return <article className={`published-option${compact ? " published-option-compact" : ""}`}>
     <header><span>{rankLabel(option.rank)}</span><b>{option.stopCount}-STOP</b></header>
-    <strong>{path(option.compounds)}</strong>
+    <strong>{path(option.compounds, "—", option.order === "ORDERED")}</strong>
     <small>{option.order === "ORDERED" ? windows(option) : `${option.order.replaceAll("_", " ")} · NOT SEQUENCE-COMPARABLE`}</small>
     {!compact && option.publishedDeltaSeconds != null && <p>Published delta · +{option.publishedDeltaSeconds.toFixed(1)}s</p>}
     {!compact && option.publishedDeltaSecondsRange && <p>Published delta · +{option.publishedDeltaSecondsRange[0].toFixed(1)}–{option.publishedDeltaSecondsRange[1].toFixed(1)}s</p>}
@@ -92,6 +99,6 @@ export function BattlePublishedContext({ analytics, driverNumbers }: { analytics
   if (!driverNumbers || baseline?.status !== "PRESENT") return <div className="panel-empty">PUBLISHED STRATEGY CONTEXT UNAVAILABLE FOR THIS PAIR</div>;
   return <div className="battle-published-context">{driverNumbers.map((number) => {
     const driver = analytics?.publishedStrategy?.drivers[number];
-    return <div key={number}><span>CAR {number} · PIRELLI FIT</span><strong>{driver ? relationLabel(driver.relation) : "UNKNOWN"}</strong><div>{driver ? path(driver.observedCompounds) : "—"}</div><small>{driver?.windows[0] ? `L${driver.windows[0].startLap}–${driver.windows[0].endLap} · ${driver.windows[0].state}` : "NO PENDING PUBLISHED WINDOW"}</small></div>;
+    return <div key={number}><span>CAR {number} · PIRELLI FIT</span><strong>{driver ? relationLabel(driver.relation) : "UNKNOWN"}</strong><div>{driver ? path(driver.observedCompounds) : "—"}</div><small>{publishedWindowSummary(driver)}</small></div>;
   })}</div>;
 }

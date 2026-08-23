@@ -216,6 +216,6 @@ Every analytics snapshot contains `publishedStrategy`, even when no admissible P
 - `drivers`: observed compound path, relation, every compatible option ID, published window states, and concise facts.
 - `modelVersion`: `pirelli-published-strategy-v1`.
 
-Driver relations are `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPARABLE`, `TERMINAL`, or `UNKNOWN`. Window states are `BEFORE`, `ACTIVE`, `PASSED`, `COMPLETED`, or `UNKNOWN`; V1 emits the first three/UNKNOWN and reserves `COMPLETED` for an explicit future completion representation. Final state keeps the baseline but emits no future windows.
+Driver relations are `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPARABLE`, `TERMINAL`, or `UNKNOWN`. Every compatible option/window is represented. Window states are `BEFORE`, `ACTIVE`, `PASSED`, `COMPLETED`, or `UNKNOWN`; an observed compound transition deterministically marks the corresponding window `COMPLETED`. Final state keeps the baseline but emits no live/future windows. `ANY_ORDER` remains published context but is not prefix-compared or rendered as a directional transition.
 
 Pirelli raw/normalized archives live below `/data/.slipstream/pirelli/<meeting_key>/` and are operational evidence, not API payloads. See [Published Pirelli strategy](pirelli-strategy.md) for admission and derivation semantics.

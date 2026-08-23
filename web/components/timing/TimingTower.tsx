@@ -4,6 +4,7 @@ import { formatSector } from "../../domain/format";
 import { driverLifecycle, lifecycleClassName } from "../../domain/lifecycle";
 import type { TowerView } from "../../domain/layout";
 import type { AnalyticsSnapshot, Driver } from "../../domain/protocol";
+import { publishedWindowSummary } from "../analysis/PublishedStrategy";
 import { CompoundBadge } from "../shared/CompoundBadge";
 import { DataValue } from "../shared/DataValue";
 import { Panel } from "../shared/Panel";
@@ -66,14 +67,13 @@ function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (drive
 function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
   const lifecycle = driverLifecycle(driver);
   const published = analytics?.publishedStrategy?.drivers[driver.number];
-  const window = published?.windows[0];
   return <button type="button" className={"timing-row timing-race-strategy " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
     {lifecycle.terminal ? <span>TERMINAL</span> : <span>{published?.relation.replaceAll("_", " ") ?? "—"}</span>}
-    {lifecycle.terminal ? <span>—</span> : <DataValue compact value={window ? `L${window.startLap}–${window.endLap} · ${window.state}` : null} />}
+    {lifecycle.terminal ? <span>—</span> : <DataValue compact value={publishedWindowSummary(published, "—")} />}
   </button>;
 }
 

@@ -384,7 +384,121 @@ def extract_strategy_prose(
             )
         )
 
-    # 6) Explicit 'respectively' paired alternatives.
+    # 6) Modern Pirelli prose often states the start choices first and then pairs
+    # their Hard transition windows in the same sentence. The ordering of both
+    # lists is explicit, so no semantic guess is required.
+    paired_starts = re.compile(
+        rf"start\s+on\s+(?:the\s+)?({_COMPOUND})s?\s+or\s+(?:the\s+)?"
+        rf"({_COMPOUND})s?.{{0,500}}?on\s+(?:the\s+)?({_COMPOUND})\s+tyres?.{{0,200}}?"
+        rf"{_WIN}\s*,?\s+or\s+between\s+(\d+)\s+and\s+(\d+)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in paired_starts.finditer(text):
+        finish = _compound(match.group(3))
+        starts = (_compound(match.group(1)), _compound(match.group(2)))
+        windows = (
+            PitWindow(int(match.group(4)), int(match.group(5))),
+            PitWindow(int(match.group(6)), int(match.group(7))),
+        )
+        if finish is None or any(start is None for start in starts):
+            continue
+        local = text[max(0, match.start() - 180) : match.end()]
+        for start, window in zip(starts, windows, strict=True):
+            if start is not None:
+                options.append(
+                    _make(
+                        source_url=source_url,
+                        artifact_id=artifact_id,
+                        compounds=(start, finish),
+                        windows=(window,),
+                        evidence_text=match.group(0),
+                        rank_text=local,
+                        applicability=applicability,
+                    )
+                )
+
+    # A preferred start in one sentence followed immediately by an explicit
+    # one-stop finish/window is also source-explicit, despite the sentence break.
+    preferred_start = re.compile(
+        rf"({_COMPOUND})\s+(?:tyre\s+)?is[^.]*?preferred\s+compound\s+for\s+the\s+start\.\s*"
+        rf"Those\s+opting\s+for\s+a\s+one[- ]stop\s+strategy[^.]*?"
+        rf"(?:on\s+the|to\s+the)\s+({_COMPOUND})\s+compound[^.]*?{_WIN}",
+        re.IGNORECASE,
+    )
+    for match in preferred_start.finditer(text):
+        first = _compound(match.group(1))
+        second = _compound(match.group(2))
+        if first is not None and second is not None:
+            local = text[max(0, match.start() - 180) : match.end()]
+            options.append(
+                _make(
+                    source_url=source_url,
+                    artifact_id=artifact_id,
+                    compounds=(first, second),
+                    windows=(PitWindow(int(match.group(3)), int(match.group(4))),),
+                    evidence_text=match.group(0),
+                    rank_text=local,
+                    applicability=applicability,
+                )
+            )
+
+    # Explicit alternative start/finish wording can put the stop verb after the
+    # second compound rather than between the two compounds.
+    alternative_finish = re.compile(
+        rf"(?:alternative\s+is\s+to\s+)?start\s+on\s+(?:the\s+)?({_COMPOUND})"
+        rf"[^.]*?(?:the\s+)?({_COMPOUND})['’]s[^.]*?stopping\s+{_WIN}",
+        re.IGNORECASE,
+    )
+    for match in alternative_finish.finditer(text):
+        first = _compound(match.group(1))
+        second = _compound(match.group(2))
+        if first is not None and second is not None:
+            local = text[max(0, match.start() - 100) : match.end()]
+            options.append(
+                _make(
+                    source_url=source_url,
+                    artifact_id=artifact_id,
+                    compounds=(first, second),
+                    windows=(PitWindow(int(match.group(3)), int(match.group(4))),),
+                    evidence_text=match.group(0),
+                    rank_text=local,
+                    applicability=applicability,
+                )
+            )
+
+    # The three-leg form used by recent releases gives the first window before
+    # naming the second and third compounds; the absent second window stays None.
+    first_window_three = re.compile(
+        rf"start(?:ing)?\s+on\s+(?:the\s+)?({_COMPOUND})[^.]*?"
+        rf"(?:replacement|stop)[^.]*?{_WIN}[^.]*?switching\s+to\s+(?:the\s+)?"
+        rf"({_COMPOUND})\s+before\s+finishing\s+on\s+(?:the\s+)?({_COMPOUND})",
+        re.IGNORECASE,
+    )
+    for match in first_window_three.finditer(text):
+        compounds = tuple(
+            item
+            for item in (
+                _compound(match.group(1)),
+                _compound(match.group(4)),
+                _compound(match.group(5)),
+            )
+            if item is not None
+        )
+        if len(compounds) == 3:
+            local = text[max(0, match.start() - 180) : match.end()]
+            options.append(
+                _make(
+                    source_url=source_url,
+                    artifact_id=artifact_id,
+                    compounds=compounds,
+                    windows=(PitWindow(int(match.group(2)), int(match.group(3))), None),
+                    evidence_text=match.group(0),
+                    rank_text=local,
+                    applicability=applicability,
+                )
+            )
+
+    # 7) Explicit 'respectively' paired alternatives.
     paired = re.compile(
         rf"final\s+stint\s+on\s+(?:the\s+)?({_COMPOUND}).{{0,100}}?"
         rf"starting\s+on\s+either\s+({_COMPOUND})\s+or\s+({_COMPOUND}).{{0,120}}?"
@@ -413,7 +527,7 @@ def extract_strategy_prose(
                 )
             )
 
-    # 7) Coded start + two same-compound sets explicitly completing race.
+    # 8) Coded start + two same-compound sets explicitly completing race.
     same_finish = re.compile(
         rf"Starting\s+on\s+(?:the\s+)?({_CODE}|{_COMPOUND}),[^.]*?"
         rf"two\s+sets\s+of\s+({_CODE}|{_COMPOUND})\s+available[^.]*?"

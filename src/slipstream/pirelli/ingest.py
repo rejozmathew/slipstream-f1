@@ -22,6 +22,9 @@ from .contracts import (
 from .discovery import (
     PIRELLI_F1_RSS_URL,
     MeetingDiscoveryTarget,
+    ReleaseCandidate,
+    ReleasePurpose,
+    classify_release_purpose,
     discover_for_meeting,
     discover_official_assets,
     parse_formula1_feed,
@@ -43,7 +46,12 @@ NORMALIZER_VERSION = "slipstream-pirelli-v5-adapted.1"
 class PirelliIngestionTarget:
     meeting: MeetingDiscoveryTarget
     target_session_key: str
+    session_scope: SessionScope = SessionScope.RACE
     drivers: tuple[WeekendDriverIdentity, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.session_scope not in {SessionScope.RACE, SessionScope.SPRINT}:
+            raise ValueError("Pirelli strategy ingestion targets Race or Sprint only")
 
 
 @dataclass(frozen=True)
@@ -89,9 +97,7 @@ class PirelliIngestionService:
                 skipped.append(candidate.entry.url)
                 continue
             try:
-                release = await self._normalize_release(
-                    target, candidate.entry.url, retrieved_at
-                )
+                release = await self._normalize_release(target, candidate, retrieved_at)
             except Exception as error:  # noqa: BLE001 - one source cannot break replay
                 issues.append(f"{candidate.entry.url}: {type(error).__name__}: {error}")
                 continue
@@ -109,9 +115,10 @@ class PirelliIngestionService:
     async def _normalize_release(
         self,
         target: PirelliIngestionTarget,
-        url: str,
+        candidate: ReleaseCandidate,
         retrieved_at: datetime,
     ) -> PirelliRelease | None:
+        url = candidate.entry.url
         acquired = await self.client.acquire(
             archive=self.archive,
             meeting_key=target.meeting.meeting_key,
@@ -121,6 +128,10 @@ class PirelliIngestionService:
         if acquired.artifact.source_type != SourceType.NEWSROOM_HTML:
             return None
         document = parse_html(acquired.body.decode("utf-8", errors="replace"), url)
+        purpose = classify_release_purpose(
+            candidate.entry.title,
+            f"{candidate.entry.summary} {document.article_text}",
+        )
         self.archive.save_text_representation(
             meeting_key=target.meeting.meeting_key,
             artifact_id=acquired.artifact.artifact_id,
@@ -133,10 +144,10 @@ class PirelliIngestionService:
         )
         if artifact is None:
             return None
-        race_scope = FactApplicability(
+        target_scope = FactApplicability(
             meeting_key=target.meeting.meeting_key,
             source_meeting_name=target.meeting.canonical_name,
-            session_scope=SessionScope.RACE,
+            session_scope=target.session_scope,
             target_session_key=target.target_session_key,
         )
         weekend_scope = FactApplicability(
@@ -165,30 +176,36 @@ class PirelliIngestionService:
             if nomination_result.accepted and isinstance(fact, CompoundSelection)
         )
         code_map = selections[-1].code_map() if selections else None
-        strategy_result = extract_strategy_prose(
-            document.article_text,
-            source_url=acquired.artifact.source_url,
-            artifact_id=acquired.artifact.artifact_id,
-            compound_code_map=code_map,
-            applicability=race_scope,
-        )
-        strategy_result = validate_result_against_artifacts(
-            strategy_result, {artifact.artifact_id: artifact}
-        )
-        strategies = tuple(
-            fact
-            for fact in strategy_result.facts
-            if strategy_result.accepted and isinstance(fact, StrategyOption)
-        )
+        purpose_scope = _strategy_scope(purpose)
+        strategies: tuple[StrategyOption, ...] = ()
+        if purpose_scope == target.session_scope:
+            strategy_result = extract_strategy_prose(
+                document.article_text,
+                source_url=acquired.artifact.source_url,
+                artifact_id=acquired.artifact.artifact_id,
+                compound_code_map=code_map,
+                applicability=target_scope,
+            )
+            strategy_result = validate_result_against_artifacts(
+                strategy_result, {artifact.artifact_id: artifact}
+            )
+            strategies = tuple(
+                fact
+                for fact in strategy_result.facts
+                if strategy_result.accepted and isinstance(fact, StrategyOption)
+            )
         banks: list[TyreBankSnapshot] = []
         asset_ids: list[str] = []
-        for candidate in discover_official_assets(document):
-            if candidate.status != ExtractionStatus.ACCEPTED:
+        for asset_candidate in discover_official_assets(document):
+            if (
+                target.session_scope != SessionScope.RACE
+                or asset_candidate.status != ExtractionStatus.ACCEPTED
+            ):
                 continue
             asset = await self.client.acquire(
                 archive=self.archive,
                 meeting_key=target.meeting.meeting_key,
-                url=candidate.url,
+                url=asset_candidate.url,
                 now=retrieved_at,
             )
             asset_ids.append(asset.artifact.artifact_id)
@@ -212,7 +229,7 @@ class PirelliIngestionService:
                 source_url=asset.artifact.source_url,
                 method=ExtractionMethod.PDF_TEXT,
                 weekend_drivers=target.drivers,
-                applicability=race_scope,
+                applicability=target_scope,
             )
             evidence = self.archive.load_evidence_artifact(
                 meeting_key=target.meeting.meeting_key,
@@ -227,11 +244,23 @@ class PirelliIngestionService:
                 for fact in result.facts
                 if result.accepted and isinstance(fact, TyreBankSnapshot)
             )
-        facts = extract_context_facts(
-            document.article_text,
-            source_url=acquired.artifact.source_url,
-            artifact_id=acquired.artifact.artifact_id,
-            applicability=weekend_scope,
+        context_scope = (
+            weekend_scope
+            if purpose
+            in {ReleasePurpose.COMPOUND_NOMINATION, ReleasePurpose.PREVIEW}
+            else target_scope
+            if purpose_scope == target.session_scope
+            else None
+        )
+        facts = (
+            extract_context_facts(
+                document.article_text,
+                source_url=acquired.artifact.source_url,
+                artifact_id=acquired.artifact.artifact_id,
+                applicability=context_scope,
+            )
+            if context_scope is not None
+            else ()
         )
         if not (selections or strategies or banks or facts):
             return None
@@ -252,3 +281,11 @@ class PirelliIngestionService:
             tyre_bank_snapshots=tuple(banks),
             context_facts=facts,
         )
+
+
+def _strategy_scope(purpose: ReleasePurpose) -> SessionScope:
+    if purpose == ReleasePurpose.RACE_STRATEGY:
+        return SessionScope.RACE
+    if purpose == ReleasePurpose.SPRINT:
+        return SessionScope.SPRINT
+    return SessionScope.UNKNOWN

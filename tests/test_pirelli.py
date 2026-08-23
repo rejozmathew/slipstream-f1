@@ -63,18 +63,51 @@ def _release(*, meeting: str, retrieved: datetime, modified: datetime | None = N
     )
 
 
+def _save_release(archive: PirelliArchive, *, meeting: str, release: PirelliRelease):
+    artifact = archive.archive_artifact(
+        meeting_key=meeting,
+        source_url=release.source_url,
+        source_type=release.source_type,
+        body=release.release_id.encode(),
+        retrieved_at=release.retrieved_at,
+        published_at=release.published_at,
+        modified_at=release.modified_at,
+        media_type="text/html",
+        collector_version="test",
+        extension="html",
+    )
+    strategies = tuple(
+        replace(
+            option,
+            source_evidence=tuple(
+                replace(evidence, artifact_id=artifact.artifact_id)
+                for evidence in option.source_evidence
+            ),
+        )
+        for option in release.strategies
+    )
+    saved = replace(
+        release,
+        release_id=artifact.artifact_id,
+        artifact_ids=(artifact.artifact_id,),
+        strategies=strategies,
+    )
+    save_normalized_release(archive, meeting_key=meeting, release=saved)
+    return saved
+
+
 def test_store_is_meeting_scoped_and_cursor_safe(tmp_path):
     archive = PirelliArchive(tmp_path)
-    save_normalized_release(
+    _save_release(
         archive,
-        meeting_key="hungary",
+        meeting="hungary",
         release=_release(
             meeting="hungary", retrieved=datetime(2026, 7, 25, tzinfo=UTC)
         ),
     )
-    save_normalized_release(
+    _save_release(
         archive,
-        meeting_key="austria",
+        meeting="austria",
         release=_release(
             meeting="austria", retrieved=datetime(2026, 7, 25, tzinfo=UTC)
         ),
@@ -90,13 +123,19 @@ def test_store_is_meeting_scoped_and_cursor_safe(tmp_path):
     assert [item.id for item in result.snapshot.latest_strategy_release.strategies] == [
         "mh"
     ]
+    wrong_target = store.load(
+        meeting_key="hungary",
+        target_session_key="other-race",
+        evidence_cutoff="2026-07-26T12:00:00Z",
+    )
+    assert wrong_target.status == "ABSENT"
 
 
 def test_post_cutoff_content_without_exact_version_proof_is_rejected(tmp_path):
     archive = PirelliArchive(tmp_path)
-    save_normalized_release(
+    _save_release(
         archive,
-        meeting_key="hungary",
+        meeting="hungary",
         release=_release(meeting="hungary", retrieved=datetime(2026, 8, 1, tzinfo=UTC)),
     )
     result = PirelliEvidenceStore(tmp_path).load(
@@ -110,9 +149,9 @@ def test_post_cutoff_content_without_exact_version_proof_is_rejected(tmp_path):
 
 def test_source_version_timestamp_can_prove_late_archive_existed_at_cutoff(tmp_path):
     archive = PirelliArchive(tmp_path)
-    save_normalized_release(
+    _save_release(
         archive,
-        meeting_key="hungary",
+        meeting="hungary",
         release=_release(
             meeting="hungary",
             retrieved=datetime(2026, 8, 1, tzinfo=UTC),
@@ -143,6 +182,64 @@ def test_three_leg_strategy_is_not_truncated_into_false_two_leg_fact():
         for window in options[0].pit_windows
         if window is not None
     ] == [(10, 15), (38, 45)]
+
+
+def test_modern_pirelli_strategy_phrasings_preserve_explicit_options_and_windows():
+    cases = (
+        (
+            (
+                "A one-stop strategy is clearly the fastest for tomorrow. Whether to start on "
+                "the Mediums or the Softs will depend on grid position. In both cases, the longer "
+                "stint will be on the Hard tyres, to be fitted between laps 17 and 23, or between "
+                "15 and 21."
+            ),
+            {("M-H", ((17, 23),)), ("S-H", ((15, 21),))},
+        ),
+        (
+            (
+                "There is no difference in overall race time between a one-stop and a two-stop "
+                "strategy. The Medium tyre is still likely to be the preferred compound for the "
+                "start. Those opting for a one-stop strategy could then complete the race on the "
+                "Hard compound, with the pit stop window falling between laps 26 and 32."
+            ),
+            {("M-H", ((26, 32),))},
+        ),
+        (
+            (
+                "One option is to start on the Medium and switch to the Hard between laps 20 and "
+                "26. An alternative is to start on the Hard and then take advantage of the Soft’s "
+                "extra performance by stopping between laps 39 and 45."
+            ),
+            {("M-H", ((20, 26),)), ("H-S", ((39, 45),))},
+        ),
+        (
+            (
+                "Two-stop strategies are the competitive options. Starting on the Soft, its "
+                "replacement could come between laps 14 and 20, switching to Medium before "
+                "finishing on Hard."
+            ),
+            {("S-M-H", ((14, 20), None))},
+        ),
+    )
+
+    for text, expected in cases:
+        result = extract_strategy_prose(
+            text,
+            source_url="https://press.pirelli.com/modern",
+            artifact_id="modern",
+        )
+        actual = {
+            (
+                option.sequence,
+                tuple(
+                    (window.start_lap, window.end_lap) if window is not None else None
+                    for window in option.pit_windows
+                ),
+            )
+            for option in result.facts
+            if isinstance(option, StrategyOption)
+        }
+        assert expected <= actual
 
 
 def test_multi_event_nomination_keeps_each_meeting_binding():
@@ -184,8 +281,8 @@ def test_sprint_and_race_strategy_releases_remain_isolated(tmp_path):
         strategies=(sprint_option,),
     )
     archive = PirelliArchive(tmp_path)
-    save_normalized_release(archive, meeting_key="hungary", release=race)
-    save_normalized_release(archive, meeting_key="hungary", release=sprint)
+    _save_release(archive, meeting="hungary", release=race)
+    _save_release(archive, meeting="hungary", release=sprint)
     store = PirelliEvidenceStore(tmp_path)
 
     race_result = store.load(

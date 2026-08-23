@@ -194,24 +194,26 @@ def _driver_published_strategy(
 
     windows: list[dict[str, Any]] = []
     if not final and relation in {"MATCHING_ONE", "MATCHING_MULTIPLE"}:
-        completed = len(observed) - 1
+        completed_transitions = max(len(observed) - 1, 0)
         for option in matching:
-            if completed < 0 or completed >= len(option.pit_windows):
-                continue
-            window = option.pit_windows[completed]
-            if window is None:
-                continue
-            windows.append(
-                {
-                    "optionId": option.id,
-                    "stopIndex": completed,
-                    "startLap": window.start_lap,
-                    "endLap": window.end_lap,
-                    "state": _window_state(
-                        current_lap, window.start_lap, window.end_lap
-                    ),
-                }
-            )
+            for stop_index, window in enumerate(option.pit_windows):
+                if window is None:
+                    continue
+                windows.append(
+                    {
+                        "optionId": option.id,
+                        "stopIndex": stop_index,
+                        "startLap": window.start_lap,
+                        "endLap": window.end_lap,
+                        "state": (
+                            "COMPLETED"
+                            if stop_index < completed_transitions
+                            else _window_state(
+                                current_lap, window.start_lap, window.end_lap
+                            )
+                        ),
+                    }
+                )
 
     facts: list[str] = []
     sequence = _compact_sequence(observed)

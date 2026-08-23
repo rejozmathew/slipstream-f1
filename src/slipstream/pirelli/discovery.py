@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -21,6 +22,7 @@ class ReleasePurpose(StrEnum):
     PRACTICE = "PRACTICE"
     SPRINT_QUALIFYING = "SPRINT_QUALIFYING"
     SPRINT = "SPRINT"
+    RACE_STRATEGY = "RACE_STRATEGY"
     QUALIFYING_STRATEGY = "QUALIFYING_STRATEGY"
     RACE_REPORT = "RACE_REPORT"
     UNKNOWN = "UNKNOWN"
@@ -64,6 +66,14 @@ class AssetCandidate:
     reason: str
 
 
+def pirelli_event_tag(season: int, canonical_name: str) -> str:
+    """Build the exact event category used by Pirelli's Formula 1 tag feed."""
+
+    name = re.sub(r"\s+", " ", canonical_name).strip()
+    prefix = f"{season} "
+    return name if name.casefold().startswith(prefix.casefold()) else f"{prefix}{name}"
+
+
 def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1].casefold()
 
@@ -105,6 +115,34 @@ def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
         return ReleasePurpose.COMPOUND_NOMINATION
     if "sprint" in lower and any(word in lower for word in ("pole", "qualifying")):
         return ReleasePurpose.SPRINT_QUALIFYING
+    if "sprint" in lower and any(
+        phrase in lower
+        for phrase in (
+            "sprint strategy",
+            "sprint strategies",
+            "strategy for the sprint",
+            "strategies for the sprint",
+        )
+    ):
+        return ReleasePurpose.SPRINT
+    if any(
+        phrase in lower
+        for phrase in (
+            "race strategy",
+            "race strategies",
+            "strategy for the race",
+            "strategies for the race",
+            "possible race strategy",
+            "possible race strategies",
+        )
+    ):
+        return ReleasePurpose.RACE_STRATEGY
+    if re.search(
+        r"\b(?:one|two|three)[ -]stop strategy\b[^.]{0,100}"
+        r"\b(?:fastest|quickest|for (?:the )?race|for tomorrow)\b",
+        lower,
+    ):
+        return ReleasePurpose.RACE_STRATEGY
     if "sprint" in lower and any(
         word in lower for word in ("wins", "victory", "winner")
     ):

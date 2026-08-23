@@ -245,6 +245,13 @@ def test_observed_transition_can_diverge_or_complete_next_window():
     assert driver["windows"] == [
         {
             "optionId": "mhs",
+            "stopIndex": 0,
+            "startLap": 17,
+            "endLap": 23,
+            "state": "COMPLETED",
+        },
+        {
+            "optionId": "mhs",
             "stopIndex": 1,
             "startLap": 40,
             "endLap": 46,
@@ -345,4 +352,7 @@ def test_cursor_rebuild_rewinds_and_advances_published_relation_deterministicall
     assert before == rewound
     assert before["drivers"]["1"]["windows"][0]["state"] == "BEFORE"
     assert after["drivers"]["1"]["observedCompounds"] == ["MEDIUM", "HARD"]
-    assert after["drivers"]["1"]["windows"][0]["startLap"] == 40
+    assert [window["state"] for window in after["drivers"]["1"]["windows"]] == [
+        "COMPLETED",
+        "BEFORE",
+    ]
