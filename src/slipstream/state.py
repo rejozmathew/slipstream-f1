@@ -24,6 +24,7 @@ class DriverState:
     compound: str | None = None
     tyre_age: int | None = None
     stint_laps: int | None = None
+    tyre_usage: str = "UNKNOWN"
     pit_count: int = 0
     track_position: float | None = None
     x: float | None = None
@@ -34,6 +35,8 @@ class DriverState:
     sector_3: float | None = None
     availability: dict[str, str] = field(default_factory=dict)
     status: str = "UNKNOWN"
+    activity: str = "UNKNOWN"
+    progress_observed_at_lap: int | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,9 @@ class SessionState:
     lap: int | None = None
     total_laps: int | None = None
     track_status: str | None = None
+    qualifying_phase: str = "UNKNOWN"
+    session_clock: str | None = None
+    session_clock_running: bool | None = None
     status: str = "UNKNOWN"
 
 
@@ -160,25 +166,41 @@ class RaceState:
                 updates["status"] = transition_driver_status(
                     current.status, updates["status"]
                 )
-            explicit_availability = updates.pop("availability", {})
-            availability = {
-                **current.availability,
-                **{key: "available" for key in updates},
-                **explicit_availability,
-            }
-            item = replace(current, **updates)
-            item = replace(item, availability=availability)
             session = self.session
             event_lap = updates.get("lap")
+            progressed = isinstance(event_lap, int) and (
+                current.lap is None or event_lap > current.lap
+            )
             if isinstance(event_lap, int) and (
                 session.lap is None or event_lap > session.lap
             ):
                 session = replace(session, lap=event_lap)
+            if progressed:
+                updates.setdefault("activity", "ON_TRACK")
+                updates["progress_observed_at_lap"] = session.lap or event_lap
+            if str(updates.get("status") or "").upper() in {
+                "RETIRED", "DNF", "DNS", "DISQUALIFIED", "DSQ", "WITHDRAWN"
+            }:
+                updates["activity"] = "UNKNOWN"
+            explicit_availability = updates.pop("availability", {})
+            availability = {
+                **current.availability,
+                **{
+                    key: "available"
+                    for key in updates
+                    if key not in {"activity", "progress_observed_at_lap"}
+                },
+                **explicit_availability,
+            }
+            item = replace(current, **updates, availability=availability)
+            drivers = _with_progress_activity(
+                {**self.drivers, number: item}, session
+            )
             return replace(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(session, event.occurred_at),
-                drivers={**self.drivers, number: item},
+                drivers=drivers,
             )
         if event.kind == "weather":
             updates = dict(event.payload)
@@ -257,3 +279,27 @@ def _track_status_from(message: RaceControlMessage) -> str | None:
     if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
         return "RED"
     return None
+
+
+def _with_progress_activity(
+    drivers: dict[str, DriverState], session: SessionState
+) -> dict[str, DriverState]:
+    """Mark conservative non-terminal circulation gaps from source lap progress."""
+    if (
+        session.layout_family != "race"
+        or session.lap is None
+        or str(session.status).upper() in {"FINISHED", "ENDED", "COMPLETE", "FINAL"}
+    ):
+        return drivers
+    terminal = {"RETIRED", "DNF", "DNS", "DISQUALIFIED", "DSQ", "WITHDRAWN"}
+    result = dict(drivers)
+    for number, driver in drivers.items():
+        if (
+            str(driver.status).upper() in terminal
+            or driver.activity == "IN_PIT"
+            or driver.progress_observed_at_lap is None
+        ):
+            continue
+        if session.lap - driver.progress_observed_at_lap >= 2:
+            result[number] = replace(driver, activity="NO_RECENT_PROGRESS")
+    return result

@@ -517,7 +517,15 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     if initial_stint
                     else None,
                     "stint_laps": 0 if initial_stint else None,
+                    "tyre_usage": (
+                        "NEW"
+                        if initial_stint and int(initial_stint.get("tyre_age_at_start") or 0) == 0
+                        else "USED"
+                        if initial_stint
+                        else "UNKNOWN"
+                    ),
                     "status": "UNKNOWN",
+                    "activity": "UNKNOWN",
                     "availability": {
                         "interval_to_ahead": "available"
                         if has_intervals
@@ -676,6 +684,15 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 # STOPPED car resumed. The reducer prevents terminal states
                 # from being resurrected by later packets.
                 status="RUNNING",
+                activity="ON_TRACK",
+                tyre_usage=(
+                    "NEW"
+                    if stint is not None and int(stint.get("tyre_age_at_start") or 0) == 0
+                    else "USED"
+                    if stint is not None
+                    else "UNKNOWN"
+                ),
+                track_position=0.0,
                 lap_observation=observation,
             )
         )
@@ -686,6 +703,10 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     position["date"],
                     position["driver_number"],
                     position=position.get("position"),
+                    track_position=_estimate_track_position(
+                        lap_windows.get(str(position["driver_number"]), []),
+                        position["date"],
+                    ),
                 )
             )
     for interval in endpoints.get("intervals", []):

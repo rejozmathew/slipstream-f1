@@ -19,6 +19,7 @@ from urllib.parse import urlencode
 import aiohttp
 
 from .events import NormalizedEvent
+from .live_recording import NormalizedLiveRecorder
 from .session import classify_session
 from .state import RaceState
 
@@ -304,6 +305,17 @@ class PublicLiveRecorder:
 
 
 LIVE_CONNECTION_STATES = ("OFFLINE", "CONNECTING", "LIVE", "STALE", "UNAVAILABLE")
+LIVE_PRODUCT_PHASES = (
+    "PRE_EVENT",
+    "CONNECTING",
+    "LIVE",
+    "STALE",
+    "RECONNECTING",
+    "FINALIZING",
+    "COMPLETE",
+    "REPLAY_READY",
+    "UNAVAILABLE",
+)
 
 
 class LiveSessionMismatch(LiveSourceError):
@@ -398,6 +410,8 @@ class F1LiveAdapter:
     _ORDER = (
         "SessionInfo",
         "SessionStatus",
+        "SessionData",
+        "ExtrapolatedClock",
         "DriverList",
         "TimingAppData",
         "TimingData",
@@ -467,6 +481,10 @@ class F1LiveAdapter:
                     received_at=occurred_at,
                 )
             ]
+        if stream == "SessionData":
+            return self._session_data_events(merged, occurred_at)
+        if stream == "ExtrapolatedClock":
+            return self._clock_events(merged, occurred_at)
         if stream == "DriverList":
             return self._driver_events(merged, occurred_at)
         if stream == "TimingData":
@@ -511,6 +529,59 @@ class F1LiveAdapter:
                     continue
             return [NormalizedEvent("weather", occurred_at, "f1-signalr-public", updates, received_at=occurred_at)] if updates else []
         return []
+
+    def _clock_events(
+        self, payload: dict[str, Any], occurred_at: str
+    ) -> list[NormalizedEvent]:
+        remaining = payload.get("Remaining")
+        if not isinstance(remaining, str) or remaining.count(":") != 2:
+            return []
+        return [
+            NormalizedEvent(
+                "session",
+                occurred_at,
+                "f1-signalr-public",
+                {
+                    "session_clock": remaining,
+                    "session_clock_running": _truthy(payload.get("Extrapolating")),
+                },
+                received_at=occurred_at,
+            )
+        ]
+
+    def _session_data_events(
+        self, payload: dict[str, Any], occurred_at: str
+    ) -> list[NormalizedEvent]:
+        candidates: list[dict[str, Any]] = []
+        for key in ("Series", "StatusSeries"):
+            candidates.extend(
+                item
+                for item in _ordered_values(payload.get(key))
+                if isinstance(item, dict)
+            )
+        phase: str | None = None
+        for item in candidates:
+            raw_value = str(
+                item.get("Value") or item.get("QualifyingPart") or ""
+            ).upper()
+            if raw_value in {"Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"}:
+                phase = raw_value
+            elif raw_value in {"1", "2", "3"} and str(
+                item.get("Type") or ""
+            ).lower() in {"qualifyingpart", "qualifying_part"}:
+                session_info = str(self.streams.get("SessionInfo", {})).upper()
+                phase = f"{'SQ' if 'SPRINT' in session_info else 'Q'}{raw_value}"
+        if phase is None:
+            return []
+        return [
+            NormalizedEvent(
+                "session",
+                occurred_at,
+                "f1-signalr-public",
+                {"qualifying_phase": phase},
+                received_at=occurred_at,
+            )
+        ]
 
     def _session_info_events(
         self, payload: dict[str, Any], occurred_at: str
@@ -593,6 +664,10 @@ class F1LiveAdapter:
                 "sector_2": _number(_value(sectors[1])) if len(sectors) > 1 else None,
                 "sector_3": _number(_value(sectors[2])) if len(sectors) > 2 else None,
             }
+            if _truthy(item.get("InPit")):
+                updates["activity"] = "IN_PIT"
+            elif _truthy(item.get("PitOut")) or "NumberOfLaps" in line_patch:
+                updates["activity"] = "ON_TRACK"
             if _truthy(item.get("Retired")):
                 updates["status"] = "RETIRED"
             elif _truthy(item.get("Stopped")):
@@ -626,6 +701,14 @@ class F1LiveAdapter:
                 continue
             stint = stints[-1]
             total_laps = _number(stint.get("TotalLaps"), integer=True)
+            new_value = stint.get("New")
+            tyre_usage = (
+                "NEW"
+                if _truthy(new_value)
+                else "USED"
+                if new_value is not None
+                else "UNKNOWN"
+            )
             events.append(
                 NormalizedEvent(
                     "timing",
@@ -636,6 +719,7 @@ class F1LiveAdapter:
                         "compound": stint.get("Compound"),
                         "tyre_age": total_laps,
                         "stint_laps": total_laps,
+                        "tyre_usage": tyre_usage,
                     },
                     received_at=occurred_at,
                 )
@@ -759,10 +843,13 @@ class LiveSourceView:
     sequence: int
     last_received_at: str | None
     error: str | None
+    phase: str
+    replay_ready: bool
+    final_recording: str | None
 
 
 class PublicLiveSession:
-    """Own one reconnecting public upstream and one canonical live RaceState."""
+    """Own one public upstream, canonical state, and normalized session artifact."""
 
     def __init__(
         self,
@@ -771,18 +858,35 @@ class PublicLiveSession:
         now: Callable[[], datetime] | None = None,
         stale_after: float = 25.0,
         maximum_backoff: float = 30.0,
+        normalized_recording_dir: Path | None = None,
+        finalization_drain: float = 5.0,
+        on_recording_finalized: Callable[[Path], bool] | None = None,
     ) -> None:
         self._row_source = row_source or PublicSignalRConnection().rows
         self._now = now or (lambda: datetime.now(UTC))
         self._stale_after = stale_after
         self._maximum_backoff = maximum_backoff
+        self._normalized_recording_dir = normalized_recording_dir
+        self._finalization_drain = max(0.0, finalization_drain)
+        self._on_recording_finalized = on_recording_finalized
         self._target_session_key: str | None = None
+        self._scheduled_start: str | None = None
+        self._scheduled_end: str | None = None
         self._status = "OFFLINE"
+        self._phase = "UNAVAILABLE"
         self._error: str | None = None
         self._last_received_at: str | None = None
         self._events: list[NormalizedEvent] = []
         self._state = RaceState()
         self._task: asyncio.Task[None] | None = None
+        self._finalization_task: asyncio.Task[None] | None = None
+        self._normalized_recorder: NormalizedLiveRecorder | None = None
+        self._completion_observed = False
+        self._ever_connected = False
+        self._reconnecting = False
+        self._replay_ready = False
+        self._final_recording: Path | None = None
+        self._phase_history: list[str] = []
 
     @property
     def state(self) -> RaceState:
@@ -796,6 +900,18 @@ class PublicLiveSession:
     def target_session_key(self) -> str | None:
         return self._target_session_key
 
+    @property
+    def phase_history(self) -> tuple[str, ...]:
+        return tuple(self._phase_history)
+
+    def configure_recording(
+        self,
+        directory: Path,
+        on_finalized: Callable[[Path], bool] | None = None,
+    ) -> None:
+        self._normalized_recording_dir = directory
+        self._on_recording_finalized = on_finalized
+
     def view(self, session_key: str | None = None) -> LiveSourceView:
         matches = session_key is None or str(session_key) == self._target_session_key
         status = self._status if matches else "OFFLINE"
@@ -807,9 +923,19 @@ class PublicLiveSession:
             len(self._events) if matches else 0,
             self._last_received_at if matches else None,
             self._error if matches else None,
+            self._phase if matches else "UNAVAILABLE",
+            self._replay_ready if matches else False,
+            str(self._final_recording) if matches and self._final_recording else None,
         )
 
-    async def start(self, session_key: str) -> None:
+    async def start(
+        self,
+        session_key: str,
+        *,
+        scheduled_start: str | None = None,
+        scheduled_end: str | None = None,
+        seed_events: Iterable[NormalizedEvent] = (),
+    ) -> None:
         key = str(session_key)
         if key == self._target_session_key and (
             (self._task is not None and not self._task.done()) or self._events
@@ -817,11 +943,32 @@ class PublicLiveSession:
             return
         await self.stop()
         self._target_session_key = key
+        self._scheduled_start = scheduled_start
+        self._scheduled_end = scheduled_end
         self._status = "CONNECTING"
         self._error = None
         self._last_received_at = None
         self._events = []
         self._state = RaceState()
+        self._completion_observed = False
+        self._ever_connected = False
+        self._reconnecting = False
+        self._replay_ready = False
+        self._final_recording = None
+        self._phase_history = []
+        self._normalized_recorder = (
+            NormalizedLiveRecorder(self._normalized_recording_dir, key)
+            if self._normalized_recording_dir is not None
+            else None
+        )
+        seeded = tuple(seed_events)
+        if seeded:
+            if self._normalized_recorder is not None:
+                self._normalized_recorder.append(seeded)
+            for event in seeded:
+                self._events.append(event)
+                self._state = self._state.apply(event)
+        self._set_phase(self._phase_for_schedule("CONNECTING"))
         self._task = asyncio.create_task(self._run(key))
 
     async def stop(self) -> None:
@@ -833,41 +980,120 @@ class PublicLiveSession:
                 await task
             except asyncio.CancelledError:
                 pass
+        finalization_task = self._finalization_task
+        self._finalization_task = None
+        if finalization_task is not None and not finalization_task.done():
+            finalization_task.cancel()
+            try:
+                await finalization_task
+            except asyncio.CancelledError:
+                pass
         self._status = "OFFLINE"
         self._target_session_key = None
 
     async def apply_rows(
         self, session_key: str, rows: Iterable[dict[str, Any]]
     ) -> None:
-        """Apply a deterministic raw fixture without opening a network connection."""
-
+        """Apply a deterministic raw fixture without opening a connection."""
         self._target_session_key = str(session_key)
         self._status = "CONNECTING"
+        self._set_phase("CONNECTING")
+        if self._normalized_recording_dir is not None:
+            self._normalized_recorder = NormalizedLiveRecorder(
+                self._normalized_recording_dir, str(session_key)
+            )
         adapter = F1LiveAdapter(str(session_key))
         for row in rows:
             self._apply(adapter.ingest(row), str(row.get("received_at") or utc_now()))
-        if self._events:
+        if self._events and not self._completion_observed:
             self._status = "LIVE"
+            self._set_phase("LIVE")
             self._error = None
+        if self._completion_observed:
+            await self._finalize_after_drain()
 
-    def _apply(
-        self, events: Iterable[NormalizedEvent], received_at: str
-    ) -> None:
+    def _apply(self, events: Iterable[NormalizedEvent], received_at: str) -> None:
+        batch = tuple(events)
+        if self._normalized_recorder is not None:
+            self._normalized_recorder.append(batch)
         emitted = False
-        for event in events:
+        for event in batch:
             self._events.append(event)
             self._state = self._state.apply(event)
             emitted = True
+            if event.kind == "session" and str(event.payload.get("status") or "").upper() in {
+                "FINISHED",
+                "ENDED",
+                "COMPLETE",
+                "FINAL",
+                "FINALIZED",
+                "FINALISED",
+            }:
+                self._completion_observed = True
+                self._set_phase("FINALIZING")
         self._last_received_at = received_at
         if emitted:
             self._status = "LIVE"
+            self._ever_connected = True
+            self._reconnecting = False
+            if not self._completion_observed:
+                self._set_phase("LIVE")
             self._error = None
 
+    def _phase_for_schedule(self, fallback: str) -> str:
+        if self._scheduled_start:
+            try:
+                if self._now() < datetime.fromisoformat(self._scheduled_start):
+                    return "PRE_EVENT"
+            except ValueError:
+                pass
+        return fallback
+
+    def _set_phase(self, phase: str) -> None:
+        if phase not in LIVE_PRODUCT_PHASES:
+            raise ValueError(f"unsupported live product phase: {phase}")
+        self._phase = phase
+        if not self._phase_history or self._phase_history[-1] != phase:
+            self._phase_history.append(phase)
+
+    def _schedule_finalization(self) -> None:
+        if self._finalization_task is None or self._finalization_task.done():
+            self._finalization_task = asyncio.create_task(self._finalize_after_drain())
+
+    async def _finalize_after_drain(self) -> None:
+        if self._finalization_drain:
+            await asyncio.sleep(self._finalization_drain)
+        if not self._completion_observed or self._normalized_recorder is None:
+            return
+        self._set_phase("COMPLETE")
+        final_path = self._normalized_recorder.finalize()
+        self._final_recording = final_path
+        ready = True
+        if self._on_recording_finalized is not None:
+            ready = bool(self._on_recording_finalized(final_path))
+        self._replay_ready = ready
+        if ready:
+            self._set_phase("REPLAY_READY")
+
+    async def _wait_for_scheduled_start(self, session_key: str) -> None:
+        while self._target_session_key == session_key and self._scheduled_start:
+            try:
+                seconds = (datetime.fromisoformat(self._scheduled_start) - self._now()).total_seconds()
+            except ValueError:
+                return
+            if seconds <= 0:
+                return
+            self._set_phase("PRE_EVENT")
+            await asyncio.sleep(min(seconds, 15.0))
+
     async def _run(self, session_key: str) -> None:
+        await self._wait_for_scheduled_start(session_key)
         backoff = 1.0
-        while self._target_session_key == session_key:
+        while self._target_session_key == session_key and not self._replay_ready:
             adapter = F1LiveAdapter(session_key)
-            self._status = "CONNECTING" if not self._events else "STALE"
+            self._status = "CONNECTING" if not self._ever_connected else "STALE"
+            self._reconnecting = self._ever_connected
+            self._set_phase("RECONNECTING" if self._reconnecting else "CONNECTING")
             try:
                 iterator = self._row_source().__aiter__()
                 while self._target_session_key == session_key:
@@ -876,27 +1102,30 @@ class PublicLiveSession:
                             anext(iterator), timeout=self._stale_after
                         )
                     except StopAsyncIteration as error:
-                        raise LiveSourceError(
-                            "The public live stream ended"
-                        ) from error
+                        raise LiveSourceError("The public live stream ended") from error
                     except TimeoutError as error:
                         self._status = "STALE"
+                        self._set_phase("STALE")
                         self._error = (
-                            f"No public live data received for "
-                            f"{self._stale_after:g} seconds"
+                            f"No public live data received for {self._stale_after:g} seconds"
                         )
                         raise LiveSourceError(self._error) from error
                     self._apply(
                         adapter.ingest(row),
                         str(row.get("received_at") or utc_now()),
                     )
+                    if self._completion_observed:
+                        self._schedule_finalization()
                     backoff = 1.0
             except asyncio.CancelledError:
                 raise
             except (LiveSourceError, aiohttp.ClientError, OSError) as error:
-                self._status = (
-                    "UNAVAILABLE" if not self._events else "STALE"
-                )
+                if self._completion_observed:
+                    self._schedule_finalization()
+                    return
+                self._status = "UNAVAILABLE" if not self._ever_connected else "STALE"
                 self._error = str(error)
+                self._reconnecting = self._ever_connected
+                self._set_phase("RECONNECTING" if self._reconnecting else "UNAVAILABLE")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, self._maximum_backoff)

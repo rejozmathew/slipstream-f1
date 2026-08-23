@@ -150,3 +150,50 @@ def test_api_separates_live_transport_from_replay_availability(tmp_path: Path) -
     assert capabilities["liveConnected"] is True
     assert capabilities["positionMode"] == "unavailable"
     assert capabilities["capabilities"]["location_xy"] is False
+
+
+def test_completed_live_fixture_is_atomically_exposed_as_immediate_replay(
+    tmp_path: Path,
+) -> None:
+    refreshed: list[Path] = []
+    live = PublicLiveSession(
+        normalized_recording_dir=tmp_path,
+        finalization_drain=0,
+        on_recording_finalized=lambda path: not refreshed.append(path),
+    )
+
+    asyncio.run(live.apply_rows("11344", fixture_rows()))
+
+    final_path = tmp_path / "live-11344.json"
+    assert live.view("11344").phase == "REPLAY_READY"
+    assert live.view("11344").replay_ready is True
+    assert refreshed == [final_path]
+    assert final_path.is_file()
+    assert not (tmp_path / "live-11344.in-progress.jsonl").exists()
+    recorded = json.loads(final_path.read_text(encoding="utf-8"))
+    assert len(recorded) == len(live.events)
+    rebuilt = RaceState()
+    for raw in recorded:
+        from slipstream.events import NormalizedEvent
+
+        rebuilt = rebuilt.apply(NormalizedEvent.from_mapping(raw))
+    assert rebuilt == live.state
+
+
+def test_live_rows_without_explicit_completion_remain_in_progress(tmp_path: Path) -> None:
+    rows = fixture_rows()
+    for row in rows:
+        if row["stream"] == "SessionInfo":
+            row["payload"]["SessionStatus"] = "Started"
+        if row["stream"] == "SessionStatus":
+            row["payload"] = {"Started": "Started", "Status": "Started"}
+    live = PublicLiveSession(
+        normalized_recording_dir=tmp_path,
+        finalization_drain=0,
+    )
+
+    asyncio.run(live.apply_rows("11344", rows))
+
+    assert live.view("11344").phase == "LIVE"
+    assert not (tmp_path / "live-11344.json").exists()
+    assert (tmp_path / "live-11344.in-progress.jsonl").is_file()
