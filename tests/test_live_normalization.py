@@ -197,3 +197,88 @@ def test_live_rows_without_explicit_completion_remain_in_progress(tmp_path: Path
     assert live.view("11344").phase == "LIVE"
     assert not (tmp_path / "live-11344.json").exists()
     assert (tmp_path / "live-11344.in-progress.jsonl").is_file()
+
+def test_two_live_viewers_own_independent_cursor_safe_delays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    now = datetime(2026, 8, 21, 15, 30, tzinfo=UTC)
+    catalog = {
+        "format": CATALOG_FORMAT,
+        "schema_version": 1,
+        "source": "openf1",
+        "updated_at": "2026-08-21T15:00:00Z",
+        "years": [2026],
+        "meetings": {"1292": {"meeting_key": 1292, "meeting_name": "Dutch Grand Prix"}},
+        "sessions": [{
+            "session_key": 11344,
+            "meeting_key": 1292,
+            "session_name": "Sprint Qualifying",
+            "session_type": "Sprint Qualifying",
+            "date_start": "2026-08-21T15:00:00Z",
+            "date_end": "2026-08-21T17:14:00Z",
+            "gmt_offset": "02:00:00",
+            "year": 2026,
+        }],
+    }
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+    rows = fixture_rows()
+    for row in rows:
+        if row["stream"] == "SessionInfo":
+            row["payload"]["SessionStatus"] = "Started"
+        if row["stream"] == "SessionStatus":
+            row["payload"] = {"Started": "Started", "Status": "Started"}
+    rows.extend([
+        {
+            "received_at": "2026-08-22T01:15:10Z",
+            "stream": "TimingData",
+            "source_timestamp": "2026-08-22T01:15:10Z",
+            "initial": False,
+            "payload": {"Lines": {"12": {
+                "RacingNumber": "12", "Position": "5", "NumberOfLaps": 16,
+                "LastLapTime": {"Value": "1:11.700"}, "InPit": False,
+            }}},
+        },
+        {
+            "received_at": "2026-08-22T01:15:20Z",
+            "stream": "TimingData",
+            "source_timestamp": "2026-08-22T01:15:20Z",
+            "initial": False,
+            "payload": {"Lines": {"12": {
+                "RacingNumber": "12", "Position": "5", "NumberOfLaps": 17,
+                "LastLapTime": {"Value": "1:11.600"}, "InPit": False,
+            }}},
+        },
+    ])
+    live = PublicLiveSession()
+    asyncio.run(live.apply_rows("11344", rows))
+
+    with TestClient(
+        create_app(
+            tmp_path,
+            now=lambda: now,
+            public_live=True,
+            live_session=live,
+            prepare_weekend_context=lambda **_: {},
+        )
+    ) as client:
+        with client.websocket_connect(
+            "/api/v1/stream?session_key=11344&mode=live"
+        ) as viewer_live, client.websocket_connect(
+            "/api/v1/stream?session_key=11344&mode=live"
+        ) as viewer_delayed:
+            latest = viewer_live.receive_json()
+            delayed_initial = viewer_delayed.receive_json()
+            viewer_delayed.send_json({"type": "delay", "seconds": 15})
+            delayed = viewer_delayed.receive_json()
+            latest_again = viewer_live.receive_json()
+
+    assert latest["seq"] == delayed_initial["seq"]
+    assert delayed["seq"] < latest["seq"]
+    assert delayed["data"]["drivers"]["12"]["lap"] == 15
+    assert latest["data"]["drivers"]["12"]["lap"] == 17
+    assert delayed["analytics"]["sequence"] == delayed["seq"]
+    assert latest["analytics"]["sequence"] == latest["seq"]
+    assert delayed["live"]["delaySeconds"] == 15
+    assert latest_again["live"]["delaySeconds"] == 0
+    assert latest_again["seq"] == latest["seq"]

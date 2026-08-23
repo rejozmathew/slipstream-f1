@@ -651,6 +651,15 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     else None
                 ),
                 "tyre_age": tyre_age,
+                "qualifying_phase": "UNKNOWN",
+                "tyre_usage": (
+                    "NEW"
+                    if stint is not None and int(stint.get("tyre_age_at_start") or 0) == 0
+                    else "USED"
+                    if stint is not None
+                    else "UNKNOWN"
+                ),
+                "lap_validity": "UNKNOWN",
                 "pit_in": pit_in,
                 "pit_out": pit_out,
                 "pit_occurred_at": pit_record.get("date") if pit_record else None,

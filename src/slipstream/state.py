@@ -37,6 +37,7 @@ class DriverState:
     status: str = "UNKNOWN"
     activity: str = "UNKNOWN"
     progress_observed_at_lap: int | None = None
+    qualifying_eliminated: bool | None = None
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,7 @@ from .lifecycle import (
 )
 from .pirelli.store import PirelliAvailability
 from .published_strategy import build_published_strategy
+from .qualifying import build_qualifying_snapshot
 from .race_intelligence import (
     BATTLE_HISTORY_MAX_SAMPLES,
     BATTLE_HOLD_SECONDS,
@@ -322,6 +323,9 @@ def build_analytics_snapshot(
         "raceStrategy": race_strategy,
         "raceRead": race_read_payload,
         "publishedStrategy": published_strategy,
+        "qualifying": build_qualifying_snapshot(
+            resource, state, sequence=sequence
+        ),
         "dryRequirementLandscape": race_read_payload["dryRequirementLandscape"],
         # v2.1 §18: field distributions are over *active runners* at the cursor
         # (retired/DNS excluded, never hard-coded).

@@ -22,6 +22,9 @@ class LapObservation:
     compound: str | None = None
     stint_number: int | None = None
     tyre_age: int | None = None
+    qualifying_phase: str = "UNKNOWN"
+    tyre_usage: str = "UNKNOWN"
+    lap_validity: str = "UNKNOWN"
     pit_in: bool | None = None
     pit_out: bool | None = None
     pit_occurred_at: str | None = None

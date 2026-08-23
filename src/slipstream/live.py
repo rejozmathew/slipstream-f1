@@ -351,6 +351,20 @@ def _number(value: Any, *, integer: bool = False) -> float | int | None:
     return int(parsed) if integer else parsed
 
 
+def _duration_seconds(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parts = [float(part) for part in str(value).split(":")]
+    except ValueError:
+        return None
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return parts[0] if len(parts) == 1 else None
+
+
 def _value(value: Any) -> Any:
     return value.get("Value") if isinstance(value, dict) else value
 
@@ -427,6 +441,7 @@ class F1LiveAdapter:
         self.session_verified = False
         self._published_initial = False
         self._seen_race_control: set[str] = set()
+        self._qualifying_phase = "UNKNOWN"
 
     def ingest(self, row: dict[str, Any]) -> tuple[NormalizedEvent, ...]:
         stream = str(row.get("stream") or "")
@@ -573,6 +588,7 @@ class F1LiveAdapter:
                 phase = f"{'SQ' if 'SPRINT' in session_info else 'Q'}{raw_value}"
         if phase is None:
             return []
+        self._qualifying_phase = phase
         return [
             NormalizedEvent(
                 "session",
@@ -660,10 +676,44 @@ class F1LiveAdapter:
                 "last_lap": _value(item.get("LastLapTime")),
                 "best_lap": _value(item.get("BestLapTime")),
                 "pit_count": _number(item.get("NumberOfPitStops"), integer=True) or 0,
+                "qualifying_eliminated": (
+                    _truthy(item.get("KnockedOut"))
+                    if "KnockedOut" in item
+                    else None
+                ),
                 "sector_1": _number(_value(sectors[0])) if len(sectors) > 0 else None,
                 "sector_2": _number(_value(sectors[1])) if len(sectors) > 1 else None,
                 "sector_3": _number(_value(sectors[2])) if len(sectors) > 2 else None,
             }
+            last_lap_value = _value(item.get("LastLapTime"))
+            if (
+                last_lap_value
+                and isinstance(updates.get("lap"), int)
+                and ("LastLapTime" in line_patch or (not patch_lines and line_patch == {}))
+            ):
+                app_lines = self.streams.get("TimingAppData", {}).get("Lines", {})
+                app_line = app_lines.get(raw_number, {}) if isinstance(app_lines, dict) else {}
+                stints = _ordered_values(app_line.get("Stints")) if isinstance(app_line, dict) else []
+                stint = stints[-1] if stints and isinstance(stints[-1], dict) else {}
+                new_value = stint.get("New")
+                updates["lap_observation"] = {
+                    "lap": int(updates["lap"]),
+                    "started_at": occurred_at,
+                    "duration": _duration_seconds(last_lap_value),
+                    "sector_1": updates.get("sector_1"),
+                    "sector_2": updates.get("sector_2"),
+                    "sector_3": updates.get("sector_3"),
+                    "compound": stint.get("Compound"),
+                    "stint_number": None,
+                    "tyre_age": _number(stint.get("TotalLaps"), integer=True),
+                    "qualifying_phase": self._qualifying_phase,
+                    "tyre_usage": (
+                        "NEW" if _truthy(new_value) else "USED" if new_value is not None else "UNKNOWN"
+                    ),
+                    "lap_validity": "UNKNOWN",
+                    "quality": "unknown",
+                    "contamination_reasons": [],
+                }
             if _truthy(item.get("InPit")):
                 updates["activity"] = "IN_PIT"
             elif _truthy(item.get("PitOut")) or "NumberOfLaps" in line_patch:
