@@ -67,6 +67,11 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
+def canonical_utc(value: str) -> str:
+    """Render a provider UTC timestamp in canonical offset-aware form."""
+    return parse_timestamp(value).isoformat().replace("+00:00", "Z")
+
+
 def recording_header(*, captured_at: str | None = None) -> dict[str, Any]:
     """Return the first JSONL record for a public live capture."""
     return {
@@ -795,7 +800,7 @@ class F1LiveAdapter:
             events.append(
                 NormalizedEvent(
                     "race_control",
-                    str(item.get("Utc") or occurred_at),
+                    canonical_utc(str(item.get("Utc") or occurred_at)),
                     "f1-signalr-public",
                     {
                         "category": str(item.get("Category") or "Other"),

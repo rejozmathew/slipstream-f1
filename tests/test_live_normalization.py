@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from slipstream.api import create_app
 from slipstream.catalog import CATALOG_FORMAT
 from slipstream.live import F1LiveAdapter, LiveSessionMismatch, PublicLiveSession
+from slipstream.playback import ReplayController
 from slipstream.state import RaceState
 
 FIXTURE = Path(__file__).parent / "fixtures" / "live" / "public-sprint-qualifying-initial.json"
@@ -70,6 +71,40 @@ def test_live_adapter_rejects_a_different_provider_session() -> None:
     row = next(row for row in fixture_rows() if row["stream"] == "SessionInfo")
     with pytest.raises(LiveSessionMismatch, match="does not match"):
         F1LiveAdapter("different-session").ingest(row)
+
+
+def test_naive_provider_utc_race_control_timestamp_is_canonical_and_orderable() -> None:
+    adapter = F1LiveAdapter("11344")
+    session_events = adapter.ingest(
+        {
+            "received_at": "2026-08-23T13:04:08Z",
+            "stream": "SessionInfo",
+            "source_timestamp": None,
+            "initial": True,
+            "payload": {"Key": 11344, "Name": "Race"},
+        }
+    )
+    race_control_events = adapter.ingest(
+        {
+            "received_at": "2026-08-23T13:04:09Z",
+            "stream": "RaceControlMessages",
+            "source_timestamp": None,
+            "initial": True,
+            "payload": {
+                "Messages": {
+                    "1": {
+                        "Utc": "2026-08-23T12:12:06",
+                        "Category": "Other",
+                        "Message": "PIT LANE OPEN",
+                    }
+                }
+            },
+        }
+    )
+
+    assert race_control_events[0].occurred_at == "2026-08-23T12:12:06Z"
+    controller = ReplayController((*session_events, *race_control_events))
+    assert [event.kind for event in controller.events] == ["race_control", "session"]
 
 
 def test_public_live_session_applies_fixture_deterministically() -> None:

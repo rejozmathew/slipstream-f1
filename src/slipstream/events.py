@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 EventKind = Literal["session", "circuit", "driver", "timing", "weather", "race_control"]
 
 
 def parse_timestamp(value: str) -> datetime:
-    """Parse canonical ISO 8601 timestamps, including the UTC ``Z`` suffix."""
-    return datetime.fromisoformat(value)
+    """Parse an event timestamp as an aware UTC datetime.
+
+    Canonical events include an explicit offset. Some upstream fields that are
+    explicitly documented as UTC omit the suffix, and older live recordings
+    may therefore contain a naive value. Treat those legacy values as UTC so a
+    recovered session can be ordered with canonical events.
+    """
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 @dataclass(frozen=True)
