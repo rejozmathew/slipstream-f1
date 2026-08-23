@@ -15,6 +15,8 @@ QUALIFYING_MODEL_VERSION = "qualifying-intelligence-v1"
 # timeless top-15 assumption.
 _ADVANCING_COUNTS: dict[int, dict[int, dict[str, int]]] = {
     2023: {20: {"Q1": 15, "Q2": 10, "SQ1": 15, "SQ2": 10}},
+    2024: {20: {"Q1": 15, "Q2": 10, "SQ1": 15, "SQ2": 10}},
+    2025: {20: {"Q1": 15, "Q2": 10, "SQ1": 15, "SQ2": 10}},
     2026: {22: {"Q1": 16, "Q2": 10, "SQ1": 16, "SQ2": 10}},
 }
 
@@ -44,25 +46,66 @@ def build_qualifying_snapshot(
         driver.number: _attempts(resource, driver.number, sequence)
         for driver in ordered
     }
-    benchmark = _benchmark(ordered, phase)
+    scoped_best = {
+        driver.number: _scope_best(driver, attempts_by_driver[driver.number], phase)
+        for driver in ordered
+    }
+    benchmark = _benchmark(ordered, scoped_best)
     advancing_count = _advancing_count(
-        resource.descriptor.year, len(ordered), phase
+        resource.descriptor.year, state.session.eligible_field_size, phase
     )
     driver_payload: dict[str, dict[str, Any]] = {}
     for driver in ordered:
-        best_seconds = _duration_seconds(driver.best_lap or driver.last_lap)
+        best = scoped_best[driver.number]
+        best_seconds = best[0] if best is not None else None
+        cut_state = _cut_state(driver, advancing_count)
         driver_payload[driver.number] = {
             "driverNumber": driver.number,
             "activity": _activity(driver),
+            "scopeBest": best[1] if best is not None else None,
             "benchmarkDelta": (
                 round(best_seconds - benchmark["seconds"], 3)
                 if benchmark is not None and best_seconds is not None
                 else None
             ),
-            "cutState": _cut_state(driver, advancing_count),
+            "cutState": cut_state,
+            "qStatus": _q_status(driver, cut_state),
             "attempts": attempts_by_driver[driver.number],
             "tyreUsage": driver.tyre_usage,
+            "teammate": None,
         }
+
+    for driver in ordered:
+        teammate = next(
+            (
+                candidate
+                for candidate in ordered
+                if candidate.number != driver.number
+                and candidate.team
+                and candidate.team == driver.team
+            ),
+            None,
+        )
+        own_best = scoped_best.get(driver.number)
+        teammate_best = scoped_best.get(teammate.number) if teammate else None
+        if teammate is not None:
+            comparison = "UNKNOWN"
+            gap = None
+            if own_best is not None and teammate_best is not None:
+                gap = round(abs(own_best[0] - teammate_best[0]), 3)
+                comparison = (
+                    "FASTER"
+                    if own_best[0] < teammate_best[0]
+                    else "SLOWER"
+                    if own_best[0] > teammate_best[0]
+                    else "LEVEL"
+                )
+            driver_payload[driver.number]["teammate"] = {
+                "driverNumber": teammate.number,
+                "code": teammate.code,
+                "comparison": comparison,
+                "gapSeconds": gap,
+            }
 
     cutoff = _driver_at(ordered, advancing_count)
     first_out = _driver_at(ordered, advancing_count + 1 if advancing_count else None)
@@ -81,6 +124,7 @@ def build_qualifying_snapshot(
                 "driverNumber": benchmark["driver"].number,
                 "code": benchmark["driver"].code,
                 "lapTime": benchmark["lapTime"],
+                "scope": "SEGMENT" if phase != "UNKNOWN" else "SESSION",
             }
             if benchmark is not None
             else None
@@ -123,24 +167,43 @@ def _attempts(
     ]
 
 
-def _benchmark(
-    drivers: list[DriverState], phase: str
-) -> dict[str, Any] | None:
-    if phase == "UNKNOWN":
+def _scope_best(
+    driver: DriverState, attempts: list[dict[str, Any]], phase: str
+) -> tuple[float, str] | None:
+    candidates = [
+        float(item["lapTime"])
+        for item in attempts
+        if isinstance(item.get("lapTime"), (int, float))
+        and (phase == "UNKNOWN" or item.get("phase") == phase)
+    ]
+    results = driver.qualifying_results
+    if results is not None:
+        index = {"Q1": 0, "SQ1": 0, "Q2": 1, "SQ2": 1, "Q3": 2, "SQ3": 2}.get(phase)
+        values = results if index is None else (results[index],)
+        candidates.extend(float(value) for value in values if value is not None)
+    if not candidates:
         return None
+    seconds = min(candidates)
+    return seconds, _format_duration(seconds)
+
+
+def _benchmark(
+    drivers: list[DriverState], scoped_best: dict[str, tuple[float, str] | None]
+) -> dict[str, Any] | None:
     candidates = []
     for driver in drivers:
-        lap_time = driver.best_lap or driver.last_lap
-        seconds = _duration_seconds(lap_time)
-        if seconds is not None:
-            candidates.append((seconds, driver, lap_time))
+        best = scoped_best.get(driver.number)
+        if best is not None:
+            candidates.append((best[0], driver, best[1]))
     if not candidates:
         return None
     seconds, driver, lap_time = min(candidates, key=lambda item: item[0])
     return {"seconds": seconds, "driver": driver, "lapTime": lap_time}
 
 
-def _advancing_count(year: int, field_size: int, phase: str) -> int | None:
+def _advancing_count(year: int, field_size: int | None, phase: str) -> int | None:
+    if field_size is None:
+        return None
     return _ADVANCING_COUNTS.get(year, {}).get(field_size, {}).get(phase)
 
 
@@ -153,14 +216,26 @@ def _cut_state(driver: DriverState, advancing_count: int | None) -> str:
 
 
 def _activity(driver: DriverState) -> str:
-    if driver.activity in {"ON_TRACK", "IN_PIT", "NO_RECENT_PROGRESS"}:
+    if driver.activity in {"ON_TRACK", "IN_PIT"}:
         return driver.activity
     return "UNKNOWN"
 
 
-def _driver_at(
-    drivers: list[DriverState], position: int | None
-) -> DriverState | None:
+def _q_status(driver: DriverState, cut_state: str) -> str | None:
+    if driver.qualifying_eliminated is True:
+        return (
+            f"ELIMINATED · {driver.qualifying_phase_reached}"
+            if driver.qualifying_phase_reached
+            else "ELIMINATED"
+        )
+    if driver.qualifying_phase_reached:
+        return driver.qualifying_phase_reached
+    if cut_state in {"ADVANCING", "BELOW_CUT"}:
+        return cut_state.replace("_", " ")
+    return None
+
+
+def _driver_at(drivers: list[DriverState], position: int | None) -> DriverState | None:
     if position is None:
         return None
     return next((driver for driver in drivers if driver.position == position), None)
@@ -189,6 +264,11 @@ def _duration_seconds(value: str | None) -> float | None:
     if len(parts) == 3:
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
     return parts[0] if len(parts) == 1 else None
+
+
+def _format_duration(seconds: float) -> str:
+    minutes, remainder = divmod(seconds, 60)
+    return f"{int(minutes)}:{remainder:06.3f}" if minutes else f"{remainder:.3f}"
 
 
 def _unknown_cut_line() -> dict[str, Any]:

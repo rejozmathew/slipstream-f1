@@ -13,7 +13,12 @@ from slipstream.live import F1LiveAdapter, LiveSessionMismatch, PublicLiveSessio
 from slipstream.playback import ReplayController
 from slipstream.state import RaceState
 
-FIXTURE = Path(__file__).parent / "fixtures" / "live" / "public-sprint-qualifying-initial.json"
+FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "live"
+    / "public-sprint-qualifying-initial.json"
+)
 RED_FLAG_FIXTURE = (
     Path(__file__).parent
     / "fixtures"
@@ -152,26 +157,44 @@ def test_real_dutch_red_flag_fixture_separates_control_and_marshal_state() -> No
     assert rewound.session.display_status == "YELLOW"
 
 
-def test_only_explicit_session_resumption_clears_red_flag_latch() -> None:
-    events = (
-        *red_flag_events(),
-        NormalizedEvent(
-            kind="session",
-            occurred_at="2026-08-23T13:25:00Z",
-            source="f1-signalr-public",
-            payload={"status": "RUNNING"},
-        ),
+def test_exact_dutch_session_status_restart_clears_red_flag_latch() -> None:
+    adapter = F1LiveAdapter("11353")
+    events = []
+    for row in red_flag_rows():
+        events.extend(adapter.ingest(row))
+    restart = adapter.ingest(
+        {
+            "received_at": "2026-08-23T13:33:00.200Z",
+            "stream": "SessionData",
+            "source_timestamp": "2026-08-23T13:33:00.088Z",
+            "initial": False,
+            "payload": {
+                "StatusSeries": {
+                    "99": {
+                        "Utc": "2026-08-23T13:33:00.088Z",
+                        "SessionStatus": "Started",
+                    }
+                }
+            },
+        }
     )
+    events.extend(restart)
     controller = ReplayController(events)
 
-    suspended = controller.seek("2026-08-23T13:24:59Z")
+    suspended = controller.seek("2026-08-23T13:32:59Z")
     assert suspended.session.status == "SUSPENDED"
     assert suspended.session.display_status == "RED_FLAG"
 
-    resumed = controller.seek("2026-08-23T13:25:00Z")
+    assert any(
+        event.occurred_at == "2026-08-23T13:33:00.088000Z"
+        and event.kind == "session"
+        and event.payload.get("status") == "RUNNING"
+        for event in restart
+    )
+    resumed = controller.seek("2026-08-23T13:33:00.088Z")
     assert resumed.session.status == "RUNNING"
     assert resumed.session.control_status == "NORMAL"
-    assert resumed.session.display_status == "ALL_CLEAR"
+    assert resumed.session.display_status == "GREEN"
 
 
 def test_suspended_race_remains_a_live_capable_source() -> None:
@@ -205,7 +228,7 @@ def test_all_clear_ends_safety_car_control_but_not_red_flag_control() -> None:
     )
 
     assert state.session.control_status == "NORMAL"
-    assert state.session.display_status == "ALL_CLEAR"
+    assert state.session.display_status == "GREEN"
 
 
 def test_naive_provider_utc_race_control_timestamp_is_canonical_and_orderable() -> None:
@@ -313,7 +336,11 @@ def test_api_separates_live_transport_from_replay_availability(tmp_path: Path) -
     assert live_state["mode"] == "live"
     assert live_state["live"]["status"] == "LIVE"
     assert live_state["data"]["drivers"]["12"]["position"] == 5
-    assert live_state["data"]["circuit"]["path"] == [[0.0, 0.0], [10.0, 0.0], [5.0, 10.0]]
+    assert live_state["data"]["circuit"]["path"] == [
+        [0.0, 0.0],
+        [10.0, 0.0],
+        [5.0, 10.0],
+    ]
     assert replay_state["mode"] == "replay"
     assert replay_state["data"]["drivers"] == {}
     assert capabilities["replayAvailable"] is False
@@ -351,7 +378,9 @@ def test_completed_live_fixture_is_atomically_exposed_as_immediate_replay(
     assert rebuilt == live.state
 
 
-def test_live_rows_without_explicit_completion_remain_in_progress(tmp_path: Path) -> None:
+def test_live_rows_without_explicit_completion_remain_in_progress(
+    tmp_path: Path,
+) -> None:
     rows = fixture_rows()
     for row in rows:
         if row["stream"] == "SessionInfo":
@@ -369,6 +398,7 @@ def test_live_rows_without_explicit_completion_remain_in_progress(tmp_path: Path
     assert not (tmp_path / "live-11344.json").exists()
     assert (tmp_path / "live-11344.in-progress.jsonl").is_file()
 
+
 def test_two_live_viewers_own_independent_cursor_safe_delays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -381,16 +411,18 @@ def test_two_live_viewers_own_independent_cursor_safe_delays(
         "updated_at": "2026-08-21T15:00:00Z",
         "years": [2026],
         "meetings": {"1292": {"meeting_key": 1292, "meeting_name": "Dutch Grand Prix"}},
-        "sessions": [{
-            "session_key": 11344,
-            "meeting_key": 1292,
-            "session_name": "Sprint Qualifying",
-            "session_type": "Sprint Qualifying",
-            "date_start": "2026-08-21T15:00:00Z",
-            "date_end": "2026-08-21T17:14:00Z",
-            "gmt_offset": "02:00:00",
-            "year": 2026,
-        }],
+        "sessions": [
+            {
+                "session_key": 11344,
+                "meeting_key": 1292,
+                "session_name": "Sprint Qualifying",
+                "session_type": "Sprint Qualifying",
+                "date_start": "2026-08-21T15:00:00Z",
+                "date_end": "2026-08-21T17:14:00Z",
+                "gmt_offset": "02:00:00",
+                "year": 2026,
+            }
+        ],
     }
     (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
     rows = fixture_rows()
@@ -399,44 +431,64 @@ def test_two_live_viewers_own_independent_cursor_safe_delays(
             row["payload"]["SessionStatus"] = "Started"
         if row["stream"] == "SessionStatus":
             row["payload"] = {"Started": "Started", "Status": "Started"}
-    rows.extend([
-        {
-            "received_at": "2026-08-22T01:15:10Z",
-            "stream": "TimingData",
-            "source_timestamp": "2026-08-22T01:15:10Z",
-            "initial": False,
-            "payload": {"Lines": {"12": {
-                "RacingNumber": "12", "Position": "5", "NumberOfLaps": 16,
-                "LastLapTime": {"Value": "1:11.700"}, "InPit": False,
-            }}},
-        },
-        {
-            "received_at": "2026-08-22T01:15:20Z",
-            "stream": "TimingData",
-            "source_timestamp": "2026-08-22T01:15:20Z",
-            "initial": False,
-            "payload": {"Lines": {"12": {
-                "RacingNumber": "12", "Position": "5", "NumberOfLaps": 17,
-                "LastLapTime": {"Value": "1:11.600"}, "InPit": False,
-            }}},
-        },
-    ])
+    rows.extend(
+        [
+            {
+                "received_at": "2026-08-22T01:15:10Z",
+                "stream": "TimingData",
+                "source_timestamp": "2026-08-22T01:15:10Z",
+                "initial": False,
+                "payload": {
+                    "Lines": {
+                        "12": {
+                            "RacingNumber": "12",
+                            "Position": "5",
+                            "NumberOfLaps": 16,
+                            "LastLapTime": {"Value": "1:11.700"},
+                            "InPit": False,
+                        }
+                    }
+                },
+            },
+            {
+                "received_at": "2026-08-22T01:15:20Z",
+                "stream": "TimingData",
+                "source_timestamp": "2026-08-22T01:15:20Z",
+                "initial": False,
+                "payload": {
+                    "Lines": {
+                        "12": {
+                            "RacingNumber": "12",
+                            "Position": "5",
+                            "NumberOfLaps": 17,
+                            "LastLapTime": {"Value": "1:11.600"},
+                            "InPit": False,
+                        }
+                    }
+                },
+            },
+        ]
+    )
     live = PublicLiveSession()
     asyncio.run(live.apply_rows("11344", rows))
 
-    with TestClient(
-        create_app(
-            tmp_path,
-            now=lambda: now,
-            public_live=True,
-            live_session=live,
-            prepare_weekend_context=lambda **_: {},
-        )
-    ) as client, client.websocket_connect(
-        "/api/v1/stream?session_key=11344&mode=live"
-    ) as viewer_live, client.websocket_connect(
-        "/api/v1/stream?session_key=11344&mode=live"
-    ) as viewer_delayed:
+    with (
+        TestClient(
+            create_app(
+                tmp_path,
+                now=lambda: now,
+                public_live=True,
+                live_session=live,
+                prepare_weekend_context=lambda **_: {},
+            )
+        ) as client,
+        client.websocket_connect(
+            "/api/v1/stream?session_key=11344&mode=live"
+        ) as viewer_live,
+        client.websocket_connect(
+            "/api/v1/stream?session_key=11344&mode=live"
+        ) as viewer_delayed,
+    ):
         latest = viewer_live.receive_json()
         delayed_initial = viewer_delayed.receive_json()
         viewer_delayed.send_json({"type": "delay", "seconds": 15})

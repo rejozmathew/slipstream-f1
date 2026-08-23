@@ -50,7 +50,7 @@ def test_openf1_recording_normalizes_to_golden_state() -> None:
 def test_replay_can_render_a_deterministic_point_in_time() -> None:
     state = replay(load_events(RECORDING), at="2023-09-17T13:59:10Z")
 
-    assert state.session.status == "STARTED"
+    assert state.session.status == "RUNNING"
     assert state.session.total_laps == 62
     assert state.updated_at == "2023-09-17T13:59:00+00:00"
     assert state.drivers["55"].position == 1
@@ -355,7 +355,8 @@ def test_openf1_lifecycle_requires_explicit_timestamped_driver_evidence() -> Non
     lifecycle_events = [
         event
         for event in recording_to_events(raw)
-        if event.kind == "timing" and event.payload.get("status") in {"STOPPED", "RETIRED"}
+        if event.kind == "timing"
+        and event.payload.get("status") in {"STOPPED", "RETIRED"}
     ]
 
     assert [
@@ -367,31 +368,90 @@ def test_openf1_lifecycle_requires_explicit_timestamped_driver_evidence() -> Non
     ]
 
 
-def test_no_recent_progress_uses_driver_laps_and_clears_on_later_progress() -> None:
+def test_no_recent_progress_heuristic_is_disabled() -> None:
     from slipstream.events import NormalizedEvent
     from slipstream.state import RaceState
 
-    state = RaceState().apply(NormalizedEvent(kind="session", occurred_at="2026-01-01T12:00:00Z", source="test", payload={"layout_family": "race", "status": "STARTED"}))
+    state = RaceState().apply(
+        NormalizedEvent(
+            kind="session",
+            occurred_at="2026-01-01T12:00:00Z",
+            source="test",
+            payload={"layout_family": "race", "status": "STARTED"},
+        )
+    )
     for number in ("1", "2"):
-        state = state.apply(NormalizedEvent(kind="driver", occurred_at="2026-01-01T12:00:01Z", source="test", payload={"number": number, "status": "RUNNING"}))
-        state = state.apply(NormalizedEvent(kind="timing", occurred_at="2026-01-01T12:01:00Z", source="test", payload={"number": number, "lap": 1}))
-    state = state.apply(NormalizedEvent(kind="timing", occurred_at="2026-01-01T12:02:00Z", source="test", payload={"number": "1", "lap": 2}))
-    state = state.apply(NormalizedEvent(kind="timing", occurred_at="2026-01-01T12:03:00Z", source="test", payload={"number": "1", "lap": 3}))
+        state = state.apply(
+            NormalizedEvent(
+                kind="driver",
+                occurred_at="2026-01-01T12:00:01Z",
+                source="test",
+                payload={"number": number, "status": "RUNNING"},
+            )
+        )
+        state = state.apply(
+            NormalizedEvent(
+                kind="timing",
+                occurred_at="2026-01-01T12:01:00Z",
+                source="test",
+                payload={"number": number, "lap": 1},
+            )
+        )
+    state = state.apply(
+        NormalizedEvent(
+            kind="timing",
+            occurred_at="2026-01-01T12:02:00Z",
+            source="test",
+            payload={"number": "1", "lap": 2},
+        )
+    )
+    state = state.apply(
+        NormalizedEvent(
+            kind="timing",
+            occurred_at="2026-01-01T12:03:00Z",
+            source="test",
+            payload={"number": "1", "lap": 3},
+        )
+    )
 
-    assert state.drivers["2"].activity == "NO_RECENT_PROGRESS"
-    assert state.drivers["2"].status == "RUNNING"
-
-    state = state.apply(NormalizedEvent(kind="timing", occurred_at="2026-01-01T12:03:30Z", source="test", payload={"number": "2", "lap": 2}))
     assert state.drivers["2"].activity == "ON_TRACK"
+    assert state.drivers["2"].status == "RUNNING"
+    assert state.drivers["2"].progress_observed_at_lap == 1
 
 
 def test_historical_sparse_updates_preserve_full_field_track_progress() -> None:
     raw = json.loads(RECORDING.read_text(encoding="utf-8"))
     numbers = [str(number) for number in range(1, 7)]
-    raw["endpoints"]["drivers"] = [{"driver_number": int(number), "full_name": f"Driver {number}", "name_acronym": f"D{number}", "team_colour": f"{int(number) * 100000:06d}", "team_name": f"Team {number}"} for number in numbers]
-    raw["endpoints"]["laps"] = [{"date_start": f"2023-09-17T13:56:{40 + index:02d}+00:00", "driver_number": int(number), "lap_duration": 96.0 + index, "lap_number": 62} for index, number in enumerate(numbers)]
-    raw["endpoints"]["position"] = [{"date": "2023-09-17T13:56:50+00:00", "driver_number": 1, "position": 1}]
-    raw["endpoints"]["intervals"] = [{"date": "2023-09-17T13:56:51+00:00", "driver_number": 1, "gap_to_leader": 0, "interval": 0}]
+    raw["endpoints"]["drivers"] = [
+        {
+            "driver_number": int(number),
+            "full_name": f"Driver {number}",
+            "name_acronym": f"D{number}",
+            "team_colour": f"{int(number) * 100000:06d}",
+            "team_name": f"Team {number}",
+        }
+        for number in numbers
+    ]
+    raw["endpoints"]["laps"] = [
+        {
+            "date_start": f"2023-09-17T13:56:{40 + index:02d}+00:00",
+            "driver_number": int(number),
+            "lap_duration": 96.0 + index,
+            "lap_number": 62,
+        }
+        for index, number in enumerate(numbers)
+    ]
+    raw["endpoints"]["position"] = [
+        {"date": "2023-09-17T13:56:50+00:00", "driver_number": 1, "position": 1}
+    ]
+    raw["endpoints"]["intervals"] = [
+        {
+            "date": "2023-09-17T13:56:51+00:00",
+            "driver_number": 1,
+            "gap_to_leader": 0,
+            "interval": 0,
+        }
+    ]
     raw["endpoints"]["stints"] = []
     raw["endpoints"]["session_result"] = []
     raw["endpoints"]["race_control"] = []
@@ -401,3 +461,99 @@ def test_historical_sparse_updates_preserve_full_field_track_progress() -> None:
     assert set(state.drivers) == set(numbers)
     assert all(state.drivers[number].track_position is not None for number in numbers)
     assert state.drivers["1"].track_position != state.drivers["2"].track_position
+
+
+def test_openf1_red_flag_is_history_only_and_degrades_after_track_clear() -> None:
+    raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
+    raw["endpoints"]["race_control"] = [
+        {
+            "category": "Flag",
+            "date": "2025-01-01T12:05:00Z",
+            "flag": "RED",
+            "scope": "Track",
+            "message": "RED FLAG - RACE SUSPENDED",
+        },
+        {
+            "category": "Flag",
+            "date": "2025-01-01T12:10:00Z",
+            "flag": "CLEAR",
+            "scope": "Track",
+            "message": "TRACK CLEAR",
+        },
+    ]
+    events = recording_to_events(raw)
+
+    during_red = replay(events, at="2025-01-01T12:05:00Z")
+    assert during_red.session.status == "RUNNING"
+    assert during_red.session.control_status == "UNKNOWN"
+    assert during_red.session.display_status == "RED_FLAG"
+    assert during_red.race_control[-1].message == "RED FLAG - RACE SUSPENDED"
+
+    after_clear = replay(events, at="2025-01-01T12:10:00Z")
+    assert after_clear.session.status == "RUNNING"
+    assert after_clear.session.control_status == "UNKNOWN"
+    assert after_clear.session.marshal_status == "ALL_CLEAR"
+    assert after_clear.session.display_status == "UNKNOWN"
+    assert not any(
+        event.kind == "session" and event.payload.get("status") == "SUSPENDED"
+        for event in events
+    )
+
+
+def test_openf1_final_qualifying_segments_arrive_only_at_session_end() -> None:
+    raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
+    session = raw["endpoints"]["sessions"][0]
+    session.update({"session_name": "Qualifying", "session_type": "Qualifying"})
+    raw["endpoints"].update(
+        {
+            "drivers": [
+                {"driver_number": 4, "name_acronym": "NOR", "team_name": "McLaren"},
+                {"driver_number": 10, "name_acronym": "GAS", "team_name": "Alpine"},
+                {"driver_number": 55, "name_acronym": "SAI", "team_name": "Williams"},
+            ],
+            "laps": [],
+            "position": [],
+            "intervals": [],
+            "stints": [],
+            "pit": [],
+            "race_control": [],
+            "weather": [],
+            "session_result": [
+                {
+                    "driver_number": 4,
+                    "position": 1,
+                    "duration": [72.695, 71.628, 71.163],
+                },
+                {
+                    "driver_number": 10,
+                    "position": 11,
+                    "duration": [73.115, 72.616, None],
+                },
+                {"driver_number": 55, "position": 17, "duration": [73.574, None, None]},
+            ],
+        }
+    )
+    events = recording_to_events(raw)
+    end_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.kind == "session"
+        and event.occurred_at == session["date_end"]
+        and event.payload.get("status") == "FINISHED"
+    )
+
+    before_end = replay(events, event_limit=end_index)
+    assert all(
+        driver.qualifying_results is None for driver in before_end.drivers.values()
+    )
+
+    final = replay(events)
+    assert final.drivers["4"].qualifying_results == (72.695, 71.628, 71.163)
+    assert final.drivers["4"].qualifying_phase_reached == "Q3"
+    assert final.drivers["4"].qualifying_eliminated is False
+    assert final.drivers["10"].qualifying_results == (73.115, 72.616, None)
+    assert final.drivers["10"].qualifying_phase_reached == "Q2"
+    assert final.drivers["10"].qualifying_eliminated is True
+    assert final.drivers["55"].qualifying_results == (73.574, None, None)
+    assert final.drivers["55"].qualifying_phase_reached == "Q1"
+    assert final.drivers["55"].qualifying_eliminated is True

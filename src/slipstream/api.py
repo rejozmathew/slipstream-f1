@@ -76,7 +76,9 @@ def create_app(
     if downloads_enabled:
         live.configure_recording(recording_path, expose_live_recording)
     pirelli_store = PirelliEvidenceStore(recording_path) if downloads_enabled else None
-    pirelli_refresh_enabled = os.getenv("SLIPSTREAM_PIRELLI_REFRESH", "1").strip().lower() not in {"0", "false", "no", "off"}
+    pirelli_refresh_enabled = os.getenv(
+        "SLIPSTREAM_PIRELLI_REFRESH", "1"
+    ).strip().lower() not in {"0", "false", "no", "off"}
     pirelli_coordinator = (
         PirelliRuntimeCoordinator(PirelliIngestionService(pirelli_store.archive))
         if pirelli_store is not None and pirelli_refresh_enabled
@@ -121,7 +123,9 @@ def create_app(
 
     def pirelli_context(selected: ReplayResource) -> PirelliAvailability:
         if pirelli_store is None:
-            return PirelliAvailability("ABSENT", error="operational Pirelli storage is not writable")
+            return PirelliAvailability(
+                "ABSENT", error="operational Pirelli storage is not writable"
+            )
         scope = (
             SessionScope.SPRINT
             if selected.descriptor.session_kind == "sprint"
@@ -130,7 +134,9 @@ def create_app(
             else None
         )
         if scope is None:
-            return PirelliAvailability("ABSENT", error="Pirelli strategy applies only to Race or Sprint")
+            return PirelliAvailability(
+                "ABSENT", error="Pirelli strategy applies only to Race or Sprint"
+            )
         return pirelli_store.load(
             meeting_key=selected.descriptor.meeting_key,
             target_session_key=selected.descriptor.key,
@@ -164,7 +170,9 @@ def create_app(
         ]
         return min(upcoming, key=lambda item: item.date_start) if upcoming else None
 
-    def live_payload(session_key: str | None, *, delay_seconds: float = 0) -> dict[str, Any]:
+    def live_payload(
+        session_key: str | None, *, delay_seconds: float = 0
+    ) -> dict[str, Any]:
         view = live.view(session_key)
         return {
             "status": view.status,
@@ -194,7 +202,9 @@ def create_app(
                     "liveStale": selected_live and source.stale,
                     "liveStatus": source.status if selected_live else "OFFLINE",
                     "livePhase": source.phase if selected_live else "UNAVAILABLE",
-                    "replayReady": source.replay_ready if selected_live else session["available"],
+                    "replayReady": source.replay_ready
+                    if selected_live
+                    else session["available"],
                 }
             )
         return {
@@ -322,8 +332,7 @@ def create_app(
     ) -> dict[str, Any]:
         source = live.view(selected.descriptor.key)
         has_live_state = (
-            source.target_session_key == selected.descriptor.key
-            and source.sequence > 0
+            source.target_session_key == selected.descriptor.key and source.sequence > 0
         )
         events = live.events if has_live_state else selected.events
         controller = ReplayController(
@@ -338,7 +347,11 @@ def create_app(
                 controller.seek_cursor(len(events))
         state = controller.state if events else selected.final_state
         analytics = None
-        if has_live_state and source.phase not in {"PRE_EVENT", "CONNECTING", "UNAVAILABLE"}:
+        if has_live_state and source.phase not in {
+            "PRE_EVENT",
+            "CONNECTING",
+            "UNAVAILABLE",
+        }:
             live_resource = ReplayResource(
                 descriptor=selected.descriptor,
                 events=tuple(events),
@@ -371,9 +384,7 @@ def create_app(
         envelope = state_envelope(
             selected.final_state,
             sequence=len(selected.events),
-            session_time=(
-                selected.events[-1].occurred_at if selected.events else None
-            ),
+            session_time=(selected.events[-1].occurred_at if selected.events else None),
         )
         envelope["mode"] = "replay"
         envelope["handoff"] = "REPLAY_READY"
@@ -385,12 +396,17 @@ def create_app(
     ) -> dict[str, Any]:
         selected = resource(session_key)
         if mode not in {"auto", "live", "replay"}:
-            raise HTTPException(status_code=422, detail="mode must be auto, live, or replay")
-        wants_live = mode == "live" or (mode == "auto" and live_mode_available(selected))
+            raise HTTPException(
+                status_code=422, detail="mode must be auto, live, or replay"
+            )
+        wants_live = mode == "live" or (
+            mode == "auto" and live_mode_available(selected)
+        )
         if wants_live:
             if not live_mode_available(selected):
                 raise HTTPException(
-                    status_code=409, detail="Selected session is not available in Live mode"
+                    status_code=409,
+                    detail="Selected session is not available in Live mode",
                 )
             return live_state_envelope(selected)
         envelope = state_envelope(
@@ -413,6 +429,7 @@ def create_app(
                     "live_timing": True,
                     "positions": False,
                     "intervals": True,
+                    "sector_timing": True,
                     "location_xy": False,
                     "race_control": True,
                     "weather": True,
@@ -434,9 +451,7 @@ def create_app(
             "replayReady": selected.replay_available or source.replay_ready,
             "isLive": selected.is_live,
             "positionMode": (
-                "unavailable"
-                if live_available
-                else selected.descriptor.position_mode
+                "unavailable" if live_available else selected.descriptor.position_mode
             ),
         }
 
@@ -469,9 +484,7 @@ def create_app(
             "replayReady": selected.replay_available or source.replay_ready,
             "isLive": selected.is_live,
             "positionMode": (
-                "unavailable"
-                if live_available
-                else selected.descriptor.position_mode
+                "unavailable" if live_available else selected.descriptor.position_mode
             ),
         }
 
@@ -509,9 +522,7 @@ def create_app(
                     "stopDuration": item.stop_duration,
                     "pitLaneDuration": item.pit_lane_duration,
                 }
-                for item in selected.evidence.pit_events_for_driver(
-                    str(driver_number)
-                )
+                for item in selected.evidence.pit_events_for_driver(str(driver_number))
             ],
         }
 
@@ -636,6 +647,7 @@ def create_app(
                 context=meeting_context(selected, prepare=False),
                 pirelli=pirelli_context(selected),
             )
+
         send_lock = asyncio.Lock()
         playback_task: asyncio.Task[None] | None = None
         await _send_snapshot(

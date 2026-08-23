@@ -38,6 +38,8 @@ class DriverState:
     activity: str = "UNKNOWN"
     progress_observed_at_lap: int | None = None
     qualifying_eliminated: bool | None = None
+    qualifying_results: tuple[float | None, float | None, float | None] | None = None
+    qualifying_phase_reached: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,7 @@ class SessionState:
     marshal_status: str = "UNKNOWN"
     display_status: str = "UNKNOWN"
     qualifying_phase: str = "UNKNOWN"
+    eligible_field_size: int | None = None
     session_clock: str | None = None
     session_clock_running: bool | None = None
     status: str = "UNKNOWN"
@@ -115,6 +118,7 @@ class RaceState:
     def apply(self, event: NormalizedEvent) -> RaceState:
         if event.kind == "session":
             updates = dict(event.payload)
+            explicit_display_status = "display_status" in updates
             legacy_track_status = updates.pop("track_status", None)
             if legacy_track_status is not None:
                 for key, value in _legacy_track_updates(legacy_track_status).items():
@@ -135,7 +139,10 @@ class RaceState:
             ):
                 updates["control_status"] = "NORMAL"
             session = replace(self.session, **updates)
-            if updates.keys() & {"status", "control_status", "marshal_status"}:
+            if (
+                updates.keys() & {"status", "control_status", "marshal_status"}
+                and not explicit_display_status
+            ):
                 session = _with_display_status(session)
             elif legacy_track_status is not None:
                 session = replace(session, track_status=str(legacy_track_status))
@@ -208,7 +215,12 @@ class RaceState:
                 # Store the driver's own last proven lap for the deterministic gap rule.
                 updates["progress_observed_at_lap"] = event_lap
             if str(updates.get("status") or "").upper() in {
-                "RETIRED", "DNF", "DNS", "DISQUALIFIED", "DSQ", "WITHDRAWN"
+                "RETIRED",
+                "DNF",
+                "DNS",
+                "DISQUALIFIED",
+                "DSQ",
+                "WITHDRAWN",
             }:
                 updates["activity"] = "UNKNOWN"
             explicit_availability = updates.pop("availability", {})
@@ -222,14 +234,11 @@ class RaceState:
                 **explicit_availability,
             }
             item = replace(current, **updates, availability=availability)
-            drivers = _with_progress_activity(
-                {**self.drivers, number: item}, session
-            )
             return replace(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(session, event.occurred_at),
-                drivers=drivers,
+                drivers={**self.drivers, number: item},
             )
         if event.kind == "weather":
             updates = dict(event.payload)
@@ -253,19 +262,10 @@ class RaceState:
             )
         if event.kind == "race_control":
             item = RaceControlMessage(occurred_at=event.occurred_at, **event.payload)
-            session = self.session
-            updates = _session_updates_from_race_control(item)
-            if (
-                updates.get("control_status") == "NORMAL"
-                and session.control_status == "RED_FLAG"
-            ):
-                updates.pop("control_status")
-            if updates:
-                session = _with_display_status(replace(session, **updates))
             return replace(
                 self,
                 updated_at=event.occurred_at,
-                session=_with_local_time(session, event.occurred_at),
+                session=_with_local_time(self.session, event.occurred_at),
                 race_control=(*self.race_control, item),
             )
         raise ValueError(f"Unsupported event kind: {event.kind}")
@@ -285,38 +285,6 @@ def _with_local_time(session: SessionState, occurred_at: str) -> SessionState:
     except (TypeError, ValueError):
         return session
     return replace(session, local_time=local_time)
-
-
-def _session_updates_from_race_control(
-    message: RaceControlMessage,
-) -> dict[str, str]:
-    """Return observed session-control or marshal transitions only."""
-
-    scope = message.scope.upper() if message.scope else None
-    if scope not in (None, "TRACK") or message.driver_number is not None:
-        return {}
-    flag = message.flag.upper() if message.flag else None
-    if scope == "TRACK" and flag == "GREEN":
-        return {"marshal_status": "ALL_CLEAR", "control_status": "NORMAL"}
-    if scope == "TRACK" and flag in {"YELLOW", "DOUBLE YELLOW"}:
-        return {"marshal_status": "YELLOW"}
-    if scope == "TRACK" and flag == "RED":
-        return {"marshal_status": "RED"}
-    if scope == "TRACK" and flag == "CHEQUERED":
-        return {"control_status": "CHEQUERED"}
-    if scope == "TRACK" and flag == "CLEAR":
-        return {"marshal_status": "ALL_CLEAR", "control_status": "NORMAL"}
-    category = message.category.upper()
-    text = message.message.upper().strip()
-    if category == "SAFETYCAR" and text == "VIRTUAL SAFETY CAR DEPLOYED":
-        return {"control_status": "VSC"}
-    if category == "SAFETYCAR" and "VIRTUAL SAFETY CAR ENDING" in text:
-        return {"control_status": "VSC_ENDING"}
-    if category == "SAFETYCAR" and text == "SAFETY CAR DEPLOYED":
-        return {"control_status": "SAFETY_CAR"}
-    if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
-        return {"control_status": "RED_FLAG"}
-    return {}
 
 
 def _legacy_track_updates(value: object) -> dict[str, str]:
@@ -356,31 +324,7 @@ def _with_display_status(session: SessionState) -> SessionState:
     elif marshal == "YELLOW":
         display, legacy = "YELLOW", "YELLOW"
     elif marshal == "ALL_CLEAR":
-        display, legacy = "ALL_CLEAR", "GREEN"
+        display, legacy = "GREEN", "GREEN"
     else:
         display, legacy = "UNKNOWN", None
     return replace(session, display_status=display, track_status=legacy)
-
-
-def _with_progress_activity(
-    drivers: dict[str, DriverState], session: SessionState
-) -> dict[str, DriverState]:
-    """Mark conservative non-terminal circulation gaps from source lap progress."""
-    if (
-        session.layout_family != "race"
-        or session.lap is None
-        or str(session.status).upper() in {"FINISHED", "ENDED", "COMPLETE", "FINAL"}
-    ):
-        return drivers
-    terminal = {"RETIRED", "DNF", "DNS", "DISQUALIFIED", "DSQ", "WITHDRAWN"}
-    result = dict(drivers)
-    for number, driver in drivers.items():
-        if (
-            str(driver.status).upper() in terminal
-            or driver.activity == "IN_PIT"
-            or driver.progress_observed_at_lap is None
-        ):
-            continue
-        if session.lap - driver.progress_observed_at_lap >= 2:
-            result[number] = replace(driver, activity="NO_RECENT_PROGRESS")
-    return result

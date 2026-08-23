@@ -34,6 +34,7 @@ CAPABILITIES = {
     "live_timing": False,
     "positions": True,
     "intervals": True,
+    "sector_timing": True,
     "location_xy": False,
     "circuit_shape": True,
     "race_control": True,
@@ -178,6 +179,12 @@ class OpenF1Client:
             "local_time": bool(sessions[0].get("gmt_offset")),
             "circuit_shape": _has_circuit_path(circuit_info),
             "location_xy": bool(endpoints["location"]),
+            "sector_timing": any(
+                lap.get("duration_sector_1") is not None
+                or lap.get("duration_sector_2") is not None
+                or lap.get("duration_sector_3") is not None
+                for lap in endpoints["laps"]
+            ),
         }
         return {
             "format": RECORDING_FORMAT,
@@ -206,9 +213,7 @@ class OpenF1Client:
     ) -> dict[str, Any]:
         """Fetch compact prior-session evidence without creating replay assets."""
 
-        discovered = self.get(
-            "sessions", meeting_key=meeting_key, allow_not_found=True
-        )
+        discovered = self.get("sessions", meeting_key=meeting_key, allow_not_found=True)
         session_rows = discovered or inventory
         meeting_sessions = [
             item
@@ -423,7 +428,15 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 "ended_at": ended_at,
                 "gmt_offset": session.get("gmt_offset"),
                 "total_laps": race_total_laps,
-                "status": "STARTED",
+                "eligible_field_size": len(
+                    {
+                        str(driver["driver_number"])
+                        for driver in endpoints.get("drivers", [])
+                        if driver.get("driver_number") is not None
+                    }
+                )
+                or None,
+                "status": "RUNNING",
             },
         )
     ]
@@ -519,7 +532,8 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     "stint_laps": 0 if initial_stint else None,
                     "tyre_usage": (
                         "NEW"
-                        if initial_stint and int(initial_stint.get("tyre_age_at_start") or 0) == 0
+                        if initial_stint
+                        and int(initial_stint.get("tyre_age_at_start") or 0) == 0
                         else "USED"
                         if initial_stint
                         else "UNKNOWN"
@@ -605,7 +619,9 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             else None
         )
         previous_stint = (
-            _previous_stint_at_or_before_lap(stints_by_driver.get(number, []), lap_number)
+            _previous_stint_at_or_before_lap(
+                stints_by_driver.get(number, []), lap_number
+            )
             if isinstance(lap_number, int) and pit_record is not None
             else stint
         )
@@ -654,7 +670,8 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 "qualifying_phase": "UNKNOWN",
                 "tyre_usage": (
                     "NEW"
-                    if stint is not None and int(stint.get("tyre_age_at_start") or 0) == 0
+                    if stint is not None
+                    and int(stint.get("tyre_age_at_start") or 0) == 0
                     else "USED"
                     if stint is not None
                     else "UNKNOWN"
@@ -663,7 +680,9 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 "pit_in": pit_in,
                 "pit_out": pit_out,
                 "pit_occurred_at": pit_record.get("date") if pit_record else None,
-                "previous_compound": previous_stint.get("compound") if pit_record and previous_stint is not None else None,
+                "previous_compound": previous_stint.get("compound")
+                if pit_record and previous_stint is not None
+                else None,
                 "new_compound": next_stint.get("compound") if next_stint else None,
                 "stop_duration": _positive_float(
                     pit_record.get("stop_duration") if pit_record else None
@@ -696,7 +715,8 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 activity="ON_TRACK",
                 tyre_usage=(
                     "NEW"
-                    if stint is not None and int(stint.get("tyre_age_at_start") or 0) == 0
+                    if stint is not None
+                    and int(stint.get("tyre_age_at_start") or 0) == 0
                     else "USED"
                     if stint is not None
                     else "UNKNOWN"
@@ -754,7 +774,10 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
         number = str(pit["driver_number"])
         pit_counts[number] = pit_counts.get(number, 0) + 1
         events.append(_timing_event(pit["date"], number, pit_count=pit_counts[number]))
-    for message in endpoints.get("race_control", []):
+    unresolved_red_endpoint = False
+    for message in sorted(
+        endpoints.get("race_control", []), key=lambda item: str(item.get("date") or "")
+    ):
         if message.get("date") and message.get("message"):
             events.append(
                 NormalizedEvent(
@@ -776,6 +799,18 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     },
                 )
             )
+            update, unresolved_red_endpoint = _openf1_session_update(
+                message, unresolved_red_endpoint
+            )
+            if update:
+                events.append(
+                    NormalizedEvent(
+                        kind="session",
+                        occurred_at=message["date"],
+                        source=source,
+                        payload=update,
+                    )
+                )
         lifecycle = _race_control_driver_lifecycle(message)
         if lifecycle is not None:
             number, status = lifecycle
@@ -823,28 +858,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 },
             )
         )
-    result_numbers: set[str] = set()
-    for result in results:
-        result_numbers.add(str(result["driver_number"]))
-        best_lap = None
-        if session.get("session_type") != "Race":
-            best_lap = _format_duration(_last_available(result.get("duration")))
-        events.append(
-            _timing_event(
-                ended_at,
-                result["driver_number"],
-                position=result.get("position"),
-                lap=result.get("number_of_laps"),
-                gap_to_leader=_result_gap(result),
-                best_lap=best_lap,
-                status=_result_status(result),
-            )
-        )
     final_status = "CANCELLED" if session.get("is_cancelled") else "FINISHED"
-    for driver in endpoints.get("drivers", []):
-        number = str(driver["driver_number"])
-        if number not in result_numbers:
-            events.append(_timing_event(ended_at, number, status=final_status))
     events.append(
         NormalizedEvent(
             kind="session",
@@ -860,6 +874,32 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             },
         )
     )
+    result_numbers: set[str] = set()
+    for result in results:
+        result_numbers.add(str(result["driver_number"]))
+        best_lap = None
+        qualifying_fields: dict[str, Any] = {}
+        if session.get("session_type") != "Race":
+            best_lap = _format_duration(_last_available(result.get("duration")))
+            qualifying_fields = _qualifying_result_fields(
+                result, classification.kind.value
+            )
+        events.append(
+            _timing_event(
+                ended_at,
+                result["driver_number"],
+                position=result.get("position"),
+                lap=result.get("number_of_laps"),
+                gap_to_leader=_result_gap(result),
+                best_lap=best_lap,
+                status=_result_status(result),
+                **qualifying_fields,
+            )
+        )
+    for driver in endpoints.get("drivers", []):
+        number = str(driver["driver_number"])
+        if number not in result_numbers:
+            events.append(_timing_event(ended_at, number, status=final_status))
     return sorted(events, key=lambda event: parse_timestamp(event.occurred_at))
 
 
@@ -886,6 +926,46 @@ def _has_circuit_path(payload: object) -> bool:
         and len(x_values) == len(y_values)
         and all(isinstance(value, (int, float)) for value in (*x_values, *y_values))
     )
+
+
+def _openf1_session_update(
+    message: dict[str, Any], unresolved_red_endpoint: bool
+) -> tuple[dict[str, Any], bool]:
+    """Keep marshal truth while avoiding an unexitable historical red latch."""
+
+    if message.get("driver_number") is not None:
+        return {}, unresolved_red_endpoint
+    scope = str(message.get("scope") or "").upper() or None
+    if scope not in {None, "TRACK"}:
+        return {}, unresolved_red_endpoint
+    category = str(message.get("category") or "").upper()
+    text = " ".join(str(message.get("message") or "").upper().split())
+    flag = str(message.get("flag") or "").upper()
+    if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
+        return {
+            "display_status": "RED_FLAG",
+        }, True
+    if category == "SAFETYCAR" and text == "VIRTUAL SAFETY CAR DEPLOYED":
+        return {"control_status": "VSC"}, False
+    if category == "SAFETYCAR" and "VIRTUAL SAFETY CAR ENDING" in text:
+        return {"control_status": "VSC_ENDING"}, False
+    if category == "SAFETYCAR" and text == "SAFETY CAR DEPLOYED":
+        return {"control_status": "SAFETY_CAR"}, False
+    if flag == "CHEQUERED" or "CHEQUERED FLAG" in text:
+        return {"control_status": "CHEQUERED"}, False
+    marshal = None
+    if scope == "TRACK" and flag in {"GREEN", "CLEAR"}:
+        marshal = "ALL_CLEAR"
+    elif scope == "TRACK" and flag in {"YELLOW", "DOUBLE YELLOW"}:
+        marshal = "YELLOW"
+    elif scope == "TRACK" and flag == "RED":
+        marshal = "RED"
+    if marshal is None:
+        return {}, unresolved_red_endpoint
+    update: dict[str, Any] = {"marshal_status": marshal}
+    if unresolved_red_endpoint:
+        update["display_status"] = "UNKNOWN"
+    return update, unresolved_red_endpoint
 
 
 def _race_control_driver_lifecycle(
@@ -971,7 +1051,11 @@ def _neutralization_transition(message: dict[str, Any]) -> tuple[str, str] | Non
     if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
         return ("start", "red")
     if scope == "TRACK" and flag in {"CLEAR", "GREEN"}:
-        return ("end", "clear")
+        return ("end", "marshal_clear")
+    if category == "SAFETYCAR" and (
+        "VIRTUAL SAFETY CAR ENDING" in text or "SAFETY CAR IN THIS LAP" in text
+    ):
+        return ("end", "sporting_control")
     return None
 
 
@@ -992,7 +1076,14 @@ def _track_neutralization_intervals(
             if active is None:
                 active = (timestamp, kind)
             continue
-        if active is not None:
+        may_close = active is not None and (
+            kind == "sporting_control"
+            or (
+                kind == "marshal_clear"
+                and active[1] in {"yellow", "double_yellow", "safety_car", "vsc"}
+            )
+        )
+        if may_close and active is not None:
             intervals.append((active[0], timestamp, active[1]))
             active = None
     if active is not None:
@@ -1062,7 +1153,9 @@ def _next_stint_after_lap(
         if isinstance(stint.get("lap_start"), (int, float))
         and int(stint["lap_start"]) > lap_number
     ]
-    return min(candidates, key=lambda item: int(item["lap_start"])) if candidates else None
+    return (
+        min(candidates, key=lambda item: int(item["lap_start"])) if candidates else None
+    )
 
 
 def _previous_stint_at_or_before_lap(
@@ -1076,7 +1169,9 @@ def _previous_stint_at_or_before_lap(
         if isinstance(stint.get("lap_end"), (int, float))
         and int(stint["lap_end"]) <= lap_number
     ]
-    return max(candidates, key=lambda item: int(item["lap_end"])) if candidates else None
+    return (
+        max(candidates, key=lambda item: int(item["lap_end"])) if candidates else None
+    )
 
 
 def _as_datetime(value: str) -> datetime:
@@ -1110,6 +1205,31 @@ def _result_gap(result: dict[str, Any]) -> str | None:
     if result.get("position") == 1:
         return "LEADER"
     return _format_gap(result.get("gap_to_leader"))
+
+
+def _qualifying_result_fields(
+    result: dict[str, Any], session_kind: str
+) -> dict[str, Any]:
+    durations = result.get("duration")
+    if not isinstance(durations, list) or len(durations) != 3:
+        return {}
+    normalized = tuple(
+        float(value) if isinstance(value, (int, float)) and value > 0 else None
+        for value in durations
+    )
+    reached_index = max(
+        (index for index, value in enumerate(normalized) if value is not None),
+        default=None,
+    )
+    if reached_index is None:
+        return {"qualifying_results": normalized}
+    prefix = "SQ" if session_kind == "sprint_qualifying" else "Q"
+    reached = f"{prefix}{reached_index + 1}"
+    return {
+        "qualifying_results": normalized,
+        "qualifying_phase_reached": reached,
+        "qualifying_eliminated": reached_index < 2,
+    }
 
 
 def _result_status(result: dict[str, Any]) -> str:

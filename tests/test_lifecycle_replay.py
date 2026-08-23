@@ -4,7 +4,9 @@ from slipstream.analytics import build_analytics_snapshot
 from slipstream.events import NormalizedEvent
 from slipstream.evidence import SessionEvidence
 from slipstream.library import ReplayResource, SessionDescriptor
+from slipstream.live import F1LiveAdapter
 from slipstream.replay import replay
+from slipstream.state import RaceState
 from slipstream.weekend import ContextAvailability
 
 
@@ -146,8 +148,7 @@ def test_stopped_resumes_only_with_positive_evidence_and_terminal_never_resumes(
     assert stopped.drivers["2"].status == "STOPPED"
     assert stopped_analytics["drivers"]["2"]["strategy"]["terminalState"] is None
     assert all(
-        candidate["aheadDriverNumber"] != "2"
-        and candidate["behindDriverNumber"] != "2"
+        candidate["aheadDriverNumber"] != "2" and candidate["behindDriverNumber"] != "2"
         for candidate in stopped_analytics["battle"]["candidates"]
     )
 
@@ -164,8 +165,7 @@ def test_stopped_resumes_only_with_positive_evidence_and_terminal_never_resumes(
     assert strategy["pitWindow"]["value"] is None
     assert strategy["primaryStrategy"]["value"] is None
     assert all(
-        candidate["aheadDriverNumber"] != "2"
-        and candidate["behindDriverNumber"] != "2"
+        candidate["aheadDriverNumber"] != "2" and candidate["behindDriverNumber"] != "2"
         for candidate in retired_analytics["battle"]["candidates"]
     )
 
@@ -201,3 +201,65 @@ def test_final_cursor_suppresses_all_future_strategy_without_hindsight(
     assert earlier_analytics == earlier_first_analytics
     assert earlier_after_final.drivers["2"].status == "RUNNING"
     assert earlier_analytics["strategyLifecycle"] != "FINAL"
+
+
+def test_stroll_live_retirement_is_terminal_at_exact_normalized_cursor() -> None:
+    adapter = F1LiveAdapter("11353")
+    rows = [
+        {
+            "received_at": "2026-08-23T14:36:45Z",
+            "stream": "SessionInfo",
+            "initial": True,
+            "payload": {"Key": 11353, "Name": "Race", "Type": "Race"},
+        },
+        {
+            "received_at": "2026-08-23T14:36:45.500Z",
+            "stream": "DriverList",
+            "initial": False,
+            "payload": {
+                "18": {
+                    "RacingNumber": "18",
+                    "Tla": "STR",
+                    "FullName": "Lance STROLL",
+                    "TeamName": "Aston Martin",
+                }
+            },
+        },
+        {
+            "received_at": "2026-08-23T14:36:46.926204Z",
+            "stream": "TimingData",
+            "initial": False,
+            "payload": {
+                "Lines": {
+                    "18": {
+                        "RacingNumber": "18",
+                        "Retired": True,
+                        "Stopped": True,
+                        "InPit": True,
+                        "Position": "20",
+                        "NumberOfLaps": 45,
+                        "NumberOfPitStops": 4,
+                    }
+                }
+            },
+        },
+    ]
+    events = []
+    for row in rows:
+        events.extend(adapter.ingest(row))
+    retirement_cursor = next(
+        index
+        for index, event in enumerate(events, start=1)
+        if event.kind == "timing"
+        and event.occurred_at == "2026-08-23T14:36:46.926204Z"
+        and event.payload.get("number") == "18"
+    )
+    assert events[retirement_cursor - 1].payload["status"] == "RETIRED"
+
+    incremental = RaceState()
+    for event in events[:retirement_cursor]:
+        incremental = incremental.apply(event)
+    replayed = replay(events, event_limit=retirement_cursor)
+    assert incremental.drivers["18"].status == "RETIRED"
+    assert replayed.drivers["18"].status == "RETIRED"
+    assert incremental == replayed

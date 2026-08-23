@@ -50,6 +50,7 @@ CAPABILITIES = {
     "live_timing": True,
     "positions": False,
     "intervals": True,
+    "sector_timing": True,
     "location_xy": False,
     "circuit_shape": False,
     "race_control": True,
@@ -437,6 +438,35 @@ def _status_series_track_updates(value: object) -> dict[str, str]:
     return {}
 
 
+def _live_race_control_updates(item: dict[str, Any]) -> dict[str, str]:
+    """Return persistent transitions the public source can explicitly exit."""
+    if item.get("RacingNumber") is not None:
+        return {}
+    scope = str(item.get("Scope") or "").upper() or None
+    if scope not in {None, "TRACK"}:
+        return {}
+    category = str(item.get("Category") or "").upper()
+    text = " ".join(str(item.get("Message") or "").upper().split())
+    flag = str(item.get("Flag") or "").upper()
+    if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
+        return {"status": "SUSPENDED", "control_status": "RED_FLAG"}
+    if category == "SAFETYCAR" and text == "VIRTUAL SAFETY CAR DEPLOYED":
+        return {"control_status": "VSC"}
+    if category == "SAFETYCAR" and "VIRTUAL SAFETY CAR ENDING" in text:
+        return {"control_status": "VSC_ENDING"}
+    if category == "SAFETYCAR" and text == "SAFETY CAR DEPLOYED":
+        return {"control_status": "SAFETY_CAR"}
+    if flag == "CHEQUERED" or "CHEQUERED FLAG" in text:
+        return {"control_status": "CHEQUERED"}
+    if scope == "TRACK" and flag in {"GREEN", "CLEAR"}:
+        return {"marshal_status": "ALL_CLEAR"}
+    if scope == "TRACK" and flag in {"YELLOW", "DOUBLE YELLOW"}:
+        return {"marshal_status": "YELLOW"}
+    if scope == "TRACK" and flag == "RED":
+        return {"marshal_status": "RED"}
+    return {}
+
+
 class F1LiveAdapter:
     """Stateful boundary from observed public SignalR topics to NormalizedEvent."""
 
@@ -468,9 +498,7 @@ class F1LiveAdapter:
         if stream not in PUBLIC_TOPICS:
             return ()
         payload = row.get("payload")
-        self.streams[stream] = _merge_provider_value(
-            self.streams.get(stream), payload
-        )
+        self.streams[stream] = _merge_provider_value(self.streams.get(stream), payload)
         if stream == "SessionInfo":
             key = str(
                 self.streams[stream].get("Key")
@@ -497,7 +525,9 @@ class F1LiveAdapter:
                 )
             ]
             return tuple(events)
-        return tuple(self._events_for(stream, self.streams[stream], received_at, payload))
+        return tuple(
+            self._events_for(stream, self.streams[stream], received_at, payload)
+        )
 
     def _events_for(
         self, stream: str, merged: Any, occurred_at: str, patch: Any
@@ -538,10 +568,34 @@ class F1LiveAdapter:
                 updates["lap"] = current
             if total is not None:
                 updates["total_laps"] = total
-            return [NormalizedEvent("session", occurred_at, "f1-signalr-public", updates, received_at=occurred_at)] if updates else []
+            return (
+                [
+                    NormalizedEvent(
+                        "session",
+                        occurred_at,
+                        "f1-signalr-public",
+                        updates,
+                        received_at=occurred_at,
+                    )
+                ]
+                if updates
+                else []
+            )
         if stream == "TrackStatus":
             updates = _track_status_updates(merged)
-            return [NormalizedEvent("session", occurred_at, "f1-signalr-public", updates, received_at=occurred_at)] if updates else []
+            return (
+                [
+                    NormalizedEvent(
+                        "session",
+                        occurred_at,
+                        "f1-signalr-public",
+                        updates,
+                        received_at=occurred_at,
+                    )
+                ]
+                if updates
+                else []
+            )
         if stream == "RaceControlMessages":
             return self._race_control_events(merged, occurred_at)
         if stream == "WeatherData":
@@ -562,7 +616,19 @@ class F1LiveAdapter:
                     updates[canonical_key] = converter(merged[provider_key])
                 except (TypeError, ValueError):
                     continue
-            return [NormalizedEvent("weather", occurred_at, "f1-signalr-public", updates, received_at=occurred_at)] if updates else []
+            return (
+                [
+                    NormalizedEvent(
+                        "weather",
+                        occurred_at,
+                        "f1-signalr-public",
+                        updates,
+                        received_at=occurred_at,
+                    )
+                ]
+                if updates
+                else []
+            )
         return []
 
     def _clock_events(
@@ -651,8 +717,12 @@ class F1LiveAdapter:
     def _session_info_events(
         self, payload: dict[str, Any], occurred_at: str
     ) -> list[NormalizedEvent]:
-        meeting = payload.get("Meeting") if isinstance(payload.get("Meeting"), dict) else {}
-        circuit = meeting.get("Circuit") if isinstance(meeting.get("Circuit"), dict) else {}
+        meeting = (
+            payload.get("Meeting") if isinstance(payload.get("Meeting"), dict) else {}
+        )
+        circuit = (
+            meeting.get("Circuit") if isinstance(meeting.get("Circuit"), dict) else {}
+        )
         session_name = str(payload.get("Name") or "Session")
         session_type = str(payload.get("Type") or "Session")
         classification = classify_session(session_type, session_name)
@@ -682,7 +752,24 @@ class F1LiveAdapter:
     def _driver_events(
         self, payload: dict[str, Any], occurred_at: str
     ) -> list[NormalizedEvent]:
-        events: list[NormalizedEvent] = []
+        roster_size = sum(
+            1
+            for raw_number, item in payload.items()
+            if raw_number != "_kf" and isinstance(item, dict)
+        )
+        events: list[NormalizedEvent] = (
+            [
+                NormalizedEvent(
+                    "session",
+                    occurred_at,
+                    "f1-signalr-public",
+                    {"eligible_field_size": roster_size},
+                    received_at=occurred_at,
+                )
+            ]
+            if roster_size
+            else []
+        )
         for raw_number, item in payload.items():
             if raw_number == "_kf" or not isinstance(item, dict):
                 continue
@@ -709,13 +796,21 @@ class F1LiveAdapter:
         self, merged: dict[str, Any], patch: Any, occurred_at: str
     ) -> list[NormalizedEvent]:
         lines = merged.get("Lines") if isinstance(merged.get("Lines"), dict) else {}
-        patch_lines = patch.get("Lines") if isinstance(patch, dict) and isinstance(patch.get("Lines"), dict) else {}
+        patch_lines = (
+            patch.get("Lines")
+            if isinstance(patch, dict) and isinstance(patch.get("Lines"), dict)
+            else {}
+        )
         events: list[NormalizedEvent] = []
         for raw_number, item in lines.items():
             if not isinstance(item, dict):
                 continue
             number = str(item.get("RacingNumber") or raw_number)
-            line_patch = patch_lines.get(raw_number) if isinstance(patch_lines.get(raw_number), dict) else {}
+            line_patch = (
+                patch_lines.get(raw_number)
+                if isinstance(patch_lines.get(raw_number), dict)
+                else {}
+            )
             sectors = _ordered_values(item.get("Sectors"))
             updates: dict[str, Any] = {
                 "position": _number(item.get("Position"), integer=True),
@@ -726,9 +821,7 @@ class F1LiveAdapter:
                 "best_lap": _value(item.get("BestLapTime")),
                 "pit_count": _number(item.get("NumberOfPitStops"), integer=True) or 0,
                 "qualifying_eliminated": (
-                    _truthy(item.get("KnockedOut"))
-                    if "KnockedOut" in item
-                    else None
+                    _truthy(item.get("KnockedOut")) if "KnockedOut" in item else None
                 ),
                 "sector_1": _number(_value(sectors[0])) if len(sectors) > 0 else None,
                 "sector_2": _number(_value(sectors[1])) if len(sectors) > 1 else None,
@@ -738,11 +831,20 @@ class F1LiveAdapter:
             if (
                 last_lap_value
                 and isinstance(updates.get("lap"), int)
-                and ("LastLapTime" in line_patch or (not patch_lines and line_patch == {}))
+                and (
+                    "LastLapTime" in line_patch
+                    or (not patch_lines and line_patch == {})
+                )
             ):
                 app_lines = self.streams.get("TimingAppData", {}).get("Lines", {})
-                app_line = app_lines.get(raw_number, {}) if isinstance(app_lines, dict) else {}
-                stints = _ordered_values(app_line.get("Stints")) if isinstance(app_line, dict) else []
+                app_line = (
+                    app_lines.get(raw_number, {}) if isinstance(app_lines, dict) else {}
+                )
+                stints = (
+                    _ordered_values(app_line.get("Stints"))
+                    if isinstance(app_line, dict)
+                    else []
+                )
                 stint = stints[-1] if stints and isinstance(stints[-1], dict) else {}
                 new_value = stint.get("New")
                 updates["lap_observation"] = {
@@ -757,7 +859,11 @@ class F1LiveAdapter:
                     "tyre_age": _number(stint.get("TotalLaps"), integer=True),
                     "qualifying_phase": self._qualifying_phase,
                     "tyre_usage": (
-                        "NEW" if _truthy(new_value) else "USED" if new_value is not None else "UNKNOWN"
+                        "NEW"
+                        if _truthy(new_value)
+                        else "USED"
+                        if new_value is not None
+                        else "UNKNOWN"
                     ),
                     "lap_validity": "UNKNOWN",
                     "quality": "unknown",
@@ -775,7 +881,9 @@ class F1LiveAdapter:
                 not patch_lines and item.get("NumberOfLaps") is not None
             ):
                 updates["status"] = "RUNNING"
-            updates = {key: value for key, value in updates.items() if value is not None}
+            updates = {
+                key: value for key, value in updates.items() if value is not None
+            }
             events.append(
                 NormalizedEvent(
                     "timing",
@@ -853,13 +961,26 @@ class F1LiveAdapter:
                         "message": message,
                         "flag": item.get("Flag"),
                         "scope": item.get("Scope"),
-                        "driver_number": str(item.get("RacingNumber")) if item.get("RacingNumber") is not None else None,
+                        "driver_number": str(item.get("RacingNumber"))
+                        if item.get("RacingNumber") is not None
+                        else None,
                         "sector": _number(item.get("Sector"), integer=True),
                         "lap": _number(item.get("Lap"), integer=True),
                     },
                     received_at=occurred_at,
                 )
             )
+            updates = _live_race_control_updates(item)
+            if updates:
+                events.append(
+                    NormalizedEvent(
+                        "session",
+                        canonical_utc(str(item.get("Utc") or occurred_at)),
+                        "f1-signalr-public",
+                        updates,
+                        received_at=occurred_at,
+                    )
+                )
         return events
 
 
@@ -890,7 +1011,11 @@ class PublicSignalRConnection:
                         f"Live negotiation failed with HTTP {response.status}"
                     )
                 negotiated = await response.json()
-            token = negotiated.get("connectionToken") if isinstance(negotiated, dict) else None
+            token = (
+                negotiated.get("connectionToken")
+                if isinstance(negotiated, dict)
+                else None
+            )
             if not isinstance(token, str) or not token:
                 raise LiveSourceError("Live negotiation returned no connection token")
             async with session.ws_connect(
@@ -1126,8 +1251,12 @@ class PublicLiveSession:
         if self._completion_observed:
             await self._finalize_after_drain()
 
-    def _restore_recorded_events(self, seed_events: tuple[NormalizedEvent, ...]) -> None:
-        recovered = self._normalized_recorder.events if self._normalized_recorder else ()
+    def _restore_recorded_events(
+        self, seed_events: tuple[NormalizedEvent, ...]
+    ) -> None:
+        recovered = (
+            self._normalized_recorder.events if self._normalized_recorder else ()
+        )
         fresh_seed = (
             self._normalized_recorder.append(seed_events)
             if self._normalized_recorder
@@ -1157,7 +1286,12 @@ class PublicLiveSession:
     def _event_completes_session(event: NormalizedEvent) -> bool:
         status = str(event.payload.get("status") or "").upper()
         return event.kind == "session" and status in {
-            "FINISHED", "ENDED", "COMPLETE", "FINAL", "FINALIZED", "FINALISED"
+            "FINISHED",
+            "ENDED",
+            "COMPLETE",
+            "FINAL",
+            "FINALIZED",
+            "FINALISED",
         }
 
     def _apply(self, events: Iterable[NormalizedEvent], received_at: str) -> bool:
@@ -1237,7 +1371,9 @@ class PublicLiveSession:
     async def _wait_for_scheduled_start(self, session_key: str) -> None:
         while self._target_session_key == session_key and self._scheduled_start:
             try:
-                seconds = (datetime.fromisoformat(self._scheduled_start) - self._now()).total_seconds()
+                seconds = (
+                    datetime.fromisoformat(self._scheduled_start) - self._now()
+                ).total_seconds()
             except ValueError:
                 return
             if seconds <= 0:
@@ -1255,7 +1391,9 @@ class PublicLiveSession:
             self._set_phase("RECONNECTING" if self._reconnecting else "CONNECTING")
             try:
                 iterator = self._row_source().__aiter__()
-                while self._target_session_key == session_key and not self._replay_ready:
+                while (
+                    self._target_session_key == session_key and not self._replay_ready
+                ):
                     try:
                         row = await asyncio.wait_for(
                             anext(iterator), timeout=self._stale_after
@@ -1265,9 +1403,7 @@ class PublicLiveSession:
                     except TimeoutError as error:
                         self._status = "STALE"
                         self._set_phase("STALE")
-                        self._error = (
-                            f"No public live data received for {self._stale_after:g} seconds"
-                        )
+                        self._error = f"No public live data received for {self._stale_after:g} seconds"
                         raise LiveSourceError(self._error) from error
                     emitted = self._apply(
                         adapter.ingest(row),
@@ -1280,7 +1416,10 @@ class PublicLiveSession:
                 raise
             except (LiveSourceError, aiohttp.ClientError, OSError) as error:
                 if self._completion_observed:
-                    if self._finalization_task is None or self._finalization_task.done():
+                    if (
+                        self._finalization_task is None
+                        or self._finalization_task.done()
+                    ):
                         self._schedule_finalization()
                     return
                 self._status = "UNAVAILABLE" if not self._ever_connected else "STALE"

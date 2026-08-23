@@ -2,9 +2,11 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+import pytest
+
 from slipstream.events import NormalizedEvent
 from slipstream.library import ReplayLibrary
-from slipstream.qualifying import build_qualifying_snapshot
+from slipstream.qualifying import _advancing_count, build_qualifying_snapshot
 from slipstream.replay import replay
 
 
@@ -24,6 +26,7 @@ def _resource(tmp_path: Path):
                 "started_at": "2026-07-25T14:00:00+00:00",
                 "ended_at": "2026-07-25T15:00:00+00:00",
                 "qualifying_phase": "Q1",
+                "eligible_field_size": 22,
                 "session_clock": "00:05:42",
                 "session_clock_running": True,
                 "status": "RUNNING",
@@ -92,7 +95,9 @@ def _resource(tmp_path: Path):
     return ReplayLibrary(path).get(), events
 
 
-def test_qualifying_contract_authors_phase_clock_cut_and_attempts(tmp_path: Path) -> None:
+def test_qualifying_contract_authors_phase_clock_cut_and_attempts(
+    tmp_path: Path,
+) -> None:
     resource, events = _resource(tmp_path)
     snapshot = build_qualifying_snapshot(
         resource,
@@ -128,8 +133,24 @@ def test_qualifying_attempt_history_is_cursor_safe(tmp_path: Path) -> None:
     assert before_attempt["drivers"]["1"]["attempts"] == []
     assert len(after_attempt["drivers"]["1"]["attempts"]) == 1
 
+    physically_truncated = tuple(resource.events[: len(events) - 1])
+    truncated_resource = resource.__class__(
+        descriptor=resource.descriptor,
+        events=physically_truncated,
+        final_state=replay(physically_truncated),
+        evidence=resource.evidence.from_events(physically_truncated),
+        replay_available=resource.replay_available,
+        is_live=resource.is_live,
+    )
+    truncated = build_qualifying_snapshot(
+        truncated_resource,
+        replay(physically_truncated),
+        sequence=len(physically_truncated),
+    )
+    assert before_attempt == truncated
 
-def test_unverified_field_size_never_invents_a_cut_line(tmp_path: Path) -> None:
+
+def test_partial_snapshot_does_not_change_stable_roster_rule(tmp_path: Path) -> None:
     resource, events = _resource(tmp_path)
     state = replay(events)
     reduced = dict(state.drivers)
@@ -142,5 +163,55 @@ def test_unverified_field_size_never_invents_a_cut_line(tmp_path: Path) -> None:
         sequence=len(events),
     )
 
+    assert snapshot["cutLine"]["status"] == "AVAILABLE"
+    assert snapshot["cutLine"]["advancePosition"] == 16
+
+
+def test_missing_stable_roster_never_invents_a_cut_line(tmp_path: Path) -> None:
+    resource, events = _resource(tmp_path)
+    state = replay(events)
+    from dataclasses import replace
+
+    snapshot = build_qualifying_snapshot(
+        resource,
+        replace(state, session=replace(state.session, eligible_field_size=None)),
+        sequence=len(events),
+    )
+
     assert snapshot["cutLine"]["status"] == "UNKNOWN"
     assert snapshot["cutLine"]["advancePosition"] is None
+
+
+def test_unknown_phase_uses_cursor_safe_session_benchmark(tmp_path: Path) -> None:
+    resource, events = _resource(tmp_path)
+    from dataclasses import replace
+
+    state = replay(events)
+    snapshot = build_qualifying_snapshot(
+        resource,
+        replace(state, session=replace(state.session, qualifying_phase=None)),
+        sequence=len(events),
+    )
+
+    assert snapshot["phase"] == "UNKNOWN"
+    assert snapshot["benchmark"]["scope"] == "SESSION"
+    assert snapshot["benchmark"]["driverNumber"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("year", "field_size", "phase", "expected"),
+    [
+        (2024, 20, "Q1", 15),
+        (2024, 20, "Q2", 10),
+        (2024, 20, "SQ1", 15),
+        (2024, 20, "SQ2", 10),
+        (2025, 20, "Q1", 15),
+        (2025, 20, "Q2", 10),
+        (2025, 20, "SQ1", 15),
+        (2025, 20, "SQ2", 10),
+    ],
+)
+def test_verified_2024_and_2025_advancement_profiles(
+    year: int, field_size: int, phase: str, expected: int
+) -> None:
+    assert _advancing_count(year, field_size, phase) == expected

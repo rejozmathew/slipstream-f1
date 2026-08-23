@@ -42,7 +42,9 @@ class SessionDescriptor:
 
     @property
     def layout_family(self) -> str:
-        return classify_session(self.session_type, self.session_name).layout_family.value
+        return classify_session(
+            self.session_type, self.session_name
+        ).layout_family.value
 
     @property
     def available(self) -> bool:
@@ -396,6 +398,16 @@ def _read_descriptor(path: Path) -> SessionDescriptor | None:
         date_start = str(session.get("date_start") or raw.get("captured_at") or "")
         date_end = str(session.get("date_end") or date_start)
         key = str(session.get("session_key") or raw.get("session_key") or path.stem)
+        capabilities = dict(raw.get("source_capabilities") or {})
+        capabilities.setdefault(
+            "sector_timing",
+            any(
+                lap.get("duration_sector_1") is not None
+                or lap.get("duration_sector_2") is not None
+                or lap.get("duration_sector_3") is not None
+                for lap in endpoints.get("laps", [])
+            ),
+        )
         return SessionDescriptor(
             key=key,
             year=int(session.get("year") or date_start[:4]),
@@ -416,7 +428,7 @@ def _read_descriptor(path: Path) -> SessionDescriptor | None:
             gmt_offset=session.get("gmt_offset"),
             path=path,
             source=str(raw.get("source") or "openf1"),
-            capabilities=dict(raw.get("source_capabilities") or {}),
+            capabilities=capabilities,
         )
     if isinstance(raw, list):
         try:
@@ -458,6 +470,13 @@ def _normalized_recording_capabilities(
         "positions": any(item.get("track_position") is not None for item in timing),
         "intervals": any(
             item.get("interval") is not None or item.get("gap_to_leader") is not None
+            for item in timing
+        ),
+        "sector_timing": events[0].source == "f1-signalr-public"
+        or any(
+            item.get("sector_1") is not None
+            or item.get("sector_2") is not None
+            or item.get("sector_3") is not None
             for item in timing
         ),
         "location_xy": any(
