@@ -39,11 +39,18 @@ export function useSlipstreamSession() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [libraryRevision, setLibraryRevision] = useState(0);
   const socketRef = useRef<ReplaySocket | null>(null);
+  const selectedSessionKeyRef = useRef<string | null>(null);
+  const viewingModeRef = useRef<ViewingMode>("replay");
 
   const selectedCatalogSession = useMemo(
     () => catalog?.sessions.find((item) => item.sessionKey === selectedSessionKey) ?? null,
     [catalog, selectedSessionKey],
   );
+
+  useEffect(() => {
+    selectedSessionKeyRef.current = selectedSessionKey;
+    viewingModeRef.current = viewingMode;
+  }, [selectedSessionKey, viewingMode]);
 
   useEffect(() => {
     let active = true;
@@ -58,6 +65,13 @@ export function useSlipstreamSession() {
           const defaultSession = result.sessions.find((item) => item.sessionKey === result.defaultSessionKey);
           setSelectedSessionKey(result.defaultSessionKey);
           setViewingMode(defaultSession?.liveAvailable ? "live" : "replay");
+        } else if (viewingModeRef.current === "live") {
+          const currentSession = result.sessions.find(
+            (item) => item.sessionKey === selectedSessionKeyRef.current,
+          );
+          if (currentSession?.replayReady && !currentSession.liveAvailable) {
+            setViewingMode("replay");
+          }
         }
         setConnectionError(null);
       } catch (error) {
@@ -90,6 +104,9 @@ export function useSlipstreamSession() {
       if (viewingMode === "live") {
         setLiveStatus(envelope.live?.status ?? "UNAVAILABLE");
         setLivePhase(envelope.live?.phase ?? "UNAVAILABLE");
+        if (envelope.mode === "replay" && envelope.handoff === "REPLAY_READY") {
+          setViewingMode("replay");
+        }
       }
       if (envelope.analytics) {
         setAnalytics(envelope.analytics);

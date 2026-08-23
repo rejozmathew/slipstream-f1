@@ -393,32 +393,48 @@ def _ordered_values(value: Any) -> list[Any]:
 def _session_status(payload: dict[str, Any]) -> str:
     status = str(payload.get("Status") or payload.get("SessionStatus") or "").upper()
     started = str(payload.get("Started") or "").upper()
-    if status in {"ENDS", "FINISHED", "FINALISED", "FINALIZED"} or started == "FINISHED":
+    if status:
+        if status in {"ENDS", "FINISHED", "FINALISED", "FINALIZED"}:
+            return "FINISHED"
+        if status in {"ABORTED", "SUSPENDED"}:
+            return "SUSPENDED"
+        if status in {"STARTED", "RUNNING", "RESUMED"}:
+            return "RUNNING"
+        if status in {"INACTIVE", "NOT STARTED"}:
+            return "SCHEDULED"
+        return "UNKNOWN"
+    if started == "FINISHED":
         return "FINISHED"
-    if status in {"STARTED", "RUNNING"} or started in {"STARTED", "RUNNING"}:
+    if started in {"STARTED", "RUNNING"}:
         return "RUNNING"
-    if status in {"INACTIVE", "NOT STARTED"}:
-        return "SCHEDULED"
     return "UNKNOWN"
 
 
-_TRACK_STATUS_CODES = {
-    "1": "GREEN",
-    "2": "YELLOW",
-    "4": "SAFETY CAR",
-    "5": "RED",
-    "6": "VSC",
-    "7": "VSC ENDING",
-}
-
-
-def _track_status(payload: dict[str, Any]) -> str | None:
+def _track_status_updates(payload: dict[str, Any]) -> dict[str, str]:
     message = str(payload.get("Message") or "").upper()
     if "DOUBLE YELLOW" in message:
-        return "DOUBLE YELLOW"
+        return {"marshal_status": "YELLOW"}
     if "CHEQUERED" in message:
-        return "CHEQUERED"
-    return _TRACK_STATUS_CODES.get(str(payload.get("Status") or ""))
+        return {"control_status": "CHEQUERED"}
+    return {
+        "1": {"marshal_status": "ALL_CLEAR", "control_status": "NORMAL"},
+        "2": {"marshal_status": "YELLOW"},
+        "4": {"control_status": "SAFETY_CAR"},
+        "5": {"marshal_status": "RED"},
+        "6": {"control_status": "VSC"},
+        "7": {"control_status": "VSC_ENDING"},
+    }.get(str(payload.get("Status") or ""), {})
+
+
+def _status_series_track_updates(value: object) -> dict[str, str]:
+    normalized = str(value or "").upper().replace("_", "")
+    if normalized in {"ALLCLEAR", "GREEN"}:
+        return {"marshal_status": "ALL_CLEAR", "control_status": "NORMAL"}
+    if normalized in {"YELLOW", "DOUBLEYELLOW"}:
+        return {"marshal_status": "YELLOW"}
+    if normalized == "RED":
+        return {"marshal_status": "RED"}
+    return {}
 
 
 class F1LiveAdapter:
@@ -444,6 +460,7 @@ class F1LiveAdapter:
         self.session_verified = False
         self._published_initial = False
         self._seen_race_control: set[str] = set()
+        self._seen_status_series: set[str] = set()
         self._qualifying_phase = "UNKNOWN"
 
     def ingest(self, row: dict[str, Any]) -> tuple[NormalizedEvent, ...]:
@@ -523,8 +540,8 @@ class F1LiveAdapter:
                 updates["total_laps"] = total
             return [NormalizedEvent("session", occurred_at, "f1-signalr-public", updates, received_at=occurred_at)] if updates else []
         if stream == "TrackStatus":
-            status = _track_status(merged)
-            return [NormalizedEvent("session", occurred_at, "f1-signalr-public", {"track_status": status}, received_at=occurred_at)] if status else []
+            updates = _track_status_updates(merged)
+            return [NormalizedEvent("session", occurred_at, "f1-signalr-public", updates, received_at=occurred_at)] if updates else []
         if stream == "RaceControlMessages":
             return self._race_control_events(merged, occurred_at)
         if stream == "WeatherData":
@@ -570,6 +587,35 @@ class F1LiveAdapter:
     def _session_data_events(
         self, payload: dict[str, Any], occurred_at: str
     ) -> list[NormalizedEvent]:
+        events: list[NormalizedEvent] = []
+        for item in _ordered_values(payload.get("StatusSeries")):
+            if not isinstance(item, dict) or not item.get("Utc"):
+                continue
+            updates: dict[str, Any] = {}
+            if item.get("SessionStatus") is not None:
+                status = _session_status({"Status": item.get("SessionStatus")})
+                if status != "UNKNOWN":
+                    updates["status"] = status
+            if item.get("TrackStatus") is not None:
+                updates.update(_status_series_track_updates(item.get("TrackStatus")))
+            if updates:
+                event_key = json.dumps(
+                    [canonical_utc(str(item["Utc"])), updates],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                if event_key in self._seen_status_series:
+                    continue
+                self._seen_status_series.add(event_key)
+                events.append(
+                    NormalizedEvent(
+                        "session",
+                        canonical_utc(str(item["Utc"])),
+                        "f1-signalr-public",
+                        updates,
+                        received_at=occurred_at,
+                    )
+                )
         candidates: list[dict[str, Any]] = []
         for key in ("Series", "StatusSeries"):
             candidates.extend(
@@ -589,18 +635,18 @@ class F1LiveAdapter:
             ).lower() in {"qualifyingpart", "qualifying_part"}:
                 session_info = str(self.streams.get("SessionInfo", {})).upper()
                 phase = f"{'SQ' if 'SPRINT' in session_info else 'Q'}{raw_value}"
-        if phase is None:
-            return []
-        self._qualifying_phase = phase
-        return [
-            NormalizedEvent(
-                "session",
-                occurred_at,
-                "f1-signalr-public",
-                {"qualifying_phase": phase},
-                received_at=occurred_at,
+        if phase is not None:
+            self._qualifying_phase = phase
+            events.append(
+                NormalizedEvent(
+                    "session",
+                    occurred_at,
+                    "f1-signalr-public",
+                    {"qualifying_phase": phase},
+                    received_at=occurred_at,
+                )
             )
-        ]
+        return events
 
     def _session_info_events(
         self, payload: dict[str, Any], occurred_at: str
@@ -1097,6 +1143,15 @@ class PublicLiveSession:
             self._state = self._state.apply(event)
             if self._event_completes_session(event):
                 self._completion_observed = True
+        if recovered:
+            self._ever_connected = True
+            latest = max(
+                recovered,
+                key=lambda event: parse_timestamp(
+                    event.received_at or event.occurred_at
+                ),
+            )
+            self._last_received_at = latest.received_at or latest.occurred_at
 
     @staticmethod
     def _event_completes_session(event: NormalizedEvent) -> bool:

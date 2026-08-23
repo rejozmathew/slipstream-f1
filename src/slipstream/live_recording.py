@@ -91,7 +91,18 @@ class NormalizedLiveRecorder:
 
     @staticmethod
     def _event_key(event: NormalizedEvent) -> str:
-        return json.dumps(asdict(event), sort_keys=True, separators=(",", ":"))
+        # Receipt time is transport provenance, not canonical event identity.
+        # A reconnect may redeliver the same source fact at a later receipt time.
+        return json.dumps(
+            {
+                "kind": event.kind,
+                "occurred_at": event.occurred_at,
+                "source": event.source,
+                "payload": event.payload,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def finalize(self) -> Path:
         """Atomically publish the existing normalized-list replay format."""

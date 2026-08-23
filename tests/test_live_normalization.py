@@ -8,11 +8,18 @@ from fastapi.testclient import TestClient
 
 from slipstream.api import create_app
 from slipstream.catalog import CATALOG_FORMAT
+from slipstream.events import NormalizedEvent
 from slipstream.live import F1LiveAdapter, LiveSessionMismatch, PublicLiveSession
 from slipstream.playback import ReplayController
 from slipstream.state import RaceState
 
 FIXTURE = Path(__file__).parent / "fixtures" / "live" / "public-sprint-qualifying-initial.json"
+RED_FLAG_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "live"
+    / "public-dutch-gp-red-flag-suspension.json"
+)
 
 
 def fixture_rows() -> list[dict[str, object]]:
@@ -29,6 +36,18 @@ def normalized_fixture() -> tuple[RaceState, tuple]:
         for event in emitted:
             state = state.apply(event)
     return state, tuple(events)
+
+
+def red_flag_events() -> tuple:
+    adapter = F1LiveAdapter("11353")
+    events = []
+    for row in red_flag_rows():
+        events.extend(adapter.ingest(row))
+    return tuple(events)
+
+
+def red_flag_rows() -> list[dict[str, object]]:
+    return json.loads(RED_FLAG_FIXTURE.read_text(encoding="utf-8"))["rows"]
 
 
 def test_real_public_fixture_normalizes_into_canonical_race_state() -> None:
@@ -71,6 +90,122 @@ def test_live_adapter_rejects_a_different_provider_session() -> None:
     row = next(row for row in fixture_rows() if row["stream"] == "SessionInfo")
     with pytest.raises(LiveSessionMismatch, match="does not match"):
         F1LiveAdapter("different-session").ingest(row)
+
+
+def test_current_aborted_status_outranks_stale_started_marker() -> None:
+    adapter = F1LiveAdapter("11353")
+    adapter.ingest(
+        {
+            "received_at": "2026-08-23T13:24:46Z",
+            "stream": "SessionInfo",
+            "source_timestamp": None,
+            "initial": True,
+            "payload": {"Key": 11353, "Name": "Race", "Type": "Race"},
+        }
+    )
+    events = adapter.ingest(
+        {
+            "received_at": "2026-08-23T13:24:47Z",
+            "stream": "SessionStatus",
+            "source_timestamp": None,
+            "initial": False,
+            "payload": {"Status": "Aborted", "Started": "Started"},
+        }
+    )
+
+    assert events[0].payload == {"status": "SUSPENDED"}
+
+
+def test_real_dutch_red_flag_fixture_separates_control_and_marshal_state() -> None:
+    controller = ReplayController(red_flag_events())
+
+    before_start = controller.seek("2026-08-23T13:03:28Z")
+    assert before_start.session.status == "UNKNOWN"
+
+    started = controller.seek("2026-08-23T13:03:29Z")
+    assert started.session.status == "RUNNING"
+
+    yellow = controller.seek("2026-08-23T13:04:57Z")
+    assert yellow.session.marshal_status == "YELLOW"
+    assert yellow.session.display_status == "YELLOW"
+
+    suspended = controller.seek("2026-08-23T13:05:28Z")
+    assert suspended.session.status == "SUSPENDED"
+    assert suspended.session.control_status == "RED_FLAG"
+    assert suspended.session.display_status == "RED_FLAG"
+
+    track_clear = controller.seek("2026-08-23T13:08:00.500Z")
+    assert track_clear.session.status == "SUSPENDED"
+    assert track_clear.session.control_status == "RED_FLAG"
+    assert track_clear.session.marshal_status == "ALL_CLEAR"
+    assert track_clear.session.display_status == "RED_FLAG"
+
+    later_yellow = controller.seek("2026-08-23T13:08:29Z")
+    assert later_yellow.session.marshal_status == "YELLOW"
+    assert later_yellow.session.control_status == "RED_FLAG"
+    assert later_yellow.session.display_status == "RED_FLAG"
+
+    rewound = controller.seek("2026-08-23T13:05:00Z")
+    assert rewound.session.status == "RUNNING"
+    assert rewound.session.marshal_status == "YELLOW"
+    assert rewound.session.control_status != "RED_FLAG"
+    assert rewound.session.display_status == "YELLOW"
+
+
+def test_only_explicit_session_resumption_clears_red_flag_latch() -> None:
+    events = (
+        *red_flag_events(),
+        NormalizedEvent(
+            kind="session",
+            occurred_at="2026-08-23T13:25:00Z",
+            source="f1-signalr-public",
+            payload={"status": "RUNNING"},
+        ),
+    )
+    controller = ReplayController(events)
+
+    suspended = controller.seek("2026-08-23T13:24:59Z")
+    assert suspended.session.status == "SUSPENDED"
+    assert suspended.session.display_status == "RED_FLAG"
+
+    resumed = controller.seek("2026-08-23T13:25:00Z")
+    assert resumed.session.status == "RUNNING"
+    assert resumed.session.control_status == "NORMAL"
+    assert resumed.session.display_status == "ALL_CLEAR"
+
+
+def test_suspended_race_remains_a_live_capable_source() -> None:
+    live = PublicLiveSession()
+    asyncio.run(live.apply_rows("11353", red_flag_rows()))
+
+    view = live.view("11353")
+    assert live.state.session.status == "SUSPENDED"
+    assert live.state.session.display_status == "RED_FLAG"
+    assert view.status == "LIVE"
+    assert view.phase == "LIVE"
+    assert view.connected is True
+
+
+def test_all_clear_ends_safety_car_control_but_not_red_flag_control() -> None:
+    state = RaceState().apply(
+        NormalizedEvent(
+            kind="session",
+            occurred_at="2026-08-23T13:00:00Z",
+            source="f1-signalr-public",
+            payload={"control_status": "SAFETY_CAR"},
+        )
+    )
+    state = state.apply(
+        NormalizedEvent(
+            kind="session",
+            occurred_at="2026-08-23T13:01:00Z",
+            source="f1-signalr-public",
+            payload={"marshal_status": "ALL_CLEAR", "control_status": "NORMAL"},
+        )
+    )
+
+    assert state.session.control_status == "NORMAL"
+    assert state.session.display_status == "ALL_CLEAR"
 
 
 def test_naive_provider_utc_race_control_timestamp_is_canonical_and_orderable() -> None:

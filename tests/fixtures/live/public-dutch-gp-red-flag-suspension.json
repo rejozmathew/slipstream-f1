@@ -1,0 +1,75 @@
+{
+  "captured_at": "2026-08-23T13:24:47.312922Z",
+  "source": "f1-signalr-public",
+  "note": "Cropped from a public-only initial subscription during the 2026 Dutch Grand Prix red-flag suspension. Provider fields are preserved; embedded UTC fields retain the incident chronology.",
+  "rows": [
+    {
+      "received_at": "2026-08-23T13:24:47.312922Z",
+      "stream": "SessionInfo",
+      "source_timestamp": null,
+      "initial": true,
+      "payload": {
+        "Meeting": {
+          "Key": 1292,
+          "Name": "Dutch Grand Prix",
+          "Location": "Zandvoort",
+          "Circuit": {"Key": 55, "ShortName": "Zandvoort"}
+        },
+        "SessionStatus": "Started",
+        "Key": 11353,
+        "Type": "Race",
+        "Name": "Race",
+        "StartDate": "2026-08-23T15:00:00",
+        "EndDate": "2026-08-23T17:00:00",
+        "GmtOffset": "02:00:00",
+        "_kf": true
+      }
+    },
+    {
+      "received_at": "2026-08-23T13:24:47.312922Z",
+      "stream": "SessionData",
+      "source_timestamp": null,
+      "initial": true,
+      "payload": {
+        "StatusSeries": [
+          {"Utc": "2026-08-23T13:03:28.567Z", "SessionStatus": "Started"},
+          {"Utc": "2026-08-23T13:04:56.564Z", "TrackStatus": "Yellow"},
+          {"Utc": "2026-08-23T13:05:27.956Z", "SessionStatus": "Aborted"},
+          {"Utc": "2026-08-23T13:05:28.192Z", "TrackStatus": "Red"},
+          {"Utc": "2026-08-23T13:07:59.838Z", "TrackStatus": "AllClear"},
+          {"Utc": "2026-08-23T13:08:00.704Z", "TrackStatus": "Yellow"}
+        ],
+        "_kf": true
+      }
+    },
+    {
+      "received_at": "2026-08-23T13:24:47.312922Z",
+      "stream": "SessionStatus",
+      "source_timestamp": null,
+      "initial": true,
+      "payload": {"Status": "Aborted", "Started": "Started", "_kf": true}
+    },
+    {
+      "received_at": "2026-08-23T13:24:47.312922Z",
+      "stream": "TrackStatus",
+      "source_timestamp": null,
+      "initial": true,
+      "payload": {"Status": "1", "Message": "AllClear", "_kf": true}
+    },
+    {
+      "received_at": "2026-08-23T13:24:47.312922Z",
+      "stream": "RaceControlMessages",
+      "source_timestamp": null,
+      "initial": true,
+      "payload": {
+        "Messages": [
+          {"Utc": "2026-08-23T13:05:28", "Lap": 2, "Category": "Other", "Message": "RED FLAG - RACE SUSPENDED"},
+          {"Utc": "2026-08-23T13:08:00", "Lap": 3, "Category": "Flag", "Flag": "CLEAR", "Scope": "Track", "Message": "TRACK CLEAR"},
+          {"Utc": "2026-08-23T13:08:01", "Lap": 3, "Category": "Flag", "Flag": "DOUBLE YELLOW", "Scope": "Sector", "Sector": 18, "Message": "DOUBLE YELLOW IN TRACK SECTOR 18"},
+          {"Utc": "2026-08-23T13:08:18", "Lap": 3, "Category": "Flag", "Flag": "YELLOW", "Scope": "Sector", "Sector": 14, "Message": "YELLOW IN TRACK SECTOR 14"},
+          {"Utc": "2026-08-23T13:08:28", "Lap": 3, "Category": "Flag", "Flag": "CLEAR", "Scope": "Sector", "Sector": 14, "Message": "CLEAR IN TRACK SECTOR 14"}
+        ]
+      }
+    }
+  ]
+}

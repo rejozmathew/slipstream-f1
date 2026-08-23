@@ -343,7 +343,14 @@ def test_in_progress_recording_recovers_deduplicates_and_finalizes_both_parts(
 
     restarted = NormalizedLiveRecorder(tmp_path, "100")
     assert restarted.events == (before,)
-    assert restarted.append((before, after)) == (after,)
+    redelivered = NormalizedEvent(
+        kind=before.kind,
+        occurred_at=before.occurred_at,
+        received_at="2026-08-23T13:05:00Z",
+        source=before.source,
+        payload=before.payload,
+    )
+    assert restarted.append((redelivered, after)) == (after,)
     finalized = json.loads(restarted.finalize().read_text(encoding="utf-8"))
 
     assert [item["payload"] for item in finalized] == [
@@ -379,3 +386,160 @@ def test_in_progress_recording_rejects_malformed_or_incompatible_recovery(
 
     with pytest.raises(RuntimeError, match=message):
         NormalizedLiveRecorder(tmp_path, "100")
+
+
+def test_schedule_window_does_not_fabricate_running_sporting_state(
+    tmp_path: Path,
+) -> None:
+    session = _session(
+        "100", "Race", "2026-08-23T13:00:00Z", "2026-08-23T16:00:00Z"
+    )
+    (tmp_path / "catalog.json").write_text(
+        json.dumps(_catalog([session])), encoding="utf-8"
+    )
+
+    resource = ReplayLibrary(
+        tmp_path, now=lambda: datetime(2026, 8, 23, 14, 0, tzinfo=UTC)
+    ).get("100")
+
+    assert resource.is_live is True
+    assert resource.final_state.session.status == "UNKNOWN"
+
+
+def test_recovered_live_state_is_reconnecting_not_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    session = _session(
+        "100", "Race", "2026-08-23T13:00:00Z", "2026-08-23T16:00:00Z"
+    )
+    (tmp_path / "catalog.json").write_text(
+        json.dumps(_catalog([session])), encoding="utf-8"
+    )
+    recorder = NormalizedLiveRecorder(tmp_path, "100")
+    recorder.append(
+        (
+            NormalizedEvent(
+                kind="session",
+                occurred_at="2026-08-23T13:00:00Z",
+                received_at="2026-08-23T13:00:00Z",
+                source="f1-signalr-public",
+                payload={"key": "100", "status": "RUNNING"},
+            ),
+            NormalizedEvent(
+                kind="timing",
+                occurred_at="2026-08-23T14:00:00Z",
+                received_at="2026-08-23T14:00:00Z",
+                source="f1-signalr-public",
+                payload={"number": "44", "position": 1, "lap": 35},
+            ),
+        )
+    )
+
+    async def unavailable_rows():
+        if False:
+            yield {}
+        raise OSError("test reconnect failure")
+
+    now = lambda: datetime(2026, 8, 23, 14, 1, tzinfo=UTC)
+    live = PublicLiveSession(
+        row_source=unavailable_rows, now=now, maximum_backoff=0.01
+    )
+    with TestClient(
+        create_app(
+            tmp_path,
+            now=now,
+            public_live=True,
+            live_session=live,
+            prepare_weekend_context=lambda **_: {},
+        )
+    ) as client:
+        for _ in range(50):
+            catalog = client.get("/api/v1/catalog").json()
+            if catalog["livePhase"] == "RECONNECTING":
+                break
+            time.sleep(0.01)
+        state = client.get("/api/v1/state?session_key=100&mode=live").json()
+        capabilities = client.get("/api/v1/capabilities?session_key=100").json()
+
+    selected = catalog["sessions"][0]
+    assert catalog["liveSessionKey"] == "100"
+    assert catalog["livePhase"] == "RECONNECTING"
+    assert selected["liveAvailable"] is True
+    assert selected["livePhase"] != "UNAVAILABLE"
+    assert state["data"]["drivers"]["44"]["lap"] == 35
+    assert state["live"]["phase"] == "RECONNECTING"
+    assert capabilities["liveAvailable"] is True
+    assert capabilities["livePhase"] == "RECONNECTING"
+
+
+def test_connected_viewer_hands_session_a_to_its_replay_when_b_takes_live(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    sessions = [
+        _session("100", "Race A", "2026-08-23T13:00:00Z", "2026-08-23T16:00:00Z"),
+        _session("200", "Race B", "2026-08-23T17:00:00Z", "2026-08-23T19:00:00Z"),
+    ]
+    (tmp_path / "catalog.json").write_text(
+        json.dumps(_catalog(sessions)), encoding="utf-8"
+    )
+
+    async def rows():
+        yield _completion_rows("100")[0]
+        yield {
+            "received_at": "2026-08-23T14:59:59Z",
+            "stream": "TimingData",
+            "source_timestamp": "2026-08-23T14:59:59Z",
+            "initial": False,
+            "payload": {
+                "Lines": {
+                    "44": {
+                        "RacingNumber": "44",
+                        "Position": "1",
+                        "NumberOfLaps": 70,
+                    }
+                }
+            },
+        }
+        await asyncio.sleep(0.15)
+        yield _completion_rows("100")[1]
+        await asyncio.sleep(1)
+
+    now = lambda: datetime(2026, 8, 23, 15, 30, tzinfo=UTC)
+    live = PublicLiveSession(row_source=rows, now=now, finalization_drain=0.01)
+
+    with TestClient(
+        create_app(
+            tmp_path,
+            now=now,
+            public_live=True,
+            live_session=live,
+            prepare_weekend_context=lambda **_: {},
+        )
+    ) as client:
+        with client.websocket_connect(
+            "/api/v1/stream?session_key=100&mode=live"
+        ) as viewer:
+            snapshots = []
+            for _ in range(8):
+                snapshot = viewer.receive_json()
+                snapshots.append(snapshot)
+                if snapshot.get("handoff") == "REPLAY_READY":
+                    break
+
+        handoff = snapshots[-1]
+        catalog = client.get("/api/v1/catalog").json()
+        replay = client.get("/api/v1/state?session_key=100&mode=replay").json()
+
+    by_key = {item["sessionKey"]: item for item in catalog["sessions"]}
+    assert handoff["mode"] == "replay"
+    assert handoff["handoff"] == "REPLAY_READY"
+    assert handoff["data"]["session"]["key"] == "100"
+    assert handoff["data"]["session"]["status"] == "FINISHED"
+    assert handoff["data"]["drivers"]["44"]["lap"] == 70
+    assert replay["data"] == handoff["data"]
+    assert catalog["liveSessionKey"] == "200"
+    assert by_key["100"]["available"] is True
+    assert by_key["100"]["liveAvailable"] is False
+    assert by_key["200"]["liveAvailable"] is True

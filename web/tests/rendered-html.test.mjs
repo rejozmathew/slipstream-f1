@@ -125,6 +125,8 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   ]);
 
   assert.doesNotMatch(tvMode, /drivers\.slice\(/);
+  assert.match(tvMode, /state\.session\.display_status/);
+  assert.doesNotMatch(tvMode, /statusTone\(state\.session\.track_status\)/);
   assert.match(tvMode, /focusedDriverNumbers=\{\[left\.number, right\.number\]\}/);
   assert.match(tvMode, /focusedDriverNumbers=\{\[driver\.number\]\}/);
   assert.match(tvMode, /tv-status-chequered|return "chequered"/);
@@ -141,5 +143,23 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   for (const source of [publishedStrategy, battleCard, timingTower, strategyView, tvMode]) {
     assert.doesNotMatch(source, /windows\[0\]/);
   }
+});
+
+test("uses server-authored status and preserves same-session live replay handoff", async () => {
+  const [sessionStrip, sessionHook, protocol] = await Promise.all([
+    readFile(new URL("../components/shell/SessionStrip.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../hooks/useSlipstreamSession.ts", import.meta.url), "utf8"),
+    readFile(new URL("../domain/protocol.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(sessionStrip, /session\.display_status/);
+  assert.match(sessionStrip, /session\.display_status \?\? session\.track_status/);
+  assert.match(protocol, /control_status/);
+  assert.match(protocol, /marshal_status/);
+  assert.match(protocol, /display_status/);
+  assert.match(protocol, /handoff\?: "REPLAY_READY"/);
+  assert.match(sessionHook, /envelope\.mode === "replay" && envelope\.handoff === "REPLAY_READY"/);
+  assert.match(sessionHook, /setViewingMode\("replay"\)/);
+  assert.match(sessionHook, /currentSession\?\.replayReady/);
 });
 

@@ -111,7 +111,8 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
   const [rotating, setRotating] = useState(false);
   const [statusAlert, setStatusAlert] = useState(false);
   const [scopedAlert, setScopedAlert] = useState<string | null>(null);
-  const previousStatus = useRef(state.session.track_status);
+  const effectiveStatus = state.session.display_status ?? state.session.track_status ?? "UNKNOWN";
+  const previousStatus = useRef(effectiveStatus);
   const drivers = useMemo(() => Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
   const selectedDriver = drivers.find((driver) => driver.number === preferences.selectedDriverNumber) ?? drivers[0] ?? null;
   const leaderPair = drivers.length >= 2 ? [drivers[0].number, drivers[1].number] as [string, string] : null;
@@ -126,7 +127,7 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
   }, [authoredStates, preferences.rotationIntervalSeconds, rotating]);
 
   useEffect(() => {
-    const next = state.session.track_status;
+    const next = effectiveStatus;
     if (preferences.alertOnCriticalStatus && next !== previousStatus.current && isCriticalTrackStatus(next)) {
       queueMicrotask(() => setStatusAlert(true));
       const timer = window.setTimeout(() => setStatusAlert(false), 4000);
@@ -134,7 +135,7 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
       return () => window.clearTimeout(timer);
     }
     previousStatus.current = next;
-  }, [preferences.alertOnCriticalStatus, state.session.track_status]);
+  }, [effectiveStatus, preferences.alertOnCriticalStatus]);
 
   const latestControl = state.race_control.at(-1) ?? null;
   useEffect(() => {
@@ -145,11 +146,14 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
   }, [latestControl?.occurred_at, latestControl?.flag, latestControl?.scope, latestControl?.sector, preferences.alertOnCriticalStatus]);
 
   const unavailableTitle = visibleState === "runs" ? "Practice runs" : visibleState === "pace" ? "Long-run pace" : "Stint context";
-  const tone = statusTone(state.session.track_status);
-  const trackStatus = scopedAlert ?? state.session.track_status ?? "TRACK STATUS UNAVAILABLE";
+  const governingStatus = effectiveStatus === "UNKNOWN"
+    ? "STATUS UNAVAILABLE"
+    : effectiveStatus.replaceAll("_", " ");
+  const tone = statusTone(governingStatus);
+  const trackStatus = governingStatus;
   return <div className={`tv-mode-view${statusAlert ? " tv-status-alert" : ""}`} data-track-tone={tone}>
     <header className="tv-header"><div className="tv-brand"><i>SS</i><span><strong>SLIPSTREAM</strong><small>TV MODE · {sessionKind.replaceAll("_", " ").toUpperCase()}</small></span></div><div className="tv-session"><span>{state.session.meeting_name ?? "Session unavailable"}</span><strong>{state.session.name ?? layout.toUpperCase()}</strong></div><div className="tv-status"><span>{layout === "qualifying" ? analytics?.qualifying.phase ?? "PHASE" : "LAP"}</span><b>{layout === "qualifying" ? analytics?.qualifying.sessionClock ?? "CLOCK UNKNOWN" : `${state.session.lap ?? "—"} / ${state.session.total_laps ?? "—"}`}</b><strong>{trackStatus}</strong></div><button onClick={onExit}>EXIT TV</button></header>
-    <div className={`tv-status-rail tv-status-${tone}${statusAlert ? " critical-transition" : ""}`}><span>{trackStatus}</span></div>
+    <div className={`tv-status-rail tv-status-${tone}${statusAlert ? " critical-transition" : ""}`}><span>{trackStatus}</span>{scopedAlert && <small>{scopedAlert}</small>}</div>
     <main className={`tv-stage tv-stage-${visibleState}`}>
       {visibleState === "tower" && <div className="tv-tower"><TimingTower drivers={drivers} variant={layout === "race" ? "race" : layout === "qualifying" ? "qualifying" : "practice"} mode="standard" replayAvailable={replayAvailable} analytics={analytics} /></div>}
       {visibleState === "track" && (layout === "race" ? <TVTrack state={state} drivers={drivers} analytics={analytics} positionMode={positionMode} replayAvailable={replayAvailable} /> : <div className="tv-track"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div>)}

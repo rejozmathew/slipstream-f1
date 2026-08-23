@@ -19,6 +19,8 @@ Adding optional fields is compatible within version 1. Removing a field, changin
 
 Qualifying session facts use `session.qualifying_phase` (`Q1`, `Q2`, `Q3`, `SQ1`, `SQ2`, `SQ3`, or `UNKNOWN`), `session.session_clock`, and `session.session_clock_running`. Driver facts add `activity` (`ON_TRACK`, `IN_PIT`, `NO_RECENT_PROGRESS`, or `UNKNOWN`), `progress_observed_at_lap`, `qualifying_eliminated`, and `tyre_usage` (`NEW`, `USED`, or `UNKNOWN`). Activity is not lifecycle: `NO_RECENT_PROGRESS` and `STOPPED` are non-terminal, while retirement/DNF requires explicit terminal evidence.
 
+Session control is deliberately split across factual axes. `session.status` is `SCHEDULED`, `RUNNING`, `SUSPENDED`, `FINISHED`, or `UNKNOWN`. `session.control_status` is `NORMAL`, `RED_FLAG`, `SAFETY_CAR`, `VSC`, `VSC_ENDING`, `CHEQUERED`, or `UNKNOWN`. `session.marshal_status` is `ALL_CLEAR`, `YELLOW`, `RED`, or `UNKNOWN`. Server-authored `session.display_status` applies the global UI precedence: suspended/red flag, then Safety Car/VSC, then marshal red/yellow, then all-clear. The compatibility field `track_status` mirrors that effective result for older consumers; new clients use `display_status`.
+
 ```text
 RaceState
 â”œâ”€â”€ schema_version
@@ -55,7 +57,7 @@ REST state responses and WebSocket snapshots use:
 
 `analytics` is optional and additive. Replay and live WebSocket snapshots include it when the analytics service is available. It is always reconstructed at the same inclusive `seq` and `sessionTime` as `data`; it is not part of canonical `RaceState`.
 
-Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, and the connection-owned `delaySeconds`. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`.
+Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, and the connection-owned `delaySeconds`. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`. A live socket whose selected session becomes replay-ready sends one final `mode: "replay", handoff: "REPLAY_READY"` snapshot from the refreshed replay resource, then closes normally. The client retains the selected session and reconnects in Replay mode.
 
 ## HTTP API
 
@@ -115,7 +117,7 @@ Catalog session fields have specific meanings:
 - `replayReady`: the finalized canonical recording is visible in ReplayLibrary.
 - `downloadsEnabled`: the server is using a writable recording directory.
 
-`isLive` is schedule status, not proof that a live source is connected. `replayAvailable`, `liveAvailable`, `liveConnected`, `liveStale`, `liveStatus`, `livePhase`, and `replayReady` are separate. The catalog also exposes `liveSessionKey`; an active scheduled session is selected in live mode by default, while a viewer already watching replay is not forcibly switched.
+`isLive` is schedule status, not proof that a live source is connected or that the sporting state is `RUNNING`. Schedule metadata never writes sporting state into `RaceState`. `replayAvailable`, `liveAvailable`, `liveConnected`, `liveStale`, `liveStatus`, `livePhase`, and `replayReady` are separate. Sporting suspension/red flag is likewise independent from transport availability: a suspended race can remain connected and Live-capable. The catalog also exposes `liveSessionKey`; an active scheduled session is selected in live mode by default, while a viewer already watching replay is not forcibly switched.
 
 For an active scheduled session, replay `endTime` is capped at the earlier of the scheduled end and the current time. Clients must not create future seek targets.
 
@@ -192,7 +194,7 @@ Whole-track contamination is derived from timestamped intervals opened only by g
 
 Weather carries observation time, air and track temperature in degrees Celsius, humidity percentage, pressure in hPa, rain detection, wind speed in m/s, and wind direction in degrees. Rain detection is a sensor observation; it must not be presented as a guaranteed wet/dry surface classification.
 
-Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` when supplied. Only whole-track green, yellow, double-yellow, red, chequered, safety-car, and virtual-safety-car messages may update `session.track_status`. Driver- and sector-scoped flags remain messages only.
+Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` when supplied. Whole-track messages may update the appropriate control or marshal axis; driver- and sector-scoped flags remain messages only. An observed all-clear/normal transition ends SC/VSC control, but `TRACK CLEAR` cannot clear `SUSPENDED` or `RED_FLAG`. Red flag remains latched until explicit session-level resumption evidence.
 
 ## Recording formats
 

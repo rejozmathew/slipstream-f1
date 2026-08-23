@@ -367,6 +367,18 @@ def create_app(
         )
         return envelope
 
+    def replay_handoff_envelope(selected: ReplayResource) -> dict[str, Any]:
+        envelope = state_envelope(
+            selected.final_state,
+            sequence=len(selected.events),
+            session_time=(
+                selected.events[-1].occurred_at if selected.events else None
+            ),
+        )
+        envelope["mode"] = "replay"
+        envelope["handoff"] = "REPLAY_READY"
+        return envelope
+
     @app.get("/api/v1/state")
     async def get_state(
         session_key: str | None = None, mode: str = "auto"
@@ -563,6 +575,14 @@ def create_app(
             delay_seconds = 0.0
             try:
                 while True:
+                    if not live_mode_available(selected):
+                        refreshed = library_ref[0].get(selected.descriptor.key)
+                        if refreshed.replay_available:
+                            await websocket.send_json(
+                                replay_handoff_envelope(refreshed)
+                            )
+                            await websocket.close(code=1000)
+                            return
                     await websocket.send_json(
                         live_state_envelope(selected, delay_seconds=delay_seconds)
                     )

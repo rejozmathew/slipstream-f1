@@ -48,6 +48,9 @@ export type RaceState = {
     lap: number | null;
     total_laps: number | null;
     track_status: string | null;
+    control_status?: "NORMAL" | "RED_FLAG" | "SAFETY_CAR" | "VSC" | "VSC_ENDING" | "CHEQUERED" | "UNKNOWN";
+    marshal_status?: "ALL_CLEAR" | "YELLOW" | "RED" | "UNKNOWN";
+    display_status?: "RED_FLAG" | "SAFETY_CAR" | "VSC" | "VSC_ENDING" | "CHEQUERED" | "RED" | "YELLOW" | "ALL_CLEAR" | "UNKNOWN";
     qualifying_phase: QualifyingPhase;
     session_clock: string | null;
     session_clock_running: boolean | null;
@@ -114,6 +117,7 @@ export type StateEnvelope = {
   sourceTime: string | null;
   playback: { playing: boolean };
   mode?: ViewingMode;
+  handoff?: "REPLAY_READY";
   live?: LiveSourceState;
   data: RaceState;
   analytics?: AnalyticsSnapshot;
@@ -617,7 +621,8 @@ export const EMPTY_RACE_STATE: RaceState = {
     key: null, name: null, meeting_name: null, session_type: null,
     session_kind: "unknown", layout_family: "unsupported",
     circuit: null, location: null, started_at: null, ended_at: null,
-    lap: null, total_laps: null, track_status: null, qualifying_phase: "UNKNOWN",
+    lap: null, total_laps: null, track_status: null, control_status: "UNKNOWN",
+    marshal_status: "UNKNOWN", display_status: "UNKNOWN", qualifying_phase: "UNKNOWN",
     session_clock: null, session_clock_running: null, gmt_offset: null,
     local_time: null, status: "UNAVAILABLE",
   },

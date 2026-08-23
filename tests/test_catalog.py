@@ -144,7 +144,7 @@ def test_catalog_only_live_session_is_default_and_cannot_seek_to_future(
     assert catalog["sessions"][0]["isLive"] is True
     assert catalog["sessions"][0]["available"] is False
     assert catalog["sessions"][0]["circuitShapeAvailable"] is True
-    assert state["data"]["session"]["status"] == "LIVE"
+    assert state["data"]["session"]["status"] == "UNKNOWN"
     assert state["data"]["session"]["local_time"] == "2026-08-11T14:30:00+02:00"
     assert state["data"]["circuit"]["path"] == [[0.0, 0.0], [10.0, 0.0], [5.0, 10.0]]
     assert replay["endTime"] == "2026-08-11T12:30:00Z"

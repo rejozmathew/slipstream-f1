@@ -295,7 +295,9 @@ def _preview_events(
         future = parse_timestamp(descriptor.date_start) > now
     except ValueError:
         future = False
-    status = "LIVE" if live else "SCHEDULED" if future else "NOT_DOWNLOADED"
+    # Scheduled-window activity belongs to the catalog/live lifecycle. It is
+    # not evidence that the sporting session has actually started.
+    status = "SCHEDULED" if future else "UNKNOWN"
     events = [
         NormalizedEvent(
             kind="session",
@@ -336,12 +338,14 @@ def _preview_events(
             )
         )
     if live:
+        # Advance presentation-local time without claiming the sporting session
+        # has started. Schedule activity remains descriptor truth only.
         events.append(
             NormalizedEvent(
                 kind="session",
                 occurred_at=now.isoformat().replace("+00:00", "Z"),
                 source=descriptor.source,
-                payload={"status": "LIVE"},
+                payload={},
             )
         )
     return tuple(events)

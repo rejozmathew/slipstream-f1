@@ -230,12 +230,14 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .app-shell *::-webkit-scrollbar-thumb:hover { background: #536273; }
 
 .layout-presets button.active { border-color: var(--accent); color: var(--ink); background: color-mix(in srgb, var(--accent), transparent 88%); }
-.track-stat[data-track-status="green"] .data-missing, .track-stat[data-track-status="green"] .data-value { color: var(--green); }
+.track-stat[data-track-status="green"] .data-missing, .track-stat[data-track-status="green"] .data-value,
+.track-stat[data-track-status="all-clear"] .data-missing, .track-stat[data-track-status="all-clear"] .data-value { color: var(--green); }
 .track-stat[data-track-status*="yellow"] .data-missing, .track-stat[data-track-status*="yellow"] .data-value,
 .track-stat[data-track-status*="safety-car"] .data-missing, .track-stat[data-track-status*="safety-car"] .data-value,
 .track-stat[data-track-status="sc"] .data-missing, .track-stat[data-track-status="sc"] .data-value,
 .track-stat[data-track-status="vsc"] .data-missing, .track-stat[data-track-status="vsc"] .data-value { color: var(--yellow); }
-.track-stat[data-track-status="red"] .data-missing, .track-stat[data-track-status="red"] .data-value { color: var(--red); }
+.track-stat[data-track-status="red"] .data-missing, .track-stat[data-track-status="red"] .data-value,
+.track-stat[data-track-status="red-flag"] .data-missing, .track-stat[data-track-status="red-flag"] .data-value { color: var(--red); }
 .track-stat[data-track-status*="chequered"] .data-missing, .track-stat[data-track-status*="chequered"] .data-value { color: var(--ink); }
 .message-list article[data-flag="green"] span { color: var(--green); }
 .message-list article[data-flag*="yellow"] span, .message-list article[data-flag="sc"] span, .message-list article[data-flag="vsc"] span { color: var(--yellow); }
