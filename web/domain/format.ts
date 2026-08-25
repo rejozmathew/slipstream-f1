@@ -21,6 +21,13 @@ export function formatSector(value: number | null) {
   return value == null ? null : value.toFixed(3);
 }
 
+export function formatLapTime(value: number | null | undefined) {
+  if (value == null) return "—";
+  const minutes = Math.floor(value / 60);
+  const seconds = value - minutes * 60;
+  return minutes > 0 ? `${minutes}:${seconds.toFixed(3).padStart(6, "0")}` : seconds.toFixed(3);
+}
+
 export function utcOffsetLabel(offset: string | null) {
   if (!offset) return "";
   const parts = offset.match(/^([+-]?)(\d{2}):(\d{2})/);

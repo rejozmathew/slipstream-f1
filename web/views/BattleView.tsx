@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { BattlePublishedContext } from "../components/analysis/PublishedStrategy";
 import { TrackMap } from "../components/analysis/TrackMap";
@@ -7,8 +7,8 @@ import { Panel } from "../components/shared/Panel";
 import { currentPairGap } from "../domain/battle";
 import { driverLifecycle } from "../domain/lifecycle";
 import type { AnalyticsSnapshot, Driver, PositionMode, RaceState } from "../domain/protocol";
+import type { BattlePreferences } from "../hooks/useProductPreferences";
 
-type BattleMode = "recommended" | "leader" | "pinned";
 type GapSample = { occurredAt: string; lap: number; gapSeconds: number };
 
 function GapHistory({ samples }: { samples: GapSample[] }) {
@@ -21,10 +21,12 @@ function GapHistory({ samples }: { samples: GapSample[] }) {
   return <div className="battle-chart"><div className="battle-chart-axis"><span>GAP (S)</span><small>{max.toFixed(2)}</small><small>{min.toFixed(2)}</small></div><svg viewBox="0 0 100 38" preserveAspectRatio="none" aria-label="Completed-lap interval history"><line x1="0" y1="34" x2="100" y2="34" /><polyline points={points} /></svg><footer><span>L{samples[0].lap}</span><strong>COMPLETED LAPS</strong><span>L{samples.at(-1)!.lap}</span></footer></div>;
 }
 
-export function BattleView({ state, analytics, recommendedPair, positionMode }: { state: RaceState; analytics: AnalyticsSnapshot | null; recommendedPair: [string, string] | null; positionMode: PositionMode }) {
+export function BattleView({ state, analytics, recommendedPair, positionMode, preferences, onPreferencesChange }: { state: RaceState; analytics: AnalyticsSnapshot | null; recommendedPair: [string, string] | null; positionMode: PositionMode; preferences: BattlePreferences; onPreferencesChange: (value: BattlePreferences) => void }) {
   const drivers = useMemo(() => Object.values(state.drivers).filter((driver) => driverLifecycle(driver).battleEligible).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
-  const [mode, setMode] = useState<BattleMode>("recommended");
-  const [pinned, setPinned] = useState<[string, string]>(["", ""]);
+  const mode = preferences.mode;
+  const pinned = preferences.pinnedPair;
+  const setMode = (nextMode: BattlePreferences["mode"]) => onPreferencesChange({ ...preferences, mode: nextMode });
+  const setPinned = (nextPair: [string, string]) => onPreferencesChange({ mode: "pinned", pinnedPair: nextPair });
   const recommended = recommendedPair ? [drivers.find((driver) => driver.number === recommendedPair[0]), drivers.find((driver) => driver.number === recommendedPair[1])] as const : null;
   const leaderPair = drivers.length >= 2 ? [drivers[0], drivers[1]] as [Driver, Driver] : null;
   const pinnedPair = [drivers.find((driver) => driver.number === pinned[0]) ?? null, drivers.find((driver) => driver.number === pinned[1]) ?? null] as const;
@@ -40,8 +42,9 @@ export function BattleView({ state, analytics, recommendedPair, positionMode }: 
 
   return <div className="battle-view">
     <header className="experience-heading"><div><span>RACE INTELLIGENCE</span><h1>Battle</h1><p>Recommended uses completed-lap source history; Leader and Pinned never change its server truth.</p></div><div className="battle-modes">{(["recommended", "leader", "pinned"] as const).map((item) => <button className={mode === item ? "active" : ""} key={item} onClick={() => setMode(item)}>{item.toUpperCase()}</button>)}</div></header>
-    <div className="battle-selectors"><label><span>DRIVER A</span><select value={left?.number ?? pinned[0]} onChange={(event) => { setPinned([event.target.value, pinned[1]]); setMode("pinned"); }}><option value="">SELECT</option>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "—"} · {driver.code ?? driver.number}</option>)}</select></label><div><span>OBSERVED INTERVAL</span><strong>{gap == null ? "—" : `${gap.toFixed(3)}s`}</strong><small className={`trend trend-${trend.toLowerCase().split(" ")[0]}`}>{trend}</small></div><label><span>DRIVER B</span><select value={right?.number ?? pinned[1]} onChange={(event) => { setPinned([pinned[0], event.target.value]); setMode("pinned"); }}><option value="">SELECT</option>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "—"} · {driver.code ?? driver.number}</option>)}</select></label></div>
+    <div className="battle-selectors"><label><span>DRIVER A</span><select value={left?.number ?? pinned[0]} onChange={(event) => setPinned([event.target.value, pinned[1]])}><option value="">SELECT</option>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "—"} · {driver.code ?? driver.number}</option>)}</select></label><div><span>OBSERVED INTERVAL</span><strong>{gap == null ? "—" : `${gap.toFixed(3)}s`}</strong><small className={`trend trend-${trend.toLowerCase().split(" ")[0]}`}>{trend}</small></div><label><span>DRIVER B</span><select value={right?.number ?? pinned[1]} onChange={(event) => setPinned([pinned[0], event.target.value])}><option value="">SELECT</option>{drivers.map((driver) => <option key={driver.number} value={driver.number}>P{driver.position ?? "—"} · {driver.code ?? driver.number}</option>)}</select></label></div>
     {mode === "recommended" && !pair && <div className="service-unavailable battle-unavailable"><strong>NO STABILIZED MEANINGFUL BATTLE</strong><p>A recommendation appears only after an eligible pair remains within 12 seconds across completed-lap source history.</p></div>}
+    {mode === "pinned" && !pair && <div className="service-unavailable battle-unavailable"><strong>PINNED BATTLE UNAVAILABLE</strong><p>The selected pair is incomplete or no longer factually eligible. Choose a new pair to continue observing.</p></div>}
       {pair && <div className="battle-focus-grid"><BattleDriverCard driver={left} side="left" published={left ? analytics?.publishedStrategy?.drivers[left.number] : undefined} /><div className="battle-focused-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[left!.number, right!.number]} focusLabel={`${left!.code ?? left!.number} · ${right!.code ?? right!.number}`} /></div><BattleDriverCard driver={right} side="right" published={right ? analytics?.publishedStrategy?.drivers[right.number] : undefined} /></div>}
     <div className="battle-lower">
       <Panel eyebrow="COMPLETED LAPS" title="Gap history"><GapHistory samples={samples} /></Panel>

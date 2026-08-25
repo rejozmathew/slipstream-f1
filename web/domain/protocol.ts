@@ -52,7 +52,7 @@ export type RaceState = {
     track_status: string | null;
     control_status?: "NORMAL" | "RED_FLAG" | "SAFETY_CAR" | "VSC" | "VSC_ENDING" | "CHEQUERED" | "UNKNOWN";
     marshal_status?: "ALL_CLEAR" | "YELLOW" | "RED" | "UNKNOWN";
-    display_status?: "RED_FLAG" | "SAFETY_CAR" | "VSC" | "VSC_ENDING" | "CHEQUERED" | "RED" | "YELLOW" | "GREEN" | "UNKNOWN";
+    display_status?: "RED_FLAG" | "SAFETY_CAR" | "VSC" | "VSC_ENDING" | "CHEQUERED" | "CANCELLED" | "RED" | "YELLOW" | "GREEN" | "UNKNOWN";
     eligible_field_size: number | null;
     qualifying_phase: QualifyingPhase;
     session_clock: string | null;
@@ -473,6 +473,7 @@ export type QualifyingDriverIntelligence = {
   benchmarkDelta: number | null;
   cutState: "ADVANCING" | "BELOW_CUT" | "ELIMINATED" | "UNKNOWN";
   qStatus: string | null;
+  segmentResults: [number | null, number | null, number | null];
   attempts: QualifyingAttempt[];
   tyreUsage: "NEW" | "USED" | "UNKNOWN";
   teammate: {

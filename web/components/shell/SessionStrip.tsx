@@ -33,6 +33,7 @@ export function SessionStrip({ session, selected, viewingMode, livePhase, liveNo
   const gmtOffset = session.gmt_offset ?? selected?.gmtOffset ?? null;
   const preEvent = viewingMode === "live" && livePhase === "PRE_EVENT";
   const qualifying = session.layout_family === "qualifying" || selected?.layoutFamily === "qualifying";
+  const race = session.layout_family === "race" || selected?.layoutFamily === "race";
   const canonicalStatus = session.display_status ?? session.track_status;
   const displayStatus = !canonicalStatus || canonicalStatus === "UNKNOWN" ? null : canonicalStatus.replaceAll("_", " ");
   const modeLabel = viewingMode === "live" ? livePhase.replaceAll("_", " ") : "REPLAY";
@@ -54,7 +55,7 @@ export function SessionStrip({ session, selected, viewingMode, livePhase, liveNo
       <div className="session-stat"><span>DATE</span><DataValue compact value={date ? formatSessionDate(date) : null} /></div>
       <div className="session-stat"><span>LOCAL</span><DataValue compact value={session.local_time ? `${session.local_time.slice(11, 19)} ${utcOffsetLabel(gmtOffset)}` : sessionStartLabel(selected?.dateStart ?? null, gmtOffset)} /></div>
       {qualifying ? (session.qualifying_phase !== "UNKNOWN" || session.session_clock ? <div className="session-stat lap-stat qualifying-clock-stat">{session.qualifying_phase !== "UNKNOWN" && <span>{session.qualifying_phase}</span>}{session.session_clock && <strong>{session.session_clock}</strong>}</div> : null) : <div className="session-stat lap-stat"><span>LAP</span><strong><DataValue compact value={session.lap} /> <i>/</i> <DataValue compact value={session.total_laps} /></strong></div>}
-      {displayStatus && <div className="session-stat track-stat" data-track-status={displayStatus.toLowerCase().replaceAll(" ", "-")}><span>STATUS</span><DataValue compact value={displayStatus} /></div>}
+      {(race || displayStatus) && <div className="session-stat track-stat" data-track-status={displayStatus?.toLowerCase().replaceAll(" ", "-") ?? "unknown"}><span>STATUS</span><DataValue compact value={displayStatus ?? "—"} /></div>}
     </section>
   );
 }

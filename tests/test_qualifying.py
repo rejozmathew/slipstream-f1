@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -219,3 +219,95 @@ def test_verified_advancement_profiles(
     year: int, field_size: int, phase: str, expected: int
 ) -> None:
     assert _advancing_count(year, field_size, phase) == expected
+
+
+def test_result_matrix_is_cursor_safe_and_uses_approved_final_statuses(
+    tmp_path: Path,
+) -> None:
+    resource, events = _resource(tmp_path)
+    live_state = replay(events)
+    live = build_qualifying_snapshot(
+        resource,
+        live_state,
+        sequence=len(events),
+    )
+
+    assert live["drivers"]["1"]["segmentResults"] == [79.1, None, None]
+    assert live["drivers"]["1"]["qStatus"] is None
+
+    final_drivers = dict(live_state.drivers)
+    final_drivers["1"] = replace(
+        final_drivers["1"],
+        qualifying_results=(72.695, 71.628, 71.163),
+        qualifying_phase_reached="Q3",
+        qualifying_eliminated=False,
+    )
+    final_drivers["2"] = replace(
+        final_drivers["2"],
+        qualifying_results=(73.115, 72.616, None),
+        qualifying_phase_reached="Q2",
+        qualifying_eliminated=True,
+    )
+    final = build_qualifying_snapshot(
+        resource,
+        replace(live_state, drivers=final_drivers),
+        sequence=len(events),
+    )
+
+    assert final["drivers"]["1"]["segmentResults"] == [72.695, 71.628, 71.163]
+    assert final["drivers"]["1"]["qStatus"] == "Q3"
+    assert final["drivers"]["2"]["segmentResults"] == [73.115, 72.616, None]
+    assert final["drivers"]["2"]["qStatus"] == "OUT Q2"
+
+
+def test_unknown_source_phases_follow_observed_segment_starts_without_future_leakage(
+    tmp_path: Path,
+) -> None:
+    _, events = _resource(tmp_path)
+    q1_payload = dict(events[-1].payload)
+    q1_observation = dict(q1_payload["lap_observation"])
+    q1_observation["qualifying_phase"] = "UNKNOWN"
+    q1_payload["lap_observation"] = q1_observation
+    q1_event = replace(events[-1], payload=q1_payload)
+    segment_start = NormalizedEvent(
+        "race_control",
+        "2026-07-25T14:25:00+00:00",
+        "fixture",
+        {"category": "SessionStatus", "message": "SESSION STARTED"},
+    )
+    q2_payload = dict(q1_payload)
+    q2_payload.update({"lap": 8, "last_lap": "1:18.500", "best_lap": "1:18.500"})
+    q2_observation = dict(q1_observation)
+    q2_observation.update(
+        {
+            "lap": 8,
+            "started_at": "2026-07-25T14:26:00+00:00",
+            "duration": 78.5,
+        }
+    )
+    q2_payload["lap_observation"] = q2_observation
+    q2_event = replace(
+        q1_event,
+        occurred_at="2026-07-25T14:27:18.500000+00:00",
+        payload=q2_payload,
+    )
+    unknown_events = [*events[:-1], q1_event, segment_start, q2_event]
+    path = tmp_path / "unknown-phase-qualifying.json"
+    path.write_text(
+        json.dumps([asdict(event) for event in unknown_events]), encoding="utf-8"
+    )
+    resource = ReplayLibrary(path).get()
+
+    q1 = build_qualifying_snapshot(
+        resource,
+        replay(unknown_events, event_limit=len(unknown_events) - 2),
+        sequence=len(unknown_events) - 2,
+    )
+    q2 = build_qualifying_snapshot(
+        resource,
+        replay(unknown_events),
+        sequence=len(unknown_events),
+    )
+
+    assert q1["drivers"]["1"]["segmentResults"] == [79.1, None, None]
+    assert q2["drivers"]["1"]["segmentResults"] == [79.1, 78.5, None]

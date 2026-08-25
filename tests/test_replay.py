@@ -48,3 +48,38 @@ def test_session_clock_uses_source_offset_for_every_event() -> None:
     state = replay(events)
 
     assert state.session.local_time == "2025-01-01T07:30:00-05:00"
+
+
+def test_cancelled_session_remains_explicit_and_never_reduces_to_green() -> None:
+    cancelled_from_neutral = replay(
+        [
+            NormalizedEvent(
+                "session",
+                "2026-08-25T12:00:00Z",
+                "test",
+                {"status": "CANCELLED", "track_status": "CANCELLED"},
+            )
+        ]
+    )
+    cancelled_after_clear = replay(
+        [
+            NormalizedEvent(
+                "session",
+                "2026-08-25T11:59:00Z",
+                "test",
+                {"status": "RUNNING", "track_status": "GREEN"},
+            ),
+            NormalizedEvent(
+                "session",
+                "2026-08-25T12:00:00Z",
+                "test",
+                {"status": "CANCELLED", "track_status": "CANCELLED"},
+            ),
+        ]
+    )
+
+    assert cancelled_from_neutral.session.display_status == "CANCELLED"
+    assert cancelled_from_neutral.session.track_status == "CANCELLED"
+    assert cancelled_after_clear.session.display_status == "CANCELLED"
+    assert cancelled_after_clear.session.track_status == "CANCELLED"
+    assert cancelled_after_clear.session.display_status != "GREEN"

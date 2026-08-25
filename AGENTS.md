@@ -71,3 +71,18 @@ or final acceptance to a local agent.
 Avoid spawning multiple local agents concurrently unless the tasks are genuinely
 independent; they share the same local model/GPU.
 
+
+## Preservation authority and protected acceptance
+
+Before changing protected product behavior, read the active authority/precedence
+document, Product Preservation Lock, all APPROVED Product Contract Revisions, and
+the active acceptance-case registry supplied for the milestone. Apply their stated
+precedence; do not silently choose between conflicting governing documents.
+
+- Do not modify a protected expectation, pinned fixture/cursor, approved golden
+  metadata, or locked requirement merely to make a test pass.
+- If a protected acceptance test fails, repair the product behavior it protects.
+- If the protected requirement is wrong or source-impossible, stop and report
+  `PCR REQUIRED` instead of weakening the expectation.
+- Review-only preservation audits must not modify files.
+- Repair agents must not rewrite the owner-accepted regression inventory.

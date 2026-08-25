@@ -26,9 +26,10 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
   return <div className="strategy-view pirelli-strategy-view">
     <header className="experience-heading strategy-experience-heading"><div><span>RACE INTELLIGENCE</span><h1>Strategy</h1><p>Pirelli’s published pre-race baseline, contextualized by factual current-race evidence.</p></div><div className="strategy-validity-state"><strong>{final ? "FINAL · RETROSPECTIVE" : baseline?.status === "PRESENT" ? "PIRELLI BASELINE · PUBLISHED" : "RACE FACTS"}</strong></div></header>
 
-    <section className="strategy-foundation" aria-label="Published strategy and current race context">
-      <PirelliBaseline baseline={baseline} />
-      <div className="strategy-current-column"><RaceNow analytics={analytics} /><Conditions weather={state.weather} session={state.session} /></div>
+    <section className={`strategy-foundation${showPublished ? "" : " strategy-foundation-no-pirelli"}`} aria-label="Published strategy and current race context">
+      {!showPublished && <div className="strategy-current-column"><RaceNow analytics={analytics} /><Conditions weather={state.weather} session={state.session} /></div>}
+      <PirelliBaseline baseline={baseline} compact={!showPublished} />
+      {showPublished && <div className="strategy-current-column"><RaceNow analytics={analytics} /><Conditions weather={state.weather} session={state.session} /></div>}
     </section>
 
     <Panel eyebrow="CURRENT RACE" title="Driver landscape" className="driver-strategy-panel">

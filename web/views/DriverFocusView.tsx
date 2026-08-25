@@ -7,6 +7,7 @@ import { CompoundBadge, CompoundTransition } from "../components/shared/Compound
 import { DataValue } from "../components/shared/DataValue";
 import { InfoPopover } from "../components/shared/InfoPopover";
 import { Panel } from "../components/shared/Panel";
+import { formatLapTime } from "../domain/format";
 import { driverLifecycle } from "../domain/lifecycle";
 import type { AnalyticsSnapshot, Driver, DriverBattleContext, DriverHistory, PaceSample, PitEvent, PositionMode, RaceState } from "../domain/protocol";
 import type { SessionLayout } from "../domain/sessionLayout";
@@ -39,6 +40,8 @@ function QualifyingDriverFocus({ driver, state, analytics, positionMode, onChang
   const delta = model?.benchmarkDelta == null ? "—" : model.benchmarkDelta === 0 ? "BENCHMARK" : `+${model.benchmarkDelta.toFixed(3)}s`;
   const qualifierTitle = intelligence?.phase && intelligence.phase !== "UNKNOWN" ? `QUALIFYING · ${intelligence.phase}` : "QUALIFYING";
   const teammate = model?.teammate;
+  const segmentLabels = analytics?.sessionKind === "sprint_qualifying" ? ["SQ1", "SQ2", "SQ3"] : ["Q1", "Q2", "Q3"];
+  const segmentResults = model?.segmentResults ?? driver.qualifying_results ?? [null, null, null];
   return <div className="driver-focus-view qualifying-driver-focus">
     <header className="driver-hero" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as CSSProperties}>
       <div className="driver-hero-actions"><button onClick={onBack}>BACK</button><button onClick={onChangeDriver}>CHANGE DRIVER</button></div>
@@ -47,7 +50,7 @@ function QualifyingDriverFocus({ driver, state, analytics, positionMode, onChang
       <div className="driver-hero-position"><span>CLASSIFICATION</span><strong>P{driver.position ?? "—"}</strong><DataValue compact value={delta} /></div>
     </header>
     <div className="qualifying-driver-grid">
-      <Panel eyebrow="CURRENT QUALIFYING STATE" title="Driver facts" className="qualifying-driver-state"><div className="qualifying-driver-facts"><div><span>BEST</span><strong>{model?.scopeBest ?? driver.best_lap ?? driver.last_lap ?? "—"}</strong></div><div><span>GAP TO FASTEST</span><strong>{delta}</strong></div><div><span>TYRE</span><strong><CompoundBadge compound={driver.compound} showLabel /></strong></div><div><span>AGE / USAGE</span><strong>{driver.tyre_age == null ? "—" : `${driver.tyre_age}L`} · {model?.tyreUsage === "UNKNOWN" ? "—" : model?.tyreUsage ?? "—"}</strong></div><div><span>Q STATUS</span><strong>{model?.qStatus ?? "—"}</strong></div><div><span>TEAMMATE</span><strong>{teammate ? `${teammate.code ?? teammate.driverNumber} · ${teammate.comparison}${teammate.gapSeconds == null ? "" : ` ${teammate.gapSeconds.toFixed(3)}s`}` : "—"}</strong></div></div></Panel>
+      <Panel eyebrow="CURRENT QUALIFYING STATE" title="Driver facts" className="qualifying-driver-state"><div className="qualifying-driver-facts"><div><span>BEST</span><strong>{model?.scopeBest ?? driver.best_lap ?? driver.last_lap ?? "—"}</strong></div><div><span>GAP TO FASTEST</span><strong>{delta}</strong></div>{segmentLabels.map((label, index) => <div key={label}><span>{label}</span><strong>{formatLapTime(segmentResults[index])}</strong></div>)}<div><span>TYRE</span><strong><CompoundBadge compound={driver.compound} showLabel /></strong></div><div><span>AGE / USAGE</span><strong>{driver.tyre_age == null ? "—" : `${driver.tyre_age}L`} · {model?.tyreUsage === "UNKNOWN" ? "—" : model?.tyreUsage ?? "—"}</strong></div><div><span>Q STATUS</span><strong>{model?.qStatus ?? "—"}</strong></div><div><span>TEAMMATE</span><strong>{teammate ? `${teammate.code ?? teammate.driverNumber} · ${teammate.comparison}${teammate.gapSeconds == null ? "" : ` ${teammate.gapSeconds.toFixed(3)}s`}` : "—"}</strong></div></div></Panel>
       <Panel eyebrow="COMPLETED LAPS" title="QUALIFYING LAP HISTORY" className="qualifying-driver-attempts">{!model?.attempts.length && <div className="panel-empty">NO QUALIFYING LAPS RECORDED YET</div>}<div className="driver-attempt-list">{model?.attempts.map((lap) => <div key={`${lap.attempt}-${lap.occurredAt}`}><header>{lap.phase !== "UNKNOWN" && <span>{lap.phase}</span>}<b>LAP {lap.lap ?? "—"}</b></header><div><strong>{lap.lapTime ?? "—"}</strong><span>S1 {lap.sector1 ?? "—"}</span><span>S2 {lap.sector2 ?? "—"}</span><span>S3 {lap.sector3 ?? "—"}</span><CompoundBadge compound={lap.compound} compact /><em>{lap.tyreAge == null ? "—" : `${lap.tyreAge}L`} · {lap.tyreUsage === "UNKNOWN" ? "—" : lap.tyreUsage}</em></div></div>)}</div></Panel>
       <div className="qualifying-driver-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[driver.number]} focusLabel={driver.code ?? driver.number} /></div>
     </div>

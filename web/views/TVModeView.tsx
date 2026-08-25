@@ -6,7 +6,7 @@ import { DriverPirelliContext, PirelliBaseline, RaceNow, publishedWindowSummary 
 import { TrackMap } from "../components/analysis/TrackMap";
 import { CompoundBadge, CompoundTransition } from "../components/shared/CompoundBadge";
 import { TimingTower } from "../components/timing/TimingTower";
-import { currentPairGap } from "../domain/battle";
+import { completedLapGapTrend, currentPairGap } from "../domain/battle";
 import { driverLifecycle } from "../domain/lifecycle";
 import type { AnalyticsSnapshot, Driver, PositionMode, RaceState, SessionKind } from "../domain/protocol";
 import type { SessionLayout } from "../domain/sessionLayout";
@@ -45,7 +45,7 @@ function DriverTV({ driver, analytics, state, positionMode }: {
   return <div className="tv-driver-state">
     <header style={{ borderColor: `#${driver.team_colour ?? "77808f"}` }}><div><span>DRIVER</span><strong>#{driver.number}</strong></div><div><h2>{driver.name ?? driver.code ?? driver.number}</h2><p>{driver.team ?? "Team unavailable"}</p>{lifecycle.label && <span className="driver-status-badge terminal">{lifecycle.label}</span>}</div><b>P{driver.position ?? "—"}</b></header>
     <div className="tv-driver-zones">
-      <section className="tv-driver-facts"><h3>DRIVER STATE</h3><div><span>AHEAD</span><strong>{model?.ahead?.code ?? "—"}</strong><small>{model?.ahead?.gapSeconds == null ? "—" : `${model.ahead.gapSeconds.toFixed(3)}s`}</small></div><div><span>BEHIND</span><strong>{model?.behind?.code ?? "—"}</strong><small>{model?.behind?.gapSeconds == null ? "—" : `${model.behind.gapSeconds.toFixed(3)}s`}</small></div><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / BEST</span><strong>{driver.last_lap ?? "—"} · {driver.best_lap ?? "—"}</strong></div>{latestPit && <div><span>LATEST PIT · L{latestPit.lap}</span><strong><CompoundTransition from={latestPit.previousCompound} to={latestPit.newCompound} compact /></strong><small>PIT-LANE {latestPit.stopDuration == null ? "—" : `${latestPit.stopDuration.toFixed(1)}s`}</small></div>}</section>
+      <section className="tv-driver-facts"><h3>DRIVER STATE</h3><div><span>AHEAD</span><strong>{model?.ahead?.code ?? "—"}</strong><small>{model?.ahead?.gapSeconds == null ? "—" : `${model.ahead.gapSeconds.toFixed(3)}s`}</small></div><div><span>BEHIND</span><strong>{model?.behind?.code ?? "—"}</strong><small>{model?.behind?.gapSeconds == null ? "—" : `${model.behind.gapSeconds.toFixed(3)}s`}</small></div><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>STINT / PITS</span><strong>{driver.stint_laps ?? "—"}L · {driver.pit_count}</strong></div><div><span>LAST / BEST</span><strong>{driver.last_lap ?? "—"} · {driver.best_lap ?? "—"}</strong></div>{latestPit && <div><span>LATEST PIT · L{latestPit.lap}</span><strong><CompoundTransition from={latestPit.previousCompound} to={latestPit.newCompound} compact /></strong><small>STOP {latestPit.stopDuration == null ? "—" : `${latestPit.stopDuration.toFixed(1)}s`} · PIT LANE {latestPit.pitLaneDuration == null ? "—" : `${latestPit.pitLaneDuration.toFixed(1)}s`}</small></div>}<div className="tv-driver-read"><span>DRIVER READ</span><strong>{model?.read.headline ?? "Driver read not available yet."}</strong>{model?.read.facts.slice(0, 2).map((fact) => <small key={fact}>{fact}</small>)}</div></section>
       <div className="tv-driver-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[driver.number]} focusLabel={`${driver.code ?? driver.number} · FOCUS`} /></div>
       <div className="tv-driver-analysis"><section className="tv-driver-pace"><h3>PACE TREND</h3><PaceDeltaChart samples={samples} compact serverScale={model?.pace.scale} /></section><DriverPirelliContext analytics={analytics} driverNumber={driver.number} compact /></div>
     </div>
@@ -70,7 +70,11 @@ function TVBattle({ drivers, analytics, mode, state, positionMode }: {
   const right = drivers?.[1] ?? null;
   if (!left || !right) return <div className="unknown-block"><strong>BATTLE · NOT AVAILABLE</strong><p>No adjacent comparable pair is available.</p></div>;
   const gap = currentPairGap(analytics, left, right);
-  return <div className="tv-battle"><header><span>{mode.toUpperCase()} BATTLE</span><strong>{left.code ?? left.number} · {gap == null ? "—" : `${gap.toFixed(3)}s`} · {right.code ?? right.number}</strong></header><div className="tv-battle-grid"><BattleCard driver={left} analytics={analytics} /><div className="tv-battle-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[left.number, right.number]} focusLabel={`${left.code ?? left.number} ↔ ${right.code ?? right.number}`} /><div className="tv-battle-trend"><span>OBSERVED GAP</span><strong>{gap == null ? "—" : `${gap.toFixed(3)}s`}</strong></div></div><BattleCard driver={right} analytics={analytics} /></div></div>;
+  const historyKey = `${left.number}:${right.number}`;
+  const reverseKey = `${right.number}:${left.number}`;
+  const history = analytics?.battle.histories?.[historyKey] ?? analytics?.battle.histories?.[reverseKey] ?? [];
+  const trend = completedLapGapTrend(history);
+  return <div className="tv-battle"><header><span>{mode.toUpperCase()} BATTLE</span><strong>{left.code ?? left.number} · {gap == null ? "—" : `${gap.toFixed(3)}s`} · {right.code ?? right.number}</strong></header><div className="tv-battle-grid"><BattleCard driver={left} analytics={analytics} /><div className="tv-battle-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[left.number, right.number]} focusLabel={`${left.code ?? left.number} ↔ ${right.code ?? right.number}`} /><div className="tv-battle-trend"><span>COMPLETED-LAP TREND</span><strong>{trend.label}</strong><small>{trend.delta == null ? `${trend.sampleCount} SAMPLES` : `${trend.delta > 0 ? "+" : ""}${trend.delta.toFixed(3)}s · ${trend.sampleCount} LAPS`}</small></div></div><BattleCard driver={right} analytics={analytics} /></div></div>;
 }
 
 function TVTrack({ state, drivers, analytics, positionMode, replayAvailable }: { state: RaceState; drivers: Driver[]; analytics: AnalyticsSnapshot | null; positionMode: PositionMode; replayAvailable: boolean }) {
@@ -115,7 +119,7 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
       : null;
   const previousStatus = useRef(effectiveStatus);
   const drivers = useMemo(() => Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
-  const selectedDriver = drivers.find((driver) => driver.number === preferences.selectedDriverNumber) ?? drivers[0] ?? null;
+  const selectedDriver = preferences.selectedDriverNumber ? drivers.find((driver) => driver.number === preferences.selectedDriverNumber) ?? null : null;
   const battleDrivers = useMemo(() => drivers.filter((driver) => driverLifecycle(driver).battleEligible), [drivers]);
   const leaderPair = battleDrivers.length >= 2 ? [battleDrivers[0].number, battleDrivers[1].number] as [string, string] : null;
   const selectedPair = preferences.battleMode === "leader" ? leaderPair : preferences.battleMode === "pinned" ? preferences.pinnedBattle : recommendedBattle;
@@ -147,17 +151,19 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
     return () => window.clearTimeout(timer);
   }, [latestControl?.occurred_at, latestControl?.flag, latestControl?.scope, latestControl?.sector, preferences.alertOnCriticalStatus]);
 
-  const governingStatus = effectiveStatus?.replaceAll("_", " ") ?? null;
+  const governingStatus = effectiveStatus?.replaceAll("_", " ") ?? (layout === "race" ? "STATUS —" : null);
   const tone = statusTone(governingStatus);
   const qualifyingPhase = analytics?.qualifying.phase && analytics.qualifying.phase !== "UNKNOWN" ? analytics.qualifying.phase : null;
   const qualifyingClock = analytics?.qualifying.sessionClock ?? null;
+  const qualifyingFinal = layout === "qualifying" && drivers.some((driver) => driver.qualifying_results != null);
+  const pirelliPresent = analytics?.publishedStrategy?.baseline.status === "PRESENT";
   return <div className={`tv-mode-view${statusAlert ? " tv-status-alert" : ""}`} data-track-tone={tone}>
-    <header className="tv-header"><div className="tv-brand"><i>SS</i><span><strong>SLIPSTREAM</strong><small>TV MODE · {sessionKind.replaceAll("_", " ").toUpperCase()}</small></span></div><div className="tv-session"><span>{state.session.meeting_name ?? "Session unavailable"}</span><strong>{state.session.name ?? layout.toUpperCase()}</strong></div><div className="tv-status">{layout === "qualifying" ? <>{qualifyingPhase && <span>{qualifyingPhase}</span>}{qualifyingClock && <b>{qualifyingClock}</b>}</> : <><span>LAP</span><b>{state.session.lap ?? "—"} / {state.session.total_laps ?? "—"}</b></>}{governingStatus && <strong>{governingStatus}</strong>}</div><button onClick={onExit}>EXIT TV</button></header>
+    <header className="tv-header"><div className="tv-brand"><i>SS</i><span><strong>SLIPSTREAM</strong><small>TV MODE · {sessionKind.replaceAll("_", " ").toUpperCase()}</small></span></div><div className="tv-session"><span>{state.session.meeting_name ?? "Session unavailable"}</span><strong>{qualifyingFinal ? "QUALIFYING FINAL" : state.session.name ?? layout.toUpperCase()}</strong></div><div className="tv-status">{layout === "qualifying" ? <>{qualifyingPhase && <span>{qualifyingPhase}</span>}{qualifyingClock && <b>{qualifyingClock}</b>}</> : <><span>LAP</span><b>{state.session.lap ?? "—"} / {state.session.total_laps ?? "—"}</b></>}{governingStatus && <strong>{governingStatus}</strong>}</div><button onClick={onExit}>EXIT TV</button></header>
     <div className={`tv-status-rail ${governingStatus ? `tv-status-${tone}` : "tv-status-none"}${statusAlert ? " critical-transition" : ""}`}>{governingStatus && <span>{governingStatus}</span>}{scopedAlert && <small>{scopedAlert}</small>}</div>
     <main className={`tv-stage tv-stage-${visibleState}`}>
       {visibleState === "tower" && <div className="tv-tower"><TimingTower drivers={drivers} variant={layout === "race" ? "race" : layout === "qualifying" ? "qualifying" : "practice"} mode="standard" replayAvailable={replayAvailable} analytics={analytics} sectorTimingAvailable={layout === "qualifying" && sectorTimingAvailable} /></div>}
       {visibleState === "track" && (layout === "race" ? <TVTrack state={state} drivers={drivers} analytics={analytics} positionMode={positionMode} replayAvailable={replayAvailable} /> : <div className="tv-track"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div>)}
-      {visibleState === "strategy" && <div className="tv-strategy pirelli-tv-strategy"><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} /><RaceNow analytics={analytics} /></div>}
+      {visibleState === "strategy" && <div className={`tv-strategy pirelli-tv-strategy${pirelliPresent ? "" : " pirelli-tv-strategy-absent"}`}>{pirelliPresent ? <><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} /><RaceNow analytics={analytics} /></> : <><RaceNow analytics={analytics} /><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} compact /></>}</div>}
       {visibleState === "battle" && <TVBattle drivers={battle} analytics={analytics} mode={preferences.battleMode} state={state} positionMode={positionMode} />}
       {visibleState === "driver" && <DriverTV driver={selectedDriver} analytics={analytics} state={state} positionMode={positionMode} />}
     </main>

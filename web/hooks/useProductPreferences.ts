@@ -10,7 +10,13 @@ type StoredPreferences = {
   raceLayout: RaceLayoutConfig;
   towerView: TowerView;
   lastDriverNumber: string | null;
+  battle: BattlePreferences;
   tv: TVPreferences;
+};
+
+export type BattlePreferences = {
+  mode: "recommended" | "leader" | "pinned";
+  pinnedPair: [string, string];
 };
 
 export type TVStatePreference = "tower" | "track" | "strategy" | "battle" | "driver";
@@ -32,11 +38,17 @@ export const DEFAULT_TV_PREFERENCES: TVPreferences = {
   alertOnCriticalStatus: true,
 };
 
+const DEFAULT_BATTLE_PREFERENCES: BattlePreferences = {
+  mode: "recommended",
+  pinnedPair: ["", ""],
+};
+
 const defaults = (): StoredPreferences => ({
   appearance: DEFAULT_APPEARANCE,
   raceLayout: INSTANCE_RACE_LAYOUT,
   towerView: "standard",
   lastDriverNumber: null,
+  battle: DEFAULT_BATTLE_PREFERENCES,
   tv: DEFAULT_TV_PREFERENCES,
 });
 
@@ -57,6 +69,7 @@ function readDevicePreferences(): StoredPreferences {
       raceLayout,
       towerView: parsed.towerView ?? "standard",
       lastDriverNumber: parsed.lastDriverNumber ?? null,
+      battle: { ...DEFAULT_BATTLE_PREFERENCES, ...parsed.battle },
       tv: { ...DEFAULT_TV_PREFERENCES, ...parsed.tv },
     };
   } catch {
@@ -70,15 +83,16 @@ export function useProductPreferences() {
   const [raceLayout, setRaceLayout] = useState<RaceLayoutConfig>(initial.raceLayout);
   const [towerView, setTowerView] = useState<TowerView>(initial.towerView);
   const [lastDriverNumber, setLastDriverNumber] = useState<string | null>(initial.lastDriverNumber);
+  const [battle, setBattle] = useState<BattlePreferences>(initial.battle);
   const [tv, setTV] = useState<TVPreferences>(initial.tv);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ appearance, raceLayout, towerView, lastDriverNumber, tv }));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ appearance, raceLayout, towerView, lastDriverNumber, battle, tv }));
     } catch {
       // Storage can be disabled; preferences still work for this page lifetime.
     }
-  }, [appearance, lastDriverNumber, raceLayout, towerView, tv]);
+  }, [appearance, battle, lastDriverNumber, raceLayout, towerView, tv]);
 
-  return { appearance, setAppearance, raceLayout, setRaceLayout, towerView, setTowerView, lastDriverNumber, setLastDriverNumber, tv, setTV };
+  return { appearance, setAppearance, raceLayout, setRaceLayout, towerView, setTowerView, lastDriverNumber, setLastDriverNumber, battle, setBattle, tv, setTV };
 }

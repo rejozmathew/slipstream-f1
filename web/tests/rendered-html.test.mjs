@@ -167,7 +167,8 @@ test("uses server-authored status and preserves same-session live replay handoff
 
   assert.match(sessionStrip, /session\.display_status/);
   assert.match(sessionStrip, /session\.display_status \?\? session\.track_status/);
-  assert.match(sessionStrip, /canonicalStatus === "UNKNOWN" \? null/);
+  assert.match(sessionStrip, /race \|\| displayStatus/);
+  assert.match(sessionStrip, /displayStatus \?\? "—"/);
   assert.doesNotMatch(sessionStrip, /PHASE UNKNOWN|STATUS UNAVAILABLE/);
   assert.match(protocol, /control_status/);
   assert.match(protocol, /marshal_status/);
@@ -199,7 +200,9 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(timingTower, /standard: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "LAST", "PIT"\]/);
   assert.match(timingTower, /timing: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "S1", "S2", "S3", "LAST", "BEST"\]/);
   assert.match(timingTower, /strategy: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "STINT", "PIT"\]/);
-  assert.match(timingTower, /\["P", "DRIVER \/ TEAM", "BEST", "GAP", "TYRE", "AGE"/);
+  assert.match(timingTower, /qualifyingSegments, "GAP", "TYRE", "AGE"/);
+  assert.match(timingTower, /"Q STATUS"/);
+  assert.match(timingTower, /segmentResults/);
   assert.match(timingTower, /"PIRELLI FIT", "PUBLISHED WINDOW"/);
   assert.match(timingTower, /driver\.gap_to_leader/);
   assert.doesNotMatch(timingTower, /interval_to_ahead|NO RECENT PROGRESS|TO AHEAD|TO LEADER/);
@@ -212,6 +215,14 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(battleView, /driverLifecycle\(driver\)\.battleEligible/);
   assert.match(tvMode, /driverLifecycle\(driver\)\.battleEligible/);
   assert.match(tvMode, /driver-status-badge terminal/);
+  assert.match(driverFocus, /segmentResults/);
+  assert.match(driverFocus, /formatLapTime/);
+  assert.match(tvMode, /QUALIFYING FINAL/);
+  assert.match(tvMode, /DRIVER · NOT SELECTED/);
+  assert.match(tvMode, /COMPLETED-LAP TREND/);
+  assert.match(tvMode, /pitLaneDuration/);
+  assert.match(battleView, /preferences\.pinnedPair/);
+  assert.match(battleView, /PINNED BATTLE UNAVAILABLE/);
 
   assert.match(qualifyingView, /title="SESSION"/);
   assert.match(qualifyingView, /SEGMENT TIMING WAS NOT RECORDED FOR THIS REPLAY/);

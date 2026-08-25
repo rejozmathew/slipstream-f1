@@ -309,7 +309,9 @@ def _legacy_track_updates(value: object) -> dict[str, str]:
 def _with_display_status(session: SessionState) -> SessionState:
     control = session.control_status.upper()
     marshal = session.marshal_status.upper()
-    if session.status.upper() == "SUSPENDED" or control == "RED_FLAG":
+    if session.status.upper() == "CANCELLED":
+        display, legacy = "CANCELLED", "CANCELLED"
+    elif session.status.upper() == "SUSPENDED" or control == "RED_FLAG":
         display, legacy = "RED_FLAG", "RED FLAG"
     elif control == "SAFETY_CAR":
         display, legacy = "SAFETY_CAR", "SAFETY CAR"

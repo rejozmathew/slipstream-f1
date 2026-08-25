@@ -71,6 +71,13 @@ export function currentPairGap(
   return gapBetween(left, right);
 }
 
+export function completedLapGapTrend(samples: Array<{ gapSeconds: number }>) {
+  if (samples.length < 3) return { label: "INSUFFICIENT HISTORY", delta: null, sampleCount: samples.length } as const;
+  const delta = samples.at(-1)!.gapSeconds - samples[0].gapSeconds;
+  const label = delta < -0.05 ? "CLOSING" : delta > 0.05 ? "OPENING" : "STABLE";
+  return { label, delta, sampleCount: samples.length } as const;
+}
+
 export function recommendedBattle(drivers: Driver[]): [Driver, Driver] | null {
   const ordered = [...drivers]
     .filter((driver) => driver.position != null && isBattleEligible(driver))

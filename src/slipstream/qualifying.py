@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from .library import ReplayResource
@@ -42,8 +43,9 @@ def build_qualifying_snapshot(
     if phase not in QUALIFYING_PHASES:
         phase = "UNKNOWN"
     ordered = sorted(state.drivers.values(), key=lambda item: item.position or 999)
+    sprint = resource.descriptor.session_kind == "sprint_qualifying"
     attempts_by_driver = {
-        driver.number: _attempts(resource, driver.number, sequence)
+        driver.number: _attempts(resource, driver.number, sequence, sprint=sprint)
         for driver in ordered
     }
     scoped_best = {
@@ -59,6 +61,11 @@ def build_qualifying_snapshot(
         best = scoped_best[driver.number]
         best_seconds = best[0] if best is not None else None
         cut_state = _cut_state(driver, advancing_count)
+        segment_results = _segment_results(
+            driver,
+            attempts_by_driver[driver.number],
+            sprint=sprint,
+        )
         driver_payload[driver.number] = {
             "driverNumber": driver.number,
             "activity": _activity(driver),
@@ -69,7 +76,8 @@ def build_qualifying_snapshot(
                 else None
             ),
             "cutState": cut_state,
-            "qStatus": _q_status(driver, cut_state),
+            "qStatus": _q_status(driver),
+            "segmentResults": segment_results,
             "attempts": attempts_by_driver[driver.number],
             "tyreUsage": driver.tyre_usage,
             "teammate": None,
@@ -141,17 +149,26 @@ def build_qualifying_snapshot(
 
 
 def _attempts(
-    resource: ReplayResource, driver_number: str, sequence: int
+    resource: ReplayResource,
+    driver_number: str,
+    sequence: int,
+    *,
+    sprint: bool,
 ) -> list[dict[str, Any]]:
     items = [
         item
         for item in resource.evidence.lap_observations
         if item.driver_number == str(driver_number) and item.sequence <= sequence
     ]
+    phase_boundaries = _phase_boundaries(resource, sequence, sprint=sprint)
     return [
         {
             "attempt": index,
-            "phase": item.observation.qualifying_phase,
+            "phase": (
+                item.observation.qualifying_phase
+                if item.observation.qualifying_phase in QUALIFYING_PHASES
+                else _phase_at_sequence(phase_boundaries, item.sequence)
+            ),
             "lap": item.observation.lap,
             "lapTime": item.observation.duration,
             "sector1": item.observation.sector_1,
@@ -165,6 +182,62 @@ def _attempts(
         }
         for index, item in enumerate(items, start=1)
     ]
+
+
+def _phase_boundaries(
+    resource: ReplayResource,
+    sequence: int,
+    *,
+    sprint: bool,
+) -> list[tuple[int, str]]:
+    phases = ("SQ1", "SQ2", "SQ3") if sprint else ("Q1", "Q2", "Q3")
+    starts: list[tuple[int, str]] = []
+    last_started_at: str | None = None
+    for event_sequence, event in enumerate(resource.events, start=1):
+        if event_sequence > sequence:
+            break
+        is_initial_start = (
+            event.kind == "session"
+            and event.payload.get("status") == "RUNNING"
+            and event.payload.get("layout_family") == "qualifying"
+        )
+        is_segment_start = (
+            event.kind == "race_control"
+            and event.payload.get("category") == "SessionStatus"
+            and event.payload.get("message") == "SESSION STARTED"
+        )
+        if not (is_initial_start or is_segment_start):
+            continue
+        if last_started_at is not None:
+            current = _timestamp_seconds(event.occurred_at)
+            previous = _timestamp_seconds(last_started_at)
+            if current is not None and previous is not None and current - previous < 60:
+                continue
+        if len(starts) >= len(phases):
+            break
+        starts.append((event_sequence, phases[len(starts)]))
+        last_started_at = event.occurred_at
+    return starts
+
+
+def _phase_at_sequence(
+    boundaries: list[tuple[int, str]], sequence: int
+) -> str | None:
+    phase = None
+    for boundary_sequence, candidate in boundaries:
+        if boundary_sequence > sequence:
+            break
+        phase = candidate
+    return phase
+
+
+def _timestamp_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except ValueError:
+        return None
 
 
 def _scope_best(
@@ -221,17 +294,38 @@ def _activity(driver: DriverState) -> str:
     return "UNKNOWN"
 
 
-def _q_status(driver: DriverState, cut_state: str) -> str | None:
+def _segment_results(
+    driver: DriverState,
+    attempts: list[dict[str, Any]],
+    *,
+    sprint: bool,
+) -> list[float | None]:
+    if driver.qualifying_results is not None:
+        return list(driver.qualifying_results)
+    phases = ("SQ1", "SQ2", "SQ3") if sprint else ("Q1", "Q2", "Q3")
+    results: list[float | None] = []
+    for phase in phases:
+        candidates = [
+            float(item["lapTime"])
+            for item in attempts
+            if item.get("phase") == phase
+            and item.get("validity") != "INVALID"
+            and isinstance(item.get("lapTime"), (int, float))
+        ]
+        results.append(min(candidates) if candidates else None)
+    return results
+
+
+def _q_status(driver: DriverState) -> str | None:
+    status = str(driver.status or "").upper()
+    if status in {"DNS", "NOT_STARTING", "SCRATCHED", "WITHDRAWN"}:
+        return "DNS"
+    if status in {"DSQ", "DISQUALIFIED"}:
+        return "DSQ"
     if driver.qualifying_eliminated is True:
-        return (
-            f"ELIMINATED · {driver.qualifying_phase_reached}"
-            if driver.qualifying_phase_reached
-            else "ELIMINATED"
-        )
-    if driver.qualifying_phase_reached:
+        return f"OUT {driver.qualifying_phase_reached}" if driver.qualifying_phase_reached else None
+    if driver.qualifying_results is not None and driver.qualifying_phase_reached:
         return driver.qualifying_phase_reached
-    if cut_state in {"ADVANCING", "BELOW_CUT"}:
-        return cut_state.replace("_", " ")
     return None
 
 
