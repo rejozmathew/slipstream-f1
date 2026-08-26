@@ -8,6 +8,7 @@ import pytest
 
 from slipstream.adapters.openf1 import (
     OpenF1Client,
+    _validated_pit_lane_duration,
     is_openf1_recording,
     recording_to_events,
 )
@@ -142,6 +143,64 @@ def test_stint_and_pit_state_changes_at_replay_boundaries() -> None:
     }
     expected = json.loads((ROOT / "golden" / "stint-transition.json").read_text())
     assert checkpoints == expected
+
+
+def test_explicit_openf1_out_laps_author_pit_classification() -> None:
+    raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
+    for lap in raw["endpoints"]["laps"]:
+        lap["is_pit_out_lap"] = lap["lap_number"] == 20
+    raw["endpoints"]["pit"] = [
+        {
+            "date": "2025-01-01T12:20:30Z",
+            "driver_number": 4,
+            "lap_number": 20,
+            "lane_duration": 1581.1,
+        }
+    ]
+
+    evidence = SessionEvidence.from_events(tuple(recording_to_events(raw)))
+    laps = evidence.laps_for_driver("4")
+
+    assert [(item.lap, item.pit_in, item.pit_out) for item in laps] == [
+        (18, False, False),
+        (19, True, False),
+        (20, False, True),
+    ]
+    pit_events = evidence.pit_events_for_driver("4")
+    assert len(pit_events) == 1
+    assert pit_events[0].lap == 20
+    assert pit_events[0].pit_lane_duration is None
+
+
+def test_durationless_partial_lap_does_not_author_running_progress() -> None:
+    raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
+    raw["endpoints"]["laps"] = [
+        {
+            "date_start": "2025-01-01T12:18:00Z",
+            "driver_number": 4,
+            "lap_number": 18,
+            "lap_duration": None,
+            "duration_sector_2": 31.2,
+        }
+    ]
+    raw["endpoints"]["pit"] = []
+    event = next(
+        item
+        for item in recording_to_events(raw)
+        if item.kind == "timing" and item.payload.get("lap_observation")
+    )
+
+    assert event.payload["lap_observation"]["lap"] == 18
+    assert event.payload["lap_observation"]["sector_2"] == 31.2
+    assert "lap" not in event.payload
+    assert "status" not in event.payload
+    assert "activity" not in event.payload
+    assert "track_position" not in event.payload
+
+
+def test_pit_lane_duration_is_rejected_not_clamped() -> None:
+    assert _validated_pit_lane_duration(18.4, "2025-01-01T12:20:30Z", []) == 18.4
+    assert _validated_pit_lane_duration(1581.1, "2025-01-01T12:20:30Z", []) is None
 
 
 def test_unknown_recording_is_rejected(tmp_path: Path) -> None:
@@ -442,7 +501,8 @@ def test_historical_sparse_updates_preserve_full_field_track_progress() -> None:
         for index, number in enumerate(numbers)
     ]
     raw["endpoints"]["position"] = [
-        {"date": "2023-09-17T13:56:50+00:00", "driver_number": 1, "position": 1}
+        {"date": "2023-09-17T13:56:50+00:00", "driver_number": 1, "position": 1},
+        {"date": "2023-09-17T13:57:10+00:00", "driver_number": 1, "position": 1},
     ]
     raw["endpoints"]["intervals"] = [
         {
@@ -456,11 +516,14 @@ def test_historical_sparse_updates_preserve_full_field_track_progress() -> None:
     raw["endpoints"]["session_result"] = []
     raw["endpoints"]["race_control"] = []
 
-    state = replay(tuple(recording_to_events(raw)), at="2023-09-17T13:56:55Z")
+    events = tuple(recording_to_events(raw))
+    state = replay(events, at="2023-09-17T13:56:55Z")
+    later = replay(events, at="2023-09-17T13:57:10Z")
 
     assert set(state.drivers) == set(numbers)
     assert all(state.drivers[number].track_position is not None for number in numbers)
     assert state.drivers["1"].track_position != state.drivers["2"].track_position
+    assert later.drivers["1"].track_position != state.drivers["1"].track_position
 
 
 def test_openf1_red_flag_is_history_only_and_degrades_after_track_clear() -> None:

@@ -262,7 +262,7 @@ class SessionEvidence:
             )
             for item in self.lap_observations
             if item.driver_number == str(driver_number)
-            and item.observation.pit_in is True
+            and item.observation.pit_occurred_at is not None
             and (event_limit is None or item.sequence <= event_limit)
             and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
         )

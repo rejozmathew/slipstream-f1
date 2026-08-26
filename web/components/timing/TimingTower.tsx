@@ -82,6 +82,7 @@ function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; anal
 
 function QualifyingRow({ driver, intelligence, sectorTimingAvailable, showQStatus, onSelect }: { driver: Driver; intelligence?: QualifyingIntelligence; sectorTimingAvailable: boolean; showQStatus: boolean; onSelect?: (driverNumber: string) => void }) {
   const model = intelligence?.drivers[driver.number];
+  const latest = model?.latestLap;
   const boundary = intelligence?.cutLine.status === "AVAILABLE"
     && ["Q1", "Q2", "SQ1", "SQ2"].includes(intelligence.phase)
     && intelligence.cutLine.advancePosition === driver.position;
@@ -94,9 +95,10 @@ function QualifyingRow({ driver, intelligence, sectorTimingAvailable, showQStatu
     <CompoundBadge compound={driver.compound} compact />
     <span>{driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</span>
     {showQStatus && <strong className="qualifying-status">{model?.qStatus ?? "—"}</strong>}
-    {sectorTimingAvailable && <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} />}
-    {sectorTimingAvailable && <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} />}
-    {sectorTimingAvailable && <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} />}
+    {sectorTimingAvailable && <DataValue compact value={formatLapTime(latest?.lapTime)} />}
+    {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector1 ?? null)} />}
+    {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector2 ?? null)} />}
+    {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector3 ?? null)} />}
   </button>;
 }
 
@@ -131,7 +133,7 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
       ? [...raceModeHeaders.strategy, "PIRELLI FIT", "PUBLISHED WINDOW"]
       : raceModeHeaders[mode]
     : variant === "qualifying"
-      ? ["P", "DRIVER / TEAM", ...qualifyingSegments, "GAP", "TYRE", "AGE", ...(qualifyingFinal ? ["Q STATUS"] : []), ...(sectorTimingAvailable ? ["S1", "S2", "S3"] : [])]
+      ? ["P", "DRIVER / TEAM", ...qualifyingSegments, "GAP", "TYRE", "AGE", ...(qualifyingFinal ? ["Q STATUS"] : []), ...(sectorTimingAvailable ? ["LATEST LAP", "S1", "S2", "S3"] : [])]
       : headers.practice;
   const rowClass = variant === "race" && mode !== "standard" ? `race-${mode}` : variant;
   const qualifying = analytics?.qualifying;
@@ -153,4 +155,3 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
     </div>
   </Panel>;
 }
-

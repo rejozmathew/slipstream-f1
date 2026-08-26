@@ -115,6 +115,16 @@ def test_qualifying_contract_authors_phase_clock_cut_and_attempts(
     assert snapshot["drivers"]["17"]["cutState"] == "BELOW_CUT"
     assert snapshot["drivers"]["22"]["cutState"] == "ELIMINATED"
     assert snapshot["drivers"]["1"]["attempts"][0]["tyreUsage"] == "NEW"
+    assert snapshot["drivers"]["1"]["attempts"][0]["classification"] == "TIMED"
+    assert snapshot["drivers"]["1"]["latestLap"] == {
+        "lap": 4,
+        "lapTime": 79.1,
+        "sector1": 25.1,
+        "sector2": 28.2,
+        "sector3": 25.8,
+        "classification": "TIMED",
+    }
+    assert sum(snapshot["drivers"]["1"]["latestLap"][key] for key in ("sector1", "sector2", "sector3")) == pytest.approx(snapshot["drivers"]["1"]["latestLap"]["lapTime"])
 
 
 def test_qualifying_attempt_history_is_cursor_safe(tmp_path: Path) -> None:
@@ -182,7 +192,7 @@ def test_missing_stable_roster_never_invents_a_cut_line(tmp_path: Path) -> None:
     assert snapshot["cutLine"]["advancePosition"] is None
 
 
-def test_unknown_phase_uses_cursor_safe_session_benchmark(tmp_path: Path) -> None:
+def test_unknown_normalized_phase_uses_cursor_safe_observed_segment_start(tmp_path: Path) -> None:
     resource, events = _resource(tmp_path)
     from dataclasses import replace
 
@@ -193,8 +203,9 @@ def test_unknown_phase_uses_cursor_safe_session_benchmark(tmp_path: Path) -> Non
         sequence=len(events),
     )
 
-    assert snapshot["phase"] == "UNKNOWN"
-    assert snapshot["benchmark"]["scope"] == "SESSION"
+    assert snapshot["phase"] == "Q1"
+    assert snapshot["phaseEvidence"] == "cursor-safe observed SessionStatus segment starts"
+    assert snapshot["benchmark"]["scope"] == "SEGMENT"
     assert snapshot["benchmark"]["driverNumber"] == "1"
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, replace
 from datetime import timedelta, timezone
 
@@ -186,7 +187,7 @@ class RaceState:
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(self.session, event.occurred_at),
-                drivers={**self.drivers, number: item},
+                drivers=_with_monotonic_gaps({**self.drivers, number: item}),
             )
         if event.kind == "timing":
             number = str(event.payload["number"])
@@ -238,7 +239,7 @@ class RaceState:
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(session, event.occurred_at),
-                drivers={**self.drivers, number: item},
+                drivers=_with_monotonic_gaps({**self.drivers, number: item}),
             )
         if event.kind == "weather":
             updates = dict(event.payload)
@@ -269,6 +270,50 @@ class RaceState:
                 race_control=(*self.race_control, item),
             )
         raise ValueError(f"Unsupported event kind: {event.kind}")
+
+
+def _with_monotonic_gaps(drivers: dict[str, DriverState]) -> dict[str, DriverState]:
+    """Mask cross-packet gaps that cannot form a valid classified tower.
+
+    OpenF1 position and interval packets are independently timestamped. When
+    a stale numeric gap moves behind a newer position it must become
+    unavailable, not be presented as a same-snapshot ordering fact.
+    """
+
+    result = dict(drivers)
+    largest = 0.0
+    for driver in sorted(
+        (item for item in result.values() if item.position is not None),
+        key=lambda item: item.position or 999,
+    ):
+        if driver.position == 1:
+            largest = 0.0
+            continue
+        value = _numeric_gap_seconds(driver.gap_to_leader)
+        if value is None:
+            continue
+        if value + 1e-9 < largest:
+            availability = {**driver.availability, "gap_to_leader": "unavailable"}
+            result[driver.number] = replace(
+                driver,
+                gap_to_leader=None,
+                availability=availability,
+            )
+            continue
+        largest = value
+    return result
+
+
+def _numeric_gap_seconds(value: str | None) -> float | None:
+    if not value or "LAP" in value.upper():
+        return None
+    match = re.search(r"-?\d+(?:[.,]\d+)?", value)
+    if match is None:
+        return None
+    try:
+        return float(match.group(0).replace(",", "."))
+    except ValueError:
+        return None
 
 
 def _with_local_time(session: SessionState, occurred_at: str) -> SessionState:

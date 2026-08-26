@@ -39,11 +39,14 @@ def build_qualifying_snapshot(
             "modelVersion": QUALIFYING_MODEL_VERSION,
         }
 
-    phase = str(state.session.qualifying_phase or "UNKNOWN").upper()
-    if phase not in QUALIFYING_PHASES:
-        phase = "UNKNOWN"
-    ordered = sorted(state.drivers.values(), key=lambda item: item.position or 999)
     sprint = resource.descriptor.session_kind == "sprint_qualifying"
+    phase_boundaries = _phase_boundaries(resource, sequence, sprint=sprint)
+    normalized_phase = str(state.session.qualifying_phase or "UNKNOWN").upper()
+    phase_from_state = normalized_phase in QUALIFYING_PHASES
+    phase = normalized_phase if phase_from_state else (
+        _phase_at_sequence(phase_boundaries, sequence) or "UNKNOWN"
+    )
+    ordered = sorted(state.drivers.values(), key=lambda item: item.position or 999)
     attempts_by_driver = {
         driver.number: _attempts(resource, driver.number, sequence, sprint=sprint)
         for driver in ordered
@@ -79,6 +82,7 @@ def build_qualifying_snapshot(
             "qStatus": _q_status(driver),
             "segmentResults": segment_results,
             "attempts": attempts_by_driver[driver.number],
+            "latestLap": _latest_lap(attempts_by_driver[driver.number]),
             "tyreUsage": driver.tyre_usage,
             "teammate": None,
         }
@@ -122,6 +126,8 @@ def build_qualifying_snapshot(
         "phase": phase,
         "phaseEvidence": (
             "normalized public SessionData"
+            if phase_from_state
+            else "cursor-safe observed SessionStatus segment starts"
             if phase != "UNKNOWN"
             else "phase is not established by normalized source evidence"
         ),
@@ -167,7 +173,7 @@ def _attempts(
             "phase": (
                 item.observation.qualifying_phase
                 if item.observation.qualifying_phase in QUALIFYING_PHASES
-                else _phase_at_sequence(phase_boundaries, item.sequence)
+                else _phase_at_sequence(phase_boundaries, item.sequence) or "UNKNOWN"
             ),
             "lap": item.observation.lap,
             "lapTime": item.observation.duration,
@@ -178,10 +184,46 @@ def _attempts(
             "tyreAge": item.observation.tyre_age,
             "tyreUsage": item.observation.tyre_usage,
             "validity": item.observation.lap_validity,
+            "classification": _attempt_classification(item.observation),
             "occurredAt": item.occurred_at,
         }
         for index, item in enumerate(items, start=1)
     ]
+
+
+def _attempt_classification(observation: Any) -> str:
+    if observation.pit_in is True and observation.pit_out is True:
+        return "PIT"
+    if observation.pit_in is True:
+        return "IN"
+    if observation.pit_out is True:
+        return "OUT"
+    if observation.duration is None:
+        return "UNKNOWN"
+    if observation.quality == "representative":
+        return "TIMED"
+    return "NON_REP"
+
+
+def _latest_lap(attempts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    item = next(
+        (
+            candidate
+            for candidate in reversed(attempts)
+            if isinstance(candidate.get("lapTime"), (int, float))
+        ),
+        None,
+    )
+    if item is None:
+        return None
+    return {
+        "lap": item["lap"],
+        "lapTime": item["lapTime"],
+        "sector1": item["sector1"],
+        "sector2": item["sector2"],
+        "sector3": item["sector3"],
+        "classification": item["classification"],
+    }
 
 
 def _phase_boundaries(

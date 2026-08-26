@@ -578,6 +578,19 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
         if item.get("driver_number") is not None
         and isinstance(item.get("lap_number"), int)
     }
+    explicit_pit_out_drivers = {
+        str(item["driver_number"])
+        for item in endpoints.get("laps", [])
+        if item.get("driver_number") is not None
+        and item.get("is_pit_out_lap") is True
+    }
+    explicit_pit_out_laps = {
+        (str(item["driver_number"]), int(item["lap_number"]))
+        for item in endpoints.get("laps", [])
+        if item.get("driver_number") is not None
+        and isinstance(item.get("lap_number"), int)
+        and item.get("is_pit_out_lap") is True
+    }
     neutralization_intervals = _track_neutralization_intervals(
         endpoints.get("race_control", [])
     )
@@ -604,10 +617,18 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
         pit_in = None
         pit_out = None
         if pit_data_available and isinstance(lap_number, int):
-            pit_in = (number, lap_number) in pit_laps
-            pit_out = bool(lap.get("is_pit_out_lap")) or (
-                (number, lap_number - 1) in pit_laps
-            )
+            if number in explicit_pit_out_drivers:
+                # OpenF1's lap flag is authoritative: the flagged lap is the
+                # OUT lap and the immediately preceding lap is the IN lap.
+                # Pit endpoint rows may be attached to the OUT lap, so using
+                # their lap number as PIT IN shifts every classification.
+                pit_out = (number, lap_number) in explicit_pit_out_laps
+                pit_in = (number, lap_number + 1) in explicit_pit_out_laps
+            else:
+                # Older/sparse recordings without any explicit out-lap flag
+                # retain the endpoint convention exercised by the fixture.
+                pit_in = (number, lap_number) in pit_laps
+                pit_out = (number, lap_number - 1) in pit_laps
         pit_record = (
             pit_by_driver_lap.get((number, lap_number))
             if isinstance(lap_number, int)
@@ -687,10 +708,12 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 "stop_duration": _positive_float(
                     pit_record.get("stop_duration") if pit_record else None
                 ),
-                "pit_lane_duration": _positive_float(
+                "pit_lane_duration": _validated_pit_lane_duration(
                     pit_record.get("lane_duration", pit_record.get("pit_duration"))
                     if pit_record
-                    else None
+                    else None,
+                    pit_record.get("date") if pit_record else None,
+                    neutralization_intervals,
                 ),
                 "quality": quality,
                 "contamination_reasons": contamination_reasons,
@@ -699,7 +722,9 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
             _timing_event(
                 lap["date_start"],
                 number,
-                lap=lap_number,
+                # A durationless partial lap remains evidence, but it is not
+                # proof that the car completed progress or was circulating.
+                lap=lap_number if duration_value is not None else None,
                 last_lap=_format_duration(duration),
                 best_lap=best_lap,
                 compound=compound,
@@ -711,8 +736,8 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 # A completed lap row is positive evidence that a previously
                 # STOPPED car resumed. The reducer prevents terminal states
                 # from being resurrected by later packets.
-                status="RUNNING",
-                activity="ON_TRACK",
+                status="RUNNING" if duration_value is not None else None,
+                activity="ON_TRACK" if duration_value is not None else None,
                 tyre_usage=(
                     "NEW"
                     if stint is not None
@@ -721,7 +746,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                     if stint is not None
                     else "UNKNOWN"
                 ),
-                track_position=0.0,
+                track_position=0.0 if duration_value is not None else None,
                 lap_observation=observation,
             )
         )
@@ -1030,6 +1055,35 @@ def _format_duration(seconds: object) -> str | None:
 
 def _positive_float(value: object) -> float | None:
     return float(value) if isinstance(value, (int, float)) and value >= 0 else None
+
+
+def _validated_pit_lane_duration(
+    value: object,
+    occurred_at: object,
+    intervals: list[tuple[datetime, datetime | None, str]],
+) -> float | None:
+    """Admit a value only while it still means a pit-lane transit.
+
+    OpenF1 can span a red-flag suspension in ``lane_duration``. That value is
+    not a very long stop; it has left the semantic domain of this metric. It
+    is rejected as unavailable rather than clamped to a plausible number.
+    """
+
+    duration = _positive_float(value)
+    if duration is None or duration > 300:
+        return None
+    if not isinstance(occurred_at, str):
+        return duration
+    pit_exit = _as_datetime(occurred_at)
+    pit_entry = pit_exit - timedelta(seconds=duration)
+    for interval_start, interval_end, _kind in intervals:
+        if (
+            interval_end is not None
+            and pit_entry < interval_end
+            and pit_exit > interval_start
+        ):
+            return None
+    return duration
 
 
 def _neutralization_transition(message: dict[str, Any]) -> tuple[str, str] | None:

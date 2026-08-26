@@ -29,6 +29,26 @@ def test_driver_metadata_preserves_earlier_timing_state() -> None:
     assert state.drivers["4"].name == "Lando Norris"
 
 
+def test_classified_numeric_gaps_never_decrease_down_the_tower() -> None:
+    state = replay(
+        [
+            NormalizedEvent("driver", "2025-01-01T12:00:00Z", "test", {"number": "1", "position": 1}),
+            NormalizedEvent("driver", "2025-01-01T12:00:01Z", "test", {"number": "2", "position": 2, "gap_to_leader": "+8.000"}),
+            NormalizedEvent("driver", "2025-01-01T12:00:02Z", "test", {"number": "3", "position": 3, "gap_to_leader": "+5.000"}),
+        ]
+    )
+
+    assert state.drivers["2"].gap_to_leader == "+8.000"
+    assert state.drivers["3"].gap_to_leader is None
+    assert state.drivers["3"].availability["gap_to_leader"] == "unavailable"
+
+    restored = state.apply(
+        NormalizedEvent("timing", "2025-01-01T12:00:03Z", "test", {"number": "3", "gap_to_leader": "+9.000"})
+    )
+    assert restored.drivers["3"].gap_to_leader == "+9.000"
+    assert restored.drivers["3"].availability["gap_to_leader"] == "available"
+
+
 def test_session_clock_uses_source_offset_for_every_event() -> None:
     events = [
         NormalizedEvent(

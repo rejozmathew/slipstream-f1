@@ -264,7 +264,11 @@ def race_read(
     stop_distribution = distributions["stopDistribution"]
     if stop_distribution:
         dominant_stops, count = max(stop_distribution.items(), key=lambda item: item[1])
-        summary.append(f"{count} of {len(active)} active runners have completed {dominant_stops} stops.")
+        noun = "stop" if dominant_stops == "1" else "stops"
+        summary.append(
+            f"{count} of {len(active)} active participants have exactly "
+            f"{dominant_stops} completed {noun}."
+        )
     if comparable:
         elevated = trend_counts["highFade"] + trend_counts["moderateFade"]
         summary.append(f"{elevated} of {comparable} comparable active runners show moderate or high Pace Fade.")

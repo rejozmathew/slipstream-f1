@@ -463,6 +463,7 @@ export type QualifyingAttempt = {
   tyreAge: number | null;
   tyreUsage: "NEW" | "USED" | "UNKNOWN";
   validity: "VALID" | "INVALID" | "UNKNOWN";
+  classification: "IN" | "OUT" | "PIT" | "TIMED" | "NON_REP" | "UNKNOWN";
   occurredAt: string;
 };
 
@@ -475,6 +476,14 @@ export type QualifyingDriverIntelligence = {
   qStatus: string | null;
   segmentResults: [number | null, number | null, number | null];
   attempts: QualifyingAttempt[];
+  latestLap: {
+    lap: number | null;
+    lapTime: number;
+    sector1: number | null;
+    sector2: number | null;
+    sector3: number | null;
+    classification: QualifyingAttempt["classification"];
+  } | null;
   tyreUsage: "NEW" | "USED" | "UNKNOWN";
   teammate: {
     driverNumber: string;

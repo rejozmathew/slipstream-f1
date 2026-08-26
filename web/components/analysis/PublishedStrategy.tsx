@@ -63,7 +63,7 @@ export function RaceNow({ analytics, compact = false }: { analytics: AnalyticsSn
   return <Panel eyebrow="CURRENT SESSION" title="Race now" className={`race-now${compact ? " race-now-compact" : ""}`}>
     {!read && <div className="pirelli-unavailable"><strong>RACE READ NOT YET AVAILABLE</strong><p>Current race facts will appear as the session develops.</p></div>}
     {read && <div className="race-now-grid">
-      <div><span>RUNNERS</span><strong>{read.population.active}</strong><small>{read.population.terminal} terminal · {read.population.stopped} stopped</small></div>
+      <div><span>CIRCULATING</span><strong>{read.population.circulating}</strong><small>{read.population.active} active participants · {read.population.terminal} terminal · {read.population.stopped} stopped</small></div>
       <div><span>CURRENT TYRES</span><strong>{distribution(read.currentTyreDistribution)}</strong><small>Current active-race distribution</small></div>
       <div><span>COMPLETED STOPS</span><strong>{distribution(read.completedStopDistribution)}</strong><small>Observed stop-count distribution</small></div>
       <div><span>DRY RULE</span><strong>{read.dryRequirementLandscape.unsatisfied} NEED SPEC</strong><small>{read.dryRequirementLandscape.unknown} unknown · {read.dryRequirementLandscape.denominator} active</small></div>

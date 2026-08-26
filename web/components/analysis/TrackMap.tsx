@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import { driverLifecycle, lifecycleClassName } from "../../domain/lifecycle";
 import { buildTrackGeometry } from "../../domain/trackGeometry";
+import { trackCoverage } from "../../domain/correctness.mjs";
 import type { Driver, PositionMode, RaceState } from "../../domain/protocol";
 import { Panel } from "../shared/Panel";
 
@@ -21,6 +22,7 @@ export function TrackMap({ circuit, session, drivers, positionMode, focusedDrive
     (positionMode === "precise_xy" && driver.x != null && driver.y != null)
     || driver.track_position != null
   )).sort((a, b) => Number(focus.has(a.number)) - Number(focus.has(b.number)));
+  const coverage = trackCoverage(drivers, positionMode);
   return (
     <Panel eyebrow="CIRCUIT" title={circuit.name ?? session.circuit ?? "Track map"} action={geometry ? <span className="panel-badge">OUTLINE READY</span> : undefined} className="map-panel">
       <div className="track-map">
@@ -47,7 +49,7 @@ export function TrackMap({ circuit, session, drivers, positionMode, focusedDrive
         {geometry && positionMode !== "unavailable" && positioned.length === 0 && <div className="map-note">CAR POSITION NOT YET AVAILABLE</div>}
         {session.layout_family !== "qualifying" && <div className="map-center"><strong>{session.lap ?? "—"}</strong><span>{focusLabel ?? "CURRENT LAP"}</span></div>}
       </div>
-      <footer className="panel-footer"><span>SHAPE · OBSERVED</span>{positionMode !== "unavailable" && <span>{positionMode === "timing_estimate" ? "POSITION · APPROX" : "POSITION · SOURCE X/Y"}</span>}</footer>
+      <footer className="panel-footer"><span>SHAPE · OBSERVED</span>{positionMode !== "unavailable" && <span>{positionMode === "timing_estimate" ? "POSITION · APPROX" : "POSITION · SOURCE X/Y"}</span>}<span title={coverage.unpositionedLabels.join(", ") || "All classified cars positioned"}>MAP COVERAGE · {coverage.positioned}/{coverage.classified}{coverage.unpositioned ? ` · ${coverage.unpositioned} UNPOSITIONED` : ""}</span></footer>
     </Panel>
   );
 }

@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { PaceSample } from "../../domain/protocol";
+import { paceChartAvailability } from "../../domain/correctness.mjs";
 
 function fallbackScale(samples: PaceSample[]) {
   // Only reached when the server has not published a scale (legacy snapshots).
@@ -22,7 +23,8 @@ function formatDelta(value: number | null) {
 }
 
 export function PaceDeltaChart({ samples, compact = false, serverScale }: { samples: PaceSample[]; compact?: boolean; serverScale?: number | null }) {
-  if (samples.length === 0) return <div className="panel-empty">NO REPRESENTATIVE PACE LAPS YET</div>;
+  const availability = paceChartAvailability(samples);
+  if (!availability.available) return <div className="panel-empty">PACE TREND UNAVAILABLE · {availability.representativeCount} REPRESENTATIVE · {availability.excludedCount} EXCLUDED</div>;
   // v2.1 §20: the y-axis scale is SERVER-computed (deterministic, cursor-
   // scoped). The client renders it verbatim; the local fallback only covers
   // snapshots that predate the server field.
