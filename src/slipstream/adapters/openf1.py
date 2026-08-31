@@ -399,6 +399,12 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
     classification = classify_session(
         session.get("session_type"), session.get("session_name")
     )
+    race_control_messages = endpoints.get("race_control", [])
+    historical_green = _supports_historical_green(
+        recording, classification.kind.value, race_control_messages
+    )
+    if historical_green:
+        ended_at = _historical_terminal_at(race_control_messages) or ended_at
     results = endpoints.get("session_result", [])
     completed_laps = [
         result.get("number_of_laps")
@@ -437,6 +443,11 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 )
                 or None,
                 "status": "RUNNING",
+                **(
+                    {"control_status": "NORMAL", "display_status": "GREEN"}
+                    if historical_green
+                    else {}
+                ),
             },
         )
     ]
@@ -801,7 +812,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
         events.append(_timing_event(pit["date"], number, pit_count=pit_counts[number]))
     unresolved_red_endpoint = False
     for message in sorted(
-        endpoints.get("race_control", []), key=lambda item: str(item.get("date") or "")
+        race_control_messages, key=lambda item: str(item.get("date") or "")
     ):
         if message.get("date") and message.get("message"):
             events.append(
@@ -825,7 +836,11 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 )
             )
             update, unresolved_red_endpoint = _openf1_session_update(
-                message, unresolved_red_endpoint
+                message,
+                unresolved_red_endpoint,
+                derive_green=historical_green,
+                started_at=started_at,
+                ended_at=ended_at,
             )
             if update:
                 events.append(
@@ -954,9 +969,14 @@ def _has_circuit_path(payload: object) -> bool:
 
 
 def _openf1_session_update(
-    message: dict[str, Any], unresolved_red_endpoint: bool
+    message: dict[str, Any],
+    unresolved_red_endpoint: bool,
+    *,
+    derive_green: bool = False,
+    started_at: str | None = None,
+    ended_at: str | None = None,
 ) -> tuple[dict[str, Any], bool]:
-    """Keep marshal truth while avoiding an unexitable historical red latch."""
+    """Reconstruct archived Race/Sprint control state from source transitions."""
 
     if message.get("driver_number") is not None:
         return {}, unresolved_red_endpoint
@@ -966,13 +986,53 @@ def _openf1_session_update(
     category = str(message.get("category") or "").upper()
     text = " ".join(str(message.get("message") or "").upper().split())
     flag = str(message.get("flag") or "").upper()
-    if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
+    occurred_at = message.get("date")
+    within_session = (
+        isinstance(occurred_at, str)
+        and (started_at is None or _as_datetime(occurred_at) >= _as_datetime(started_at))
+        and (ended_at is None or _as_datetime(occurred_at) < _as_datetime(ended_at))
+    )
+    if (
+        derive_green
+        and unresolved_red_endpoint
+        and category == "SESSIONSTATUS"
+        and text == "SESSION STARTED"
+        and within_session
+    ):
         return {
+            "status": "RUNNING",
+            "control_status": "NORMAL",
+            "display_status": "GREEN",
+        }, False
+    if category == "SESSIONSTATUS" and text in {
+        "SESSION ABORTED",
+        "SESSION SUSPENDED",
+    }:
+        return {}, True
+    if (scope == "TRACK" and flag == "RED") or (
+        text.startswith("RED FLAG")
+        and (flag == "RED" or "RACE SUSPENDED" in text)
+    ):
+        return {
+            "marshal_status": "RED",
             "display_status": "RED_FLAG",
         }, True
-    if category == "SAFETYCAR" and text == "VIRTUAL SAFETY CAR DEPLOYED":
+    if unresolved_red_endpoint:
+        if scope == "TRACK" and flag in {"GREEN", "CLEAR"}:
+            return {
+                "marshal_status": "ALL_CLEAR",
+                "display_status": "UNKNOWN",
+            }, True
+        return {}, True
+    if category == "SAFETYCAR" and text in {
+        "VSC DEPLOYED",
+        "VIRTUAL SAFETY CAR DEPLOYED",
+    }:
         return {"control_status": "VSC"}, False
-    if category == "SAFETYCAR" and "VIRTUAL SAFETY CAR ENDING" in text:
+    if category == "SAFETYCAR" and text in {
+        "VSC ENDING",
+        "VIRTUAL SAFETY CAR ENDING",
+    }:
         return {"control_status": "VSC_ENDING"}, False
     if category == "SAFETYCAR" and text == "SAFETY CAR DEPLOYED":
         return {"control_status": "SAFETY_CAR"}, False
@@ -988,8 +1048,11 @@ def _openf1_session_update(
     if marshal is None:
         return {}, unresolved_red_endpoint
     update: dict[str, Any] = {"marshal_status": marshal}
-    if unresolved_red_endpoint:
-        update["display_status"] = "UNKNOWN"
+    if marshal == "ALL_CLEAR":
+        if derive_green and within_session:
+            update.update({"control_status": "NORMAL", "display_status": "GREEN"})
+        elif derive_green:
+            update["display_status"] = "UNKNOWN"
     return update, unresolved_red_endpoint
 
 
@@ -1097,9 +1160,13 @@ def _neutralization_transition(message: dict[str, Any]) -> tuple[str, str] | Non
         return None
     if category == "SAFETYCAR" and text in {
         "SAFETY CAR DEPLOYED",
+        "VSC DEPLOYED",
         "VIRTUAL SAFETY CAR DEPLOYED",
     }:
-        return ("start", "vsc" if text.startswith("VIRTUAL") else "safety_car")
+        return (
+            "start",
+            "vsc" if "VSC" in text or text.startswith("VIRTUAL") else "safety_car",
+        )
     if scope == "TRACK" and flag in {"YELLOW", "DOUBLE YELLOW", "RED"}:
         return ("start", flag.lower().replace(" ", "_"))
     if text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text):
@@ -1107,9 +1174,12 @@ def _neutralization_transition(message: dict[str, Any]) -> tuple[str, str] | Non
     if scope == "TRACK" and flag in {"CLEAR", "GREEN"}:
         return ("end", "marshal_clear")
     if category == "SAFETYCAR" and (
-        "VIRTUAL SAFETY CAR ENDING" in text or "SAFETY CAR IN THIS LAP" in text
+        text in {"VSC ENDING", "VIRTUAL SAFETY CAR ENDING"}
+        or "SAFETY CAR IN THIS LAP" in text
     ):
         return ("end", "sporting_control")
+    if category == "SESSIONSTATUS" and text == "SESSION STARTED":
+        return ("end", "session_restart")
     return None
 
 
@@ -1132,6 +1202,7 @@ def _track_neutralization_intervals(
             continue
         may_close = active is not None and (
             kind == "sporting_control"
+            or (kind == "session_restart" and active[1] == "red")
             or (
                 kind == "marshal_clear"
                 and active[1] in {"yellow", "double_yellow", "safety_car", "vsc"}
@@ -1143,6 +1214,66 @@ def _track_neutralization_intervals(
     if active is not None:
         intervals.append((active[0], None, active[1]))
     return intervals
+
+
+def _supports_historical_green(
+    recording: dict[str, Any],
+    session_kind: str,
+    messages: list[dict[str, Any]],
+) -> bool:
+    """Require an archived Race/Sprint stream with explicit start and terminal facts."""
+
+    capabilities = recording.get("source_capabilities")
+    if not isinstance(capabilities, dict):
+        return False
+    if session_kind not in {"race", "sprint"}:
+        return False
+    if (
+        capabilities.get("historical_replay") is not True
+        or capabilities.get("live_timing") is not False
+        or capabilities.get("race_control") is not True
+    ):
+        return False
+    normalized = [
+        (
+            str(message.get("category") or "").upper(),
+            " ".join(str(message.get("message") or "").upper().split()),
+            str(message.get("flag") or "").upper(),
+        )
+        for message in messages
+        if isinstance(message.get("date"), str)
+    ]
+    has_start = any(
+        category == "SESSIONSTATUS" and text == "SESSION STARTED"
+        for category, text, _flag in normalized
+    )
+    has_terminal = any(
+        flag == "CHEQUERED"
+        or "CHEQUERED FLAG" in text
+        or (category == "SESSIONSTATUS" and text == "SESSION FINISHED")
+        for category, text, flag in normalized
+    )
+    return has_start and has_terminal
+
+
+def _historical_terminal_at(messages: list[dict[str, Any]]) -> str | None:
+    """Return the first explicit terminal timestamp from an archived control stream."""
+
+    candidates: list[str] = []
+    for message in messages:
+        occurred_at = message.get("date")
+        if not isinstance(occurred_at, str):
+            continue
+        category = str(message.get("category") or "").upper()
+        text = " ".join(str(message.get("message") or "").upper().split())
+        flag = str(message.get("flag") or "").upper()
+        if (
+            flag == "CHEQUERED"
+            or "CHEQUERED FLAG" in text
+            or (category == "SESSIONSTATUS" and text == "SESSION FINISHED")
+        ):
+            candidates.append(occurred_at)
+    return min(candidates, key=_as_datetime) if candidates else None
 
 
 def _lap_neutralization_quality(

@@ -20,6 +20,7 @@ from slipstream.terminal import render
 ROOT = Path(__file__).parent
 RECORDING = ROOT / "fixtures" / "openf1" / "session-9165.json"
 STINT_RECORDING = ROOT / "fixtures" / "openf1" / "stint-transition.json"
+HISTORICAL_RACE_11353 = ROOT.parent / "recordings" / "openf1-11353.json"
 
 
 def test_openf1_recording_normalizes_to_golden_state() -> None:
@@ -561,6 +562,205 @@ def test_openf1_red_flag_is_history_only_and_degrades_after_track_clear() -> Non
         event.kind == "session" and event.payload.get("status") == "SUSPENDED"
         for event in events
     )
+
+
+def _complete_historical_control_recording() -> dict[str, object]:
+    raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
+    raw["source_capabilities"] = {
+        "historical_replay": True,
+        "live_timing": False,
+        "race_control": True,
+    }
+    raw["endpoints"].update(
+        {
+            "drivers": [],
+            "laps": [],
+            "position": [],
+            "intervals": [],
+            "session_result": [],
+            "stints": [],
+            "pit": [],
+            "weather": [],
+            "race_control": [
+                {
+                    "category": "SessionStatus",
+                    "date": "2025-01-01T12:00:01Z",
+                    "message": "SESSION STARTED",
+                },
+                {
+                    "category": "Flag",
+                    "date": "2025-01-01T12:10:00Z",
+                    "flag": "YELLOW",
+                    "scope": "Track",
+                    "message": "YELLOW FLAG",
+                },
+                {
+                    "category": "Flag",
+                    "date": "2025-01-01T12:11:00Z",
+                    "flag": "CLEAR",
+                    "scope": "Track",
+                    "message": "TRACK CLEAR",
+                },
+                {
+                    "category": "SafetyCar",
+                    "date": "2025-01-01T12:20:00Z",
+                    "message": "SAFETY CAR DEPLOYED",
+                },
+                {
+                    "category": "SafetyCar",
+                    "date": "2025-01-01T12:21:00Z",
+                    "message": "SAFETY CAR IN THIS LAP",
+                },
+                {
+                    "category": "Flag",
+                    "date": "2025-01-01T12:22:00Z",
+                    "flag": "CLEAR",
+                    "scope": "Track",
+                    "message": "TRACK CLEAR",
+                },
+                {
+                    "category": "SafetyCar",
+                    "date": "2025-01-01T12:30:00Z",
+                    "message": "VSC DEPLOYED",
+                },
+                {
+                    "category": "SafetyCar",
+                    "date": "2025-01-01T12:31:00Z",
+                    "message": "VSC ENDING",
+                },
+                {
+                    "category": "Flag",
+                    "date": "2025-01-01T12:32:00Z",
+                    "flag": "CLEAR",
+                    "scope": "Track",
+                    "message": "TRACK CLEAR",
+                },
+                {
+                    "category": "Flag",
+                    "date": "2025-01-01T12:40:00Z",
+                    "flag": "RED",
+                    "scope": "Track",
+                    "message": "RED FLAG - RACE SUSPENDED",
+                },
+                {
+                    "category": "Flag",
+                    "date": "2025-01-01T12:41:00Z",
+                    "flag": "CLEAR",
+                    "scope": "Track",
+                    "message": "TRACK CLEAR",
+                },
+                {
+                    "category": "Flag",
+                    "date": "2025-01-01T12:42:00Z",
+                    "flag": "GREEN",
+                    "scope": "Track",
+                    "message": "TRACK CLEAR",
+                },
+                {
+                    "category": "SessionStatus",
+                    "date": "2025-01-01T12:45:00Z",
+                    "message": "SESSION STARTED",
+                },
+                {
+                    "category": "Flag",
+                    "date": "2025-01-01T13:29:00Z",
+                    "flag": "CHEQUERED",
+                    "scope": "Track",
+                    "message": "CHEQUERED FLAG",
+                },
+                {
+                    "category": "SessionStatus",
+                    "date": "2025-01-01T13:29:00.500Z",
+                    "message": "SESSION FINISHED",
+                },
+            ],
+        }
+    )
+    return raw
+
+
+def test_historical_green_uses_only_complete_race_control_transitions() -> None:
+    events = recording_to_events(_complete_historical_control_recording())
+
+    expected = {
+        "2025-01-01T12:00:00Z": "GREEN",
+        "2025-01-01T12:10:00Z": "YELLOW",
+        "2025-01-01T12:11:00Z": "GREEN",
+        "2025-01-01T12:20:00Z": "SAFETY_CAR",
+        "2025-01-01T12:21:00Z": "SAFETY_CAR",
+        "2025-01-01T12:22:00Z": "GREEN",
+        "2025-01-01T12:30:00Z": "VSC",
+        "2025-01-01T12:31:00Z": "VSC_ENDING",
+        "2025-01-01T12:32:00Z": "GREEN",
+        "2025-01-01T12:40:00Z": "RED_FLAG",
+        "2025-01-01T12:41:00Z": "UNKNOWN",
+        "2025-01-01T12:42:00Z": "UNKNOWN",
+        "2025-01-01T12:45:00Z": "GREEN",
+        "2025-01-01T13:29:00Z": "CHEQUERED",
+    }
+    assert {
+        cursor: replay(events, at=cursor).session.display_status for cursor in expected
+    } == expected
+    assert replay(events, at="2025-01-01T12:00:00Z").drivers == {}
+
+
+def test_historical_green_requires_complete_race_control_coverage() -> None:
+    raw = _complete_historical_control_recording()
+    raw["source_capabilities"]["race_control"] = False
+
+    state = replay(recording_to_events(raw), at="2025-01-01T12:05:00Z")
+
+    assert state.session.status == "RUNNING"
+    assert state.session.display_status == "UNKNOWN"
+
+
+def test_historical_cancelled_session_never_derives_green_at_terminal() -> None:
+    raw = _complete_historical_control_recording()
+    raw["endpoints"]["sessions"][0]["is_cancelled"] = True
+
+    state = replay(recording_to_events(raw), at="2025-01-01T13:29:00Z")
+
+    assert state.session.status == "CANCELLED"
+    assert state.session.display_status == "CANCELLED"
+
+
+@pytest.mark.skipif(
+    not HISTORICAL_RACE_11353.exists(),
+    reason="owner archive recordings/openf1-11353.json is not installed",
+)
+def test_pcr0003_dutch_race_exact_neutralization_cursors() -> None:
+    events = recording_to_events(
+        json.loads(HISTORICAL_RACE_11353.read_text(encoding="utf-8"))
+    )
+    expected = {
+        1013: "GREEN",
+        1014: "RED_FLAG",
+        1344: "RED_FLAG",
+        1345: "UNKNOWN",
+        1401: "UNKNOWN",
+        1402: "GREEN",
+        25830: "GREEN",
+        25831: "VSC",
+        26823: "VSC",
+        26824: "VSC_ENDING",
+        26875: "VSC_ENDING",
+        26876: "GREEN",
+        31903: "GREEN",
+        31904: "VSC",
+        32092: "VSC",
+        32093: "VSC_ENDING",
+        32146: "VSC_ENDING",
+        32147: "GREEN",
+        32973: "GREEN",
+        32974: "CHEQUERED",
+        32975: "CHEQUERED",
+    }
+
+    assert {
+        cursor: replay(events, event_limit=cursor).session.display_status
+        for cursor in expected
+    } == expected
+    assert replay(events, event_limit=2834).session.display_status == "GREEN"
 
 
 def test_openf1_final_qualifying_segments_arrive_only_at_session_end() -> None:
