@@ -225,6 +225,14 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(lifecycle, /WITHDRAWN: "WD"/);
   assert.doesNotMatch(lifecycle, /NO_RECENT_PROGRESS|NO RECENT PROGRESS/);
   assert.match(timingTower, /driverClassificationLabel/);
+  assert.match(timingTower, /lifecycle\.retiredIndicated/);
+  assert.match(timingTower, />RETIRED</);
+  assert.match(timingTower, />STOPPED</);
+  assert.match(timingTower, />IN PIT</);
+  assert.match(lifecycle, /driver\.classification/);
+  assert.match(lifecycle, /driver\.source_condition/);
+  assert.doesNotMatch(timingTower, />TERMINAL</);
+  assert.doesNotMatch(sessionSnapshot, / TERMINAL/);
   assert.match(driverFocus, /driverLifecycle\(driver\)/);
   assert.match(driverFocus, /driver-status-badge/);
   assert.match(battleView, /driverLifecycle\(driver\)\.battleEligible/);

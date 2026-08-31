@@ -9,9 +9,12 @@ from typing import Any
 from .evidence import LapObservation, PitEvent
 from .lifecycle import (
     is_circulating,
+    is_in_pit,
+    is_retired_indicated,
     is_session_participant,
     is_stopped,
     is_terminal,
+    terminal_state,
 )
 from .state import DriverState, RaceState
 
@@ -28,14 +31,18 @@ MAX_FINISH_PACE_FADE = 0.25
 MEANINGFUL_BATTLE_GAP_SECONDS = 12.0
 BATTLE_HOLD_SECONDS = 20.0
 BATTLE_HISTORY_MAX_SAMPLES = 40
-WHOLE_TRACK_RESET_STATES = frozenset({"SAFETY CAR", "VSC", "VSC ENDING", "RED", "RED FLAG"})
+WHOLE_TRACK_RESET_STATES = frozenset(
+    {"SAFETY CAR", "VSC", "VSC ENDING", "RED", "RED FLAG"}
+)
 
 
 def race_phase(lap: int | None, total_laps: int | None) -> str | None:
     if not lap or not total_laps or total_laps <= 0:
         return None
     progress = max(0.0, min(1.0, lap / total_laps))
-    return next(name for name, lower, upper in RACE_PHASE_BANDS if lower <= progress < upper)
+    return next(
+        name for name, lower, upper in RACE_PHASE_BANDS if lower <= progress < upper
+    )
 
 
 def phase_weight(sample_lap: int, current_lap: int, total_laps: int) -> float:
@@ -63,14 +70,27 @@ def finish_assessment(
     if state.session.session_kind not in {"race", "sprint"}:
         return _unknown_finish("TO_FINISH is only defined for Race and Sprint")
     if str(state.session.track_status or "").upper() in WHOLE_TRACK_RESET_STATES:
-        return _unknown_finish("whole-track neutralization invalidates finish projection")
+        return _unknown_finish(
+            "whole-track neutralization invalidates finish projection"
+        )
     if dry_rule_state not in {"SATISFIED", "NOT_APPLICABLE"}:
-        return _unknown_finish("dry-tyre rule state does not prove a legal run to the flag")
-    if not current_lap or not total_laps or driver.tyre_age is None or not driver.compound:
-        return _unknown_finish("race lap, total laps, current compound, and tyre age are required")
+        return _unknown_finish(
+            "dry-tyre rule state does not prove a legal run to the flag"
+        )
+    if (
+        not current_lap
+        or not total_laps
+        or driver.tyre_age is None
+        or not driver.compound
+    ):
+        return _unknown_finish(
+            "race lap, total laps, current compound, and tyre age are required"
+        )
     trend = pace_trend.get("value")
     if not isinstance(trend, (int, float)):
-        return _unknown_finish("current-driver clean current-stint Pace Trend is required")
+        return _unknown_finish(
+            "current-driver clean current-stint Pace Trend is required"
+        )
     if trend > MAX_FINISH_PACE_FADE:
         return _unknown_finish(
             f"current Pace Fade {trend:.3f}s/lap exceeds the {MAX_FINISH_PACE_FADE:.2f}s/lap finish gate"
@@ -87,7 +107,10 @@ def finish_assessment(
             if weight > 0:
                 samples.append((item.tyre_age, weight))
     effective = sum(weight for _, weight in samples)
-    if len(samples) < MIN_FINISH_STINT_SAMPLES or effective < MIN_FINISH_EFFECTIVE_WEIGHT:
+    if (
+        len(samples) < MIN_FINISH_STINT_SAMPLES
+        or effective < MIN_FINISH_EFFECTIVE_WEIGHT
+    ):
         return _unknown_finish(
             f"need {MIN_FINISH_STINT_SAMPLES} same-race {compound} stint-life samples with effective phase weight {MIN_FINISH_EFFECTIVE_WEIGHT:g}"
         )
@@ -115,7 +138,10 @@ def finish_assessment(
         "requiredTyreAge": required_age,
         "supportedTyreAge": round(capacity, 1),
         "racePhase": race_phase(current_lap, total_laps),
-        "evidenceBasis": [*evidence, "observed stint life does not support a no-stop finish"],
+        "evidenceBasis": [
+            *evidence,
+            "observed stint life does not support a no-stop finish",
+        ],
     }
 
 
@@ -166,7 +192,10 @@ def field_distributions(
             ),
         },
         "currentTyreDistribution": dict(sorted(current.items())),
-        "currentTyrePopulation": {"known": sum(current.values()), "running": len(current_field)},
+        "currentTyrePopulation": {
+            "known": sum(current.values()),
+            "running": len(current_field),
+        },
         "stopDistribution": {str(key): value for key, value in sorted(stops.items())},
         "observedSequences": [
             {"sequence": sequence, "drivers": count}
@@ -191,7 +220,9 @@ def race_read(
     population = _race_population(state)
     current_field = [*population["running"], *population["inPit"]]
 
-    trend_counts = Counter({"highFade": 0, "moderateFade": 0, "lowOrStable": 0, "unknown": 0})
+    trend_counts = Counter(
+        {"highFade": 0, "moderateFade": 0, "lowOrStable": 0, "unknown": 0}
+    )
     comparable = 0
     for number in current_field:
         pace = driver_models.get(number, {}).get("pace", {})
@@ -245,7 +276,11 @@ def race_read(
     }
 
     observed_sequences = distributions["observedSequences"]
-    archetype = {"status": "UNKNOWN", "value": None, "evidenceBasis": ["no supported observed compound/stint sequence majority"]}
+    archetype = {
+        "status": "UNKNOWN",
+        "value": None,
+        "evidenceBasis": ["no supported observed compound/stint sequence majority"],
+    }
     if observed_sequences:
         leader = observed_sequences[0]
         observed_total = sum(item["drivers"] for item in observed_sequences)
@@ -255,7 +290,9 @@ def race_read(
                 "value": leader["sequence"],
                 "drivers": leader["drivers"],
                 "denominator": observed_total,
-                "evidenceBasis": ["dominant observed compound sequence; not a forecast of remaining stops"],
+                "evidenceBasis": [
+                    "dominant observed compound sequence; not a forecast of remaining stops"
+                ],
             }
 
     summary: list[str] = []
@@ -269,12 +306,18 @@ def race_read(
         )
     if comparable:
         elevated = trend_counts["highFade"] + trend_counts["moderateFade"]
-        summary.append(f"{elevated} of {comparable} comparable running drivers show moderate or high Pace Fade.")
+        summary.append(
+            f"{elevated} of {comparable} comparable running drivers show moderate or high Pace Fade."
+        )
     unsatisfied = dry_counts["UNSATISFIED"]
     if unsatisfied:
-        summary.append(f"{unsatisfied} of {len(current_field)} running or in-pit drivers still need another dry compound.")
+        summary.append(
+            f"{unsatisfied} of {len(current_field)} running or in-pit drivers still need another dry compound."
+        )
     if recent:
-        summary.append(f"{len(recent)} pit events were observed in the last three race laps.")
+        summary.append(
+            f"{len(recent)} pit events were observed in the last three race laps."
+        )
 
     return {
         "raceLifecycle": lifecycle,
@@ -283,8 +326,12 @@ def race_read(
             "running": len(population["running"]),
             "inPit": len(population["inPit"]),
             "stopped": len(population["stopped"]),
+            "retired": len(population["retired"]),
             "unconfirmed": len(population["unconfirmed"]),
-            "terminal": len(population["terminal"]),
+            "finished": len(population["finished"]),
+            "dnf": len(population["dnf"]),
+            "dns": len(population["dns"]),
+            "dsq": len(population["dsq"]),
         },
         "completedStopDistribution": stop_distribution,
         "startingTyreDistribution": distributions["startingTyreDistribution"],
@@ -316,17 +363,31 @@ def _race_population(state: RaceState) -> dict[str, list[str]]:
         "running": [],
         "inPit": [],
         "stopped": [],
+        "retired": [],
         "unconfirmed": [],
-        "terminal": [],
+        "finished": [],
+        "dnf": [],
+        "dns": [],
+        "dsq": [],
     }
     for number, driver in state.drivers.items():
         if not is_session_participant(driver):
             continue
+        final = terminal_state(driver)
         if is_terminal(driver):
-            population["terminal"].append(number)
+            bucket = (
+                "retired"
+                if final == "RETIRED"
+                else final.lower()
+                if final and final.lower() in population
+                else "dnf"
+            )
+            population[bucket].append(number)
+        elif is_retired_indicated(driver):
+            population["retired"].append(number)
         elif is_stopped(driver):
             population["stopped"].append(number)
-        elif is_circulating(driver) and str(driver.activity or "").upper() == "IN_PIT":
+        elif is_in_pit(driver):
             population["inPit"].append(number)
         elif is_circulating(driver):
             population["running"].append(number)
@@ -335,11 +396,22 @@ def _race_population(state: RaceState) -> dict[str, list[str]]:
     return population
 
 
-def hard_projection_violations(strategy: dict[str, Any], driver: DriverState | None, state: RaceState) -> list[str]:
+def hard_projection_violations(
+    strategy: dict[str, Any], driver: DriverState | None, state: RaceState
+) -> list[str]:
     violations: list[str] = []
-    future_fields = ("primaryStrategy", "alternateStrategy", "likelyNextCompound", "pitWindow")
-    has_future = any(strategy.get(field, {}).get("value") is not None for field in future_fields)
-    if (driver is not None and is_terminal(driver) or _session_final(state)) and has_future:
+    future_fields = (
+        "primaryStrategy",
+        "alternateStrategy",
+        "likelyNextCompound",
+        "pitWindow",
+    )
+    has_future = any(
+        strategy.get(field, {}).get("value") is not None for field in future_fields
+    )
+    if (
+        driver is not None and is_terminal(driver) or _session_final(state)
+    ) and has_future:
         violations.append("terminal driver/race has a future projection")
     window = strategy.get("pitWindow", {}).get("value")
     if isinstance(window, list) and len(window) == 2:
@@ -373,10 +445,19 @@ def _weighted_percentile(samples: list[tuple[int, float]], percentile: float) ->
 
 
 def _session_final(state: RaceState) -> bool:
-    return str(state.session.status or "").upper() in {"FINISHED", "ENDED", "COMPLETE", "FINAL"} or str(state.session.track_status or "").upper() == "CHEQUERED"
+    return (
+        str(state.session.status or "").upper()
+        in {"FINISHED", "ENDED", "COMPLETE", "FINAL"}
+        or str(state.session.track_status or "").upper() == "CHEQUERED"
+    )
 
 
 def _unknown_finish(reason: str) -> dict[str, Any]:
-    return {"status": "UNKNOWN", "canFinish": None, "requiredTyreAge": None, "supportedTyreAge": None, "racePhase": None, "evidenceBasis": [reason]}
-
-
+    return {
+        "status": "UNKNOWN",
+        "canFinish": None,
+        "requiredTyreAge": None,
+        "supportedTyreAge": None,
+        "racePhase": None,
+        "evidenceBasis": [reason],
+    }

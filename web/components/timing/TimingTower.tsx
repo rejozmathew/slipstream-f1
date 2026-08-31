@@ -34,7 +34,9 @@ function LifecycleValue({ driver }: { driver: Driver }) {
   const lifecycle = driverLifecycle(driver);
   const classification = driverClassificationLabel(driver);
   if (classification) return <span className="driver-lifecycle-label">{classification}</span>;
+  if (lifecycle.retiredIndicated) return <span className="driver-lifecycle-label">RETIRED</span>;
   if (lifecycle.stopped) return <span className="driver-lifecycle-label">STOPPED</span>;
+  if (lifecycle.inPit) return <span className="driver-lifecycle-label">IN PIT</span>;
   return <DataValue compact value={driver.position === 1 ? "LEADER" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} />;
 }
 
@@ -75,7 +77,7 @@ function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; anal
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
-    {showPublished && (lifecycle.terminal ? <span>TERMINAL</span> : <span>{published?.relation.replaceAll("_", " ") ?? "—"}</span>)}
+    {showPublished && (lifecycle.terminal ? <span>{driverClassificationLabel(driver)}</span> : <span>{published?.relation.replaceAll("_", " ") ?? "—"}</span>)}
     {showPublished && (lifecycle.terminal ? <span>—</span> : <DataValue compact value={publishedWindowSummary(published, "—")} />)}
   </button>;
 }

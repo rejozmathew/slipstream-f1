@@ -26,6 +26,10 @@ export type Driver = {
   sector_3: number | null;
   availability: Record<string, AvailabilityStatus>;
   status: string;
+  classification: "FINISHED" | "DNF" | "DNS" | "DSQ" | "RETIRED" | null;
+  source_condition: "RUNNING" | "IN_PIT" | "STOPPED" | "RETIRED_INDICATED" | "UNKNOWN";
+  source_retired: boolean | null;
+  source_stopped: boolean | null;
   activity: "ON_TRACK" | "IN_PIT" | "UNKNOWN";
   progress_observed_at_lap: number | null;
   qualifying_eliminated: boolean | null;
@@ -381,7 +385,7 @@ export type DryRequirementLandscape = {
 
 export type RaceRead = {
   raceLifecycle: StrategyLifecycle;
-  population: { participants: number; running: number; inPit: number; stopped: number; unconfirmed: number; terminal: number };
+  population: { participants: number; running: number; inPit: number; stopped: number; retired: number; unconfirmed: number; finished: number; dnf: number; dns: number; dsq: number };
   completedStopDistribution: Record<string, number>;
   startingTyreDistribution: Record<string, number>;
   currentTyreDistribution: Record<string, number>;

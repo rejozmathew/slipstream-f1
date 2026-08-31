@@ -67,13 +67,23 @@ export function PirelliBaseline({ baseline, compact = false, action }: { baselin
 
 export function RaceNow({ analytics, compact = false }: { analytics: AnalyticsSnapshot | null; compact?: boolean }) {
   const read = analytics?.raceRead;
+  const lifecycleCounts = read ? [
+    `${read.population.inPit} in pit`,
+    `${read.population.stopped} stopped`,
+    `${read.population.retired} retired / out`,
+    `${read.population.unconfirmed} status unknown`,
+    ...(read.population.finished ? [`${read.population.finished} finished`] : []),
+    ...(read.population.dnf ? [`${read.population.dnf} DNF`] : []),
+    ...(read.population.dns ? [`${read.population.dns} DNS`] : []),
+    ...(read.population.dsq ? [`${read.population.dsq} DSQ`] : []),
+  ].join(" · ") : "";
   const stopDistribution = read ? Object.entries(read.completedStopDistribution).map(([stops, count]) => `${stops} ${stops === "1" ? "stop" : "stops"}: ${count}`).join(" · ") || "—" : "—";
   const stints = read && Object.keys(read.stintContextByCompound).length ? <span className="race-now-compound-list">{Object.entries(read.stintContextByCompound).map(([compound, value]) => <span key={compound}><CompoundBadge compound={compound} compact /><b>{value.completedStints} stints · median {value.medianLife.toFixed(1)}L</b></span>)}</span> : "—";
   const recentPits = read?.recentPitActivity.length ? <span className="race-now-compound-list">{read.recentPitActivity.slice(-3).map((pit) => <span key={`${pit.driverNumber}-${pit.lap}`}><b>#{pit.driverNumber} · L{pit.lap}</b><CompoundTransition from={pit.previousCompound} to={pit.newCompound} compact /></span>)}</span> : "—";
   return <Panel eyebrow="CURRENT SESSION" title="Race now" className={`race-now${compact ? " race-now-compact" : ""}`}>
     {!read && <div className="pirelli-unavailable"><strong>RACE READ NOT YET AVAILABLE</strong><p>Current race facts will appear as the session develops.</p></div>}
     {read && <div className="race-now-grid">
-      <div><span>RUNNING / RECENT PROGRESS</span><strong>{read.population.running}</strong><small>{read.population.inPit} in pit · {read.population.stopped} stopped · {read.population.unconfirmed} status unconfirmed · {read.population.terminal} terminal</small></div>
+      <div><span>RUNNING / RECENT PROGRESS</span><strong>{read.population.running}</strong><small>{lifecycleCounts}</small></div>
       <div><span>CURRENT TYRES</span><strong>{compoundCounts(read.currentTyreDistribution)}</strong><small>Factually running or in-pit drivers</small></div>
       <div><span>COMPLETED STOPS</span><strong>{stopDistribution}</strong><small>Observed stop-count distribution</small></div>
       <div><span>DRY RULE</span><strong>{read.dryRequirementLandscape.unsatisfied} drivers still need another dry compound</strong><small>{read.dryRequirementLandscape.unknown} unknown · {read.dryRequirementLandscape.denominator} running or in pit</small></div>
@@ -92,7 +102,7 @@ function relationLabel(relation: DriverPublishedStrategy["relation"]) {
     MATCHING_MULTIPLE: "MULTIPLE OPTIONS REMAIN COMPATIBLE",
     DIVERGED: "DIVERGED FROM ORDERED OPTIONS",
     NOT_COMPARABLE: "PUBLISHED ORDER NOT COMPARABLE",
-    TERMINAL: "TERMINAL · RETROSPECTIVE ONLY",
+    TERMINAL: "FINAL · RETROSPECTIVE ONLY",
     UNKNOWN: "—",
   };
   return labels[relation];
