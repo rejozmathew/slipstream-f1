@@ -592,8 +592,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
     explicit_pit_out_drivers = {
         str(item["driver_number"])
         for item in endpoints.get("laps", [])
-        if item.get("driver_number") is not None
-        and item.get("is_pit_out_lap") is True
+        if item.get("driver_number") is not None and item.get("is_pit_out_lap") is True
     }
     explicit_pit_out_laps = {
         (str(item["driver_number"]), int(item["lap_number"]))
@@ -932,6 +931,7 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
                 lap=result.get("number_of_laps"),
                 gap_to_leader=_result_gap(result),
                 best_lap=best_lap,
+                classification=_result_status(result),
                 status=_result_status(result),
                 **qualifying_fields,
             )
@@ -939,7 +939,14 @@ def recording_to_events(recording: dict[str, Any]) -> list[NormalizedEvent]:
     for driver in endpoints.get("drivers", []):
         number = str(driver["driver_number"])
         if number not in result_numbers:
-            events.append(_timing_event(ended_at, number, status=final_status))
+            events.append(
+                _timing_event(
+                    ended_at,
+                    number,
+                    classification=final_status,
+                    status=final_status,
+                )
+            )
     return sorted(events, key=lambda event: parse_timestamp(event.occurred_at))
 
 
@@ -989,7 +996,9 @@ def _openf1_session_update(
     occurred_at = message.get("date")
     within_session = (
         isinstance(occurred_at, str)
-        and (started_at is None or _as_datetime(occurred_at) >= _as_datetime(started_at))
+        and (
+            started_at is None or _as_datetime(occurred_at) >= _as_datetime(started_at)
+        )
         and (ended_at is None or _as_datetime(occurred_at) < _as_datetime(ended_at))
     )
     if (
@@ -1010,8 +1019,7 @@ def _openf1_session_update(
     }:
         return {}, True
     if (scope == "TRACK" and flag == "RED") or (
-        text.startswith("RED FLAG")
-        and (flag == "RED" or "RACE SUSPENDED" in text)
+        text.startswith("RED FLAG") and (flag == "RED" or "RACE SUSPENDED" in text)
     ):
         return {
             "marshal_status": "RED",

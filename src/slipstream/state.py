@@ -36,6 +36,10 @@ class DriverState:
     sector_3: float | None = None
     availability: dict[str, str] = field(default_factory=dict)
     status: str = "UNKNOWN"
+    classification: str | None = None
+    source_condition: str = "UNKNOWN"
+    source_retired: bool | None = None
+    source_stopped: bool | None = None
     activity: str = "UNKNOWN"
     progress_observed_at_lap: int | None = None
     qualifying_eliminated: bool | None = None
@@ -182,6 +186,7 @@ class RaceState:
                 updates["status"] = transition_driver_status(
                     current.status, updates["status"]
                 )
+            updates = _with_driver_lifecycle_projection(current, updates)
             item = replace(current, **updates)
             return replace(
                 self,
@@ -202,6 +207,7 @@ class RaceState:
                 updates["status"] = transition_driver_status(
                     current.status, updates["status"]
                 )
+            updates = _with_driver_lifecycle_projection(current, updates)
             session = self.session
             event_lap = updates.get("lap")
             progressed = isinstance(event_lap, int) and (
@@ -375,3 +381,31 @@ def _with_display_status(session: SessionState) -> SessionState:
     else:
         display, legacy = "UNKNOWN", None
     return replace(session, display_status=display, track_status=legacy)
+
+
+def _with_driver_lifecycle_projection(
+    current: DriverState, updates: dict[str, object]
+) -> dict[str, object]:
+    """Project separate source-condition/final facts onto the legacy status field."""
+
+    result = dict(updates)
+    classification = result.get("classification", current.classification)
+    if classification is not None:
+        value = str(classification).upper()
+        result["classification"] = value
+        result["status"] = value
+        return result
+    condition = result.get("source_condition")
+    if condition is None:
+        return result
+    projected = {
+        "RETIRED_INDICATED": "RETIRED",
+        "STOPPED": "STOPPED",
+        "IN_PIT": "RUNNING",
+        "RUNNING": "RUNNING",
+        "UNKNOWN": "UNKNOWN",
+    }.get(str(condition).upper(), "UNKNOWN")
+    # Provider conditions are explicitly retractable and bypass the terminal
+    # transition guard.  Only classification is irreversible.
+    result["status"] = projected
+    return result

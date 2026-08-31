@@ -83,25 +83,46 @@ def is_active_participant(driver: DriverState) -> bool:
     as retirement. Position is intentionally not required.
     """
 
-    return canonical_driver_status(driver.status) not in TERMINAL_DRIVER_STATUSES
+    return _final_status(driver) is None
 
 
 def is_stopped(driver: DriverState) -> bool:
     """Return whether explicit evidence says the driver is temporarily stopped."""
 
-    return canonical_driver_status(driver.status) == "STOPPED"
+    return _source_condition(driver) == "STOPPED" and _final_status(driver) is None
+
+
+def is_retired_indicated(driver: DriverState) -> bool:
+    """Return whether the current provider flag indicates retirement/out."""
+
+    return (
+        _source_condition(driver) == "RETIRED_INDICATED"
+        and _final_status(driver) is None
+    )
+
+
+def is_in_pit(driver: DriverState) -> bool:
+    """Return whether current source/activity evidence places the car in pit."""
+
+    return _final_status(driver) is None and (
+        _source_condition(driver) == "IN_PIT"
+        or (
+            _source_condition(driver) == "RUNNING"
+            and str(driver.activity or "").upper() == "IN_PIT"
+        )
+    )
 
 
 def is_terminal(driver: DriverState) -> bool:
     """Return whether the driver has a factual terminal state at this cursor."""
 
-    return canonical_driver_status(driver.status) in TERMINAL_DRIVER_STATUSES
+    return _final_status(driver) is not None
 
 
 def is_circulating(driver: DriverState) -> bool:
     """Return whether positive lifecycle evidence says the driver is circulating."""
 
-    return canonical_driver_status(driver.status) == "RUNNING"
+    return _source_condition(driver) == "RUNNING" and _final_status(driver) is None
 
 
 def active_participants(state: RaceState) -> tuple[str, ...]:
@@ -117,14 +138,17 @@ def active_participants(state: RaceState) -> tuple[str, ...]:
 def display_status_label(driver: DriverState) -> str | None:
     """Return the factual lifecycle label that should be visible to viewers."""
 
-    status = canonical_driver_status(driver.status)
-    if status == "STOPPED":
+    final = _final_status(driver)
+    if final is not None:
+        return _TERMINAL_LABELS.get(final, final)
+    condition = _source_condition(driver)
+    if condition == "RETIRED_INDICATED":
+        return "RETIRED"
+    if condition == "STOPPED":
         return "STOPPED"
-    if status in _TERMINAL_LABELS:
-        return _TERMINAL_LABELS[status]
     if is_active_participant(driver):
         return None
-    return status or "INACTIVE"
+    return condition or "INACTIVE"
 
 
 def is_battle_eligible(driver: DriverState) -> bool:
@@ -136,10 +160,8 @@ def is_battle_eligible(driver: DriverState) -> bool:
 def terminal_state(driver: DriverState) -> str | None:
     """Return the factual terminal state, excluding resumable STOPPED."""
 
-    status = canonical_driver_status(driver.status)
-    if status in _TERMINAL_LABELS:
-        return _TERMINAL_LABELS[status]
-    return None
+    status = _final_status(driver)
+    return _TERMINAL_LABELS.get(status, status) if status is not None else None
 
 
 def transition_driver_status(current: object, requested: object) -> str:
@@ -155,3 +177,28 @@ def transition_driver_status(current: object, requested: object) -> str:
     if old in TERMINAL_DRIVER_STATUSES and new not in TERMINAL_DRIVER_STATUSES:
         return old
     return new
+
+
+def _final_status(driver: DriverState) -> str | None:
+    if driver.classification is not None:
+        return canonical_driver_status(driver.classification)
+    # Backward compatibility for existing normalized recordings that predate
+    # source_condition/classification separation.
+    if driver.source_condition == "UNKNOWN":
+        status = canonical_driver_status(driver.status)
+        return status if status in TERMINAL_DRIVER_STATUSES else None
+    return None
+
+
+def _source_condition(driver: DriverState) -> str:
+    condition = str(driver.source_condition or "UNKNOWN").upper()
+    if condition != "UNKNOWN":
+        return condition
+    status = canonical_driver_status(driver.status)
+    if status == "STOPPED":
+        return "STOPPED"
+    if status == "RUNNING":
+        return "RUNNING"
+    if status == "RETIRED" and driver.classification is None:
+        return "RETIRED_INDICATED"
+    return "UNKNOWN"

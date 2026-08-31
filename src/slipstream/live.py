@@ -18,6 +18,7 @@ import aiohttp
 
 from .events import NormalizedEvent, parse_timestamp
 from .evidence import SessionEvidence
+from .f1_timing import merge_f1_provider_value, normalize_f1_timing
 from .live_recording import NormalizedLiveRecorder
 from .session import classify_session
 from .state import RaceState
@@ -330,22 +331,7 @@ class LiveSessionMismatch(LiveSourceError):
 def _merge_provider_value(current: Any, patch: Any) -> Any:
     """Merge SignalR sparse updates without leaking them outside the adapter."""
 
-    if isinstance(current, dict) and isinstance(patch, dict):
-        merged = dict(current)
-        for key, value in patch.items():
-            merged[str(key)] = _merge_provider_value(merged.get(str(key)), value)
-        return merged
-    if isinstance(current, list) and isinstance(patch, dict):
-        merged = list(current)
-        for raw_index, value in patch.items():
-            if not str(raw_index).isdigit():
-                continue
-            index = int(raw_index)
-            while len(merged) <= index:
-                merged.append({})
-            merged[index] = _merge_provider_value(merged[index], value)
-        return merged
-    return patch
+    return merge_f1_provider_value(current, patch)
 
 
 def _number(value: Any, *, integer: bool = False) -> float | int | None:
@@ -485,8 +471,11 @@ class F1LiveAdapter:
         "WeatherData",
     )
 
-    def __init__(self, target_session_key: str) -> None:
+    def __init__(
+        self, target_session_key: str, *, source: str = "f1-signalr-public"
+    ) -> None:
         self.target_session_key = str(target_session_key)
+        self.source = source
         self.streams: dict[str, Any] = {}
         self.session_verified = False
         self._published_initial = False
@@ -516,18 +505,19 @@ class F1LiveAdapter:
             return ()
 
         received_at = str(row.get("received_at") or utc_now())
+        occurred_at = str(row.get("source_timestamp") or received_at)
         if not self._published_initial:
             self._published_initial = True
             events = [
                 event
                 for name in self._ORDER
                 for event in self._events_for(
-                    name, self.streams.get(name), received_at, self.streams.get(name)
+                    name, self.streams.get(name), occurred_at, self.streams.get(name)
                 )
             ]
             return tuple(events)
         return tuple(
-            self._events_for(stream, self.streams[stream], received_at, payload)
+            self._events_for(stream, self.streams[stream], occurred_at, payload)
         )
 
     def _events_for(
@@ -542,7 +532,7 @@ class F1LiveAdapter:
                 NormalizedEvent(
                     "session",
                     occurred_at,
-                    "f1-signalr-public",
+                    self.source,
                     {"status": _session_status(merged)},
                     received_at=occurred_at,
                 )
@@ -574,7 +564,7 @@ class F1LiveAdapter:
                     NormalizedEvent(
                         "session",
                         occurred_at,
-                        "f1-signalr-public",
+                        self.source,
                         updates,
                         received_at=occurred_at,
                     )
@@ -589,7 +579,7 @@ class F1LiveAdapter:
                     NormalizedEvent(
                         "session",
                         occurred_at,
-                        "f1-signalr-public",
+                        self.source,
                         updates,
                         received_at=occurred_at,
                     )
@@ -622,7 +612,7 @@ class F1LiveAdapter:
                     NormalizedEvent(
                         "weather",
                         occurred_at,
-                        "f1-signalr-public",
+                        self.source,
                         updates,
                         received_at=occurred_at,
                     )
@@ -642,7 +632,7 @@ class F1LiveAdapter:
             NormalizedEvent(
                 "session",
                 occurred_at,
-                "f1-signalr-public",
+                self.source,
                 {
                     "session_clock": remaining,
                     "session_clock_running": _truthy(payload.get("Extrapolating")),
@@ -678,7 +668,7 @@ class F1LiveAdapter:
                     NormalizedEvent(
                         "session",
                         canonical_utc(str(item["Utc"])),
-                        "f1-signalr-public",
+                        self.source,
                         updates,
                         received_at=occurred_at,
                     )
@@ -708,7 +698,7 @@ class F1LiveAdapter:
                 NormalizedEvent(
                     "session",
                     occurred_at,
-                    "f1-signalr-public",
+                    self.source,
                     {"qualifying_phase": phase},
                     received_at=occurred_at,
                 )
@@ -731,7 +721,7 @@ class F1LiveAdapter:
             NormalizedEvent(
                 "session",
                 occurred_at,
-                "f1-signalr-public",
+                self.source,
                 {
                     "key": self.target_session_key,
                     "name": session_name,
@@ -763,7 +753,7 @@ class F1LiveAdapter:
                 NormalizedEvent(
                     "session",
                     occurred_at,
-                    "f1-signalr-public",
+                    self.source,
                     {"eligible_field_size": roster_size},
                     received_at=occurred_at,
                 )
@@ -779,7 +769,7 @@ class F1LiveAdapter:
                 NormalizedEvent(
                     "driver",
                     occurred_at,
-                    "f1-signalr-public",
+                    self.source,
                     {
                         "number": number,
                         "code": item.get("Tla"),
@@ -796,105 +786,14 @@ class F1LiveAdapter:
     def _timing_events(
         self, merged: dict[str, Any], patch: Any, occurred_at: str
     ) -> list[NormalizedEvent]:
-        lines = merged.get("Lines") if isinstance(merged.get("Lines"), dict) else {}
-        patch_lines = (
-            patch.get("Lines")
-            if isinstance(patch, dict) and isinstance(patch.get("Lines"), dict)
-            else {}
+        return normalize_f1_timing(
+            merged,
+            patch,
+            occurred_at,
+            source=self.source,
+            timing_app_data=self.streams.get("TimingAppData"),
+            qualifying_phase=self._qualifying_phase,
         )
-        events: list[NormalizedEvent] = []
-        for raw_number, item in lines.items():
-            if not isinstance(item, dict):
-                continue
-            number = str(item.get("RacingNumber") or raw_number)
-            line_patch = (
-                patch_lines.get(raw_number)
-                if isinstance(patch_lines.get(raw_number), dict)
-                else {}
-            )
-            sectors = _ordered_values(item.get("Sectors"))
-            updates: dict[str, Any] = {
-                "position": _number(item.get("Position"), integer=True),
-                "lap": _number(item.get("NumberOfLaps"), integer=True),
-                "gap_to_leader": _value(item.get("GapToLeader")),
-                "interval_to_ahead": _value(item.get("IntervalToPositionAhead")),
-                "last_lap": _value(item.get("LastLapTime")),
-                "best_lap": _value(item.get("BestLapTime")),
-                "pit_count": _number(item.get("NumberOfPitStops"), integer=True) or 0,
-                "qualifying_eliminated": (
-                    _truthy(item.get("KnockedOut")) if "KnockedOut" in item else None
-                ),
-                "sector_1": _number(_value(sectors[0])) if len(sectors) > 0 else None,
-                "sector_2": _number(_value(sectors[1])) if len(sectors) > 1 else None,
-                "sector_3": _number(_value(sectors[2])) if len(sectors) > 2 else None,
-            }
-            last_lap_value = _value(item.get("LastLapTime"))
-            if (
-                last_lap_value
-                and isinstance(updates.get("lap"), int)
-                and (
-                    "LastLapTime" in line_patch
-                    or (not patch_lines and line_patch == {})
-                )
-            ):
-                app_lines = self.streams.get("TimingAppData", {}).get("Lines", {})
-                app_line = (
-                    app_lines.get(raw_number, {}) if isinstance(app_lines, dict) else {}
-                )
-                stints = (
-                    _ordered_values(app_line.get("Stints"))
-                    if isinstance(app_line, dict)
-                    else []
-                )
-                stint = stints[-1] if stints and isinstance(stints[-1], dict) else {}
-                new_value = stint.get("New")
-                updates["lap_observation"] = {
-                    "lap": int(updates["lap"]),
-                    "started_at": occurred_at,
-                    "duration": _duration_seconds(last_lap_value),
-                    "sector_1": updates.get("sector_1"),
-                    "sector_2": updates.get("sector_2"),
-                    "sector_3": updates.get("sector_3"),
-                    "compound": stint.get("Compound"),
-                    "stint_number": None,
-                    "tyre_age": _number(stint.get("TotalLaps"), integer=True),
-                    "qualifying_phase": self._qualifying_phase,
-                    "tyre_usage": (
-                        "NEW"
-                        if _truthy(new_value)
-                        else "USED"
-                        if new_value is not None
-                        else "UNKNOWN"
-                    ),
-                    "lap_validity": "UNKNOWN",
-                    "quality": "unknown",
-                    "contamination_reasons": [],
-                }
-            if _truthy(item.get("InPit")):
-                updates["activity"] = "IN_PIT"
-            elif _truthy(item.get("PitOut")) or "NumberOfLaps" in line_patch:
-                updates["activity"] = "ON_TRACK"
-            if _truthy(item.get("Retired")):
-                updates["status"] = "RETIRED"
-            elif _truthy(item.get("Stopped")):
-                updates["status"] = "STOPPED"
-            elif "NumberOfLaps" in line_patch or (
-                not patch_lines and item.get("NumberOfLaps") is not None
-            ):
-                updates["status"] = "RUNNING"
-            updates = {
-                key: value for key, value in updates.items() if value is not None
-            }
-            events.append(
-                NormalizedEvent(
-                    "timing",
-                    occurred_at,
-                    "f1-signalr-public",
-                    {"number": number, **updates},
-                    received_at=occurred_at,
-                )
-            )
-        return events
 
     def _stint_events(
         self, payload: dict[str, Any], occurred_at: str
@@ -921,7 +820,7 @@ class F1LiveAdapter:
                 NormalizedEvent(
                     "timing",
                     occurred_at,
-                    "f1-signalr-public",
+                    self.source,
                     {
                         "number": str(item.get("RacingNumber") or raw_number),
                         "compound": stint.get("Compound"),
@@ -956,7 +855,7 @@ class F1LiveAdapter:
                 NormalizedEvent(
                     "race_control",
                     canonical_utc(str(item.get("Utc") or occurred_at)),
-                    "f1-signalr-public",
+                    self.source,
                     {
                         "category": str(item.get("Category") or "Other"),
                         "message": message,
@@ -977,7 +876,7 @@ class F1LiveAdapter:
                     NormalizedEvent(
                         "session",
                         canonical_utc(str(item.get("Utc") or occurred_at)),
-                        "f1-signalr-public",
+                        self.source,
                         updates,
                         received_at=occurred_at,
                     )

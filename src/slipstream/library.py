@@ -168,7 +168,11 @@ class ReplayLibrary:
             preloaded = descriptors.get(local.key)
             if preloaded is not None:
                 local = _attach_local_recording(preloaded, local)
-            descriptors[local.key] = local
+            current = descriptors.get(local.key)
+            if current is None or _recording_priority(local) > _recording_priority(
+                current
+            ):
+                descriptors[local.key] = local
         if not descriptors:
             raise ValueError(f"No supported sessions found at {source_path}")
         self.descriptors = descriptors
@@ -238,6 +242,18 @@ def _attach_local_recording(
         capabilities=capabilities,
         circuit_data=local.circuit_data or catalog.circuit_data,
     )
+
+
+def _recording_priority(descriptor: SessionDescriptor) -> int:
+    """Choose one whole-session timing source explicitly, never by filename order."""
+
+    if not descriptor.available:
+        return 0
+    return {
+        "f1-signalr-public": 30,
+        "f1-static-public": 20,
+        "openf1": 10,
+    }.get(descriptor.source, 1)
 
 
 def _catalog_descriptors(raw: dict[str, Any]) -> dict[str, SessionDescriptor]:

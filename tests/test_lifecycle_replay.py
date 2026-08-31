@@ -148,8 +148,12 @@ def test_stopped_resumes_only_with_positive_evidence_and_terminal_never_resumes(
         "running": 2,
         "inPit": 0,
         "stopped": 0,
+        "retired": 0,
         "unconfirmed": 0,
-        "terminal": 0,
+        "finished": 0,
+        "dnf": 0,
+        "dns": 0,
+        "dsq": 0,
     }
 
     stopped, stopped_analytics = _analytics(resource, 4)
@@ -160,8 +164,12 @@ def test_stopped_resumes_only_with_positive_evidence_and_terminal_never_resumes(
         "running": 1,
         "inPit": 0,
         "stopped": 1,
+        "retired": 0,
         "unconfirmed": 0,
-        "terminal": 0,
+        "finished": 0,
+        "dnf": 0,
+        "dns": 0,
+        "dsq": 0,
     }
     assert all(
         candidate["aheadDriverNumber"] != "2" and candidate["behindDriverNumber"] != "2"
@@ -179,8 +187,12 @@ def test_stopped_resumes_only_with_positive_evidence_and_terminal_never_resumes(
         "running": 1,
         "inPit": 0,
         "stopped": 0,
+        "retired": 1,
         "unconfirmed": 0,
-        "terminal": 1,
+        "finished": 0,
+        "dnf": 0,
+        "dns": 0,
+        "dsq": 0,
     }
     strategy = retired_analytics["drivers"]["2"]["strategy"]
     assert strategy["terminalState"] == "RETIRED"
@@ -227,7 +239,7 @@ def test_final_cursor_suppresses_all_future_strategy_without_hindsight(
     assert earlier_analytics["strategyLifecycle"] != "FINAL"
 
 
-def test_stroll_live_retirement_is_terminal_at_exact_normalized_cursor() -> None:
+def test_stroll_live_retirement_is_current_indication_at_exact_cursor() -> None:
     adapter = F1LiveAdapter("11353")
     rows = [
         {
@@ -278,7 +290,10 @@ def test_stroll_live_retirement_is_terminal_at_exact_normalized_cursor() -> None
         and event.occurred_at == "2026-08-23T14:36:46.926204Z"
         and event.payload.get("number") == "18"
     )
-    assert events[retirement_cursor - 1].payload["status"] == "RETIRED"
+    assert (
+        events[retirement_cursor - 1].payload["source_condition"] == "RETIRED_INDICATED"
+    )
+    assert events[retirement_cursor - 1].payload["source_retired"] is True
 
     incremental = RaceState()
     for event in events[:retirement_cursor]:
@@ -286,4 +301,6 @@ def test_stroll_live_retirement_is_terminal_at_exact_normalized_cursor() -> None
     replayed = replay(events, event_limit=retirement_cursor)
     assert incremental.drivers["18"].status == "RETIRED"
     assert replayed.drivers["18"].status == "RETIRED"
+    assert incremental.drivers["18"].classification is None
+    assert incremental.drivers["18"].source_condition == "RETIRED_INDICATED"
     assert incremental == replayed
