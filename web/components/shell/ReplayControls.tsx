@@ -1,29 +1,45 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { formatDuration } from "../../domain/format";
+import { reconciledPendingPosition, replayDisplayPosition, sessionClockLabel } from "../../domain/replayControls.mjs";
 import type { ReplayCommand, ReplayMetadata } from "../../domain/protocol";
 
 type ReplayControlsProps = {
   metadata: ReplayMetadata | null;
   playhead: string | null;
+  gmtOffset: string | null;
   isPlaying: boolean;
-  sequence: number;
   commandAvailable: boolean;
   onCommand: (command: ReplayCommand) => boolean;
 };
 
-export function ReplayControls({ metadata, playhead, isPlaying, sequence, commandAvailable, onCommand }: ReplayControlsProps) {
+const SCRUB_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
+
+export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, commandAvailable, onCommand }: ReplayControlsProps) {
   const [speed, setSpeed] = useState(10);
   const [delaySeconds, setDelaySeconds] = useState(0);
-  const elapsed = useMemo(() => {
+  const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
+  const [pendingSeconds, setPendingSeconds] = useState<number | null>(null);
+  const serverElapsed = useMemo(() => {
     if (!metadata?.startTime || !playhead) return 0;
     return Math.max(0, (Date.parse(playhead) - Date.parse(metadata.startTime)) / 1000);
   }, [metadata?.startTime, playhead]);
   const duration = metadata?.durationSeconds ?? 0;
   const enabled = metadata?.available === true && commandAvailable;
-  const seekTo = (seconds: number) => {
+  const displayedSeconds = Math.min(
+    replayDisplayPosition(serverElapsed, scrubSeconds, pendingSeconds),
+    Math.max(duration, 1),
+  );
+  useEffect(() => {
+    setPendingSeconds((current) => reconciledPendingPosition(serverElapsed, current));
+  }, [serverElapsed]);
+  const commitSeek = (seconds: number) => {
     if (!metadata?.startTime || !enabled) return;
-    onCommand({ type: "seek", at: new Date(Date.parse(metadata.startTime) + seconds * 1000).toISOString() });
+    setScrubSeconds(null);
+    setPendingSeconds(seconds);
+    if (!onCommand({ type: "seek", at: new Date(Date.parse(metadata.startTime) + seconds * 1000).toISOString() })) {
+      setPendingSeconds(null);
+    }
   };
   const changeSpeed = (nextSpeed: number) => {
     setSpeed(nextSpeed);
@@ -39,8 +55,34 @@ export function ReplayControls({ metadata, playhead, isPlaying, sequence, comman
         <button className="transport-button" disabled={!enabled} onClick={() => onCommand({ type: "seek_relative", seconds: 30 })}>+30s</button>
       </div>
       <div className="timeline">
-        <input type="range" min={0} max={Math.max(duration, 1)} step={1} value={Math.min(elapsed, Math.max(duration, 1))} disabled={!enabled || !metadata?.startTime} onChange={(event) => seekTo(Number(event.target.value))} aria-label="Replay position" />
-        <div className="timeline-meta"><time>{formatDuration(elapsed)}</time><span>{metadata?.available && !commandAvailable ? "COMMAND TRANSPORT UNAVAILABLE" : `SEQ ${sequence.toLocaleString()}`}</span><time>{formatDuration(duration)}</time></div>
+        <input
+          type="range"
+          min={0}
+          max={Math.max(duration, 1)}
+          step={1}
+          value={displayedSeconds}
+          disabled={!enabled || !metadata?.startTime}
+          onPointerDown={() => setScrubSeconds(displayedSeconds)}
+          onChange={(event) => setScrubSeconds(Number(event.target.value))}
+          onPointerUp={(event) => commitSeek(Number(event.currentTarget.value))}
+          onPointerCancel={() => setScrubSeconds(null)}
+          onKeyDown={(event) => {
+            if (SCRUB_KEYS.has(event.key) && scrubSeconds == null) setScrubSeconds(displayedSeconds);
+          }}
+          onKeyUp={(event) => {
+            if (SCRUB_KEYS.has(event.key) && scrubSeconds != null) commitSeek(Number(event.currentTarget.value));
+          }}
+          onBlur={(event) => {
+            if (scrubSeconds != null) commitSeek(Number(event.currentTarget.value));
+          }}
+          aria-label="Replay position"
+          aria-valuetext={`Elapsed ${formatDuration(displayedSeconds)}, session ${sessionClockLabel(metadata?.startTime ?? null, displayedSeconds, gmtOffset)}`}
+        />
+        <div className="timeline-meta">
+          <time>ELAPSED {formatDuration(displayedSeconds)}</time>
+          <span>{metadata?.available && !commandAvailable ? "COMMAND TRANSPORT UNAVAILABLE" : `SESSION ${sessionClockLabel(metadata?.startTime ?? null, displayedSeconds, gmtOffset)}`}</span>
+          <time>TOTAL {formatDuration(duration)}</time>
+        </div>
       </div>
       <label className="speed-select"><span>SPEED</span><select aria-label="Replay speed" value={speed} disabled={!enabled} onChange={(event) => changeSpeed(Number(event.target.value))}>
         {[0.5, 1, 2, 5, 10, 30, 60, 120].map((value) => <option value={value} key={value}>{value}x</option>)}

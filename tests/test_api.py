@@ -189,6 +189,78 @@ def test_websocket_play_advances_clock_and_pause_stops_it() -> None:
     assert paused["playback"]["playing"] is False
 
 
+def test_historical_replay_uses_factual_terminal_and_can_rewind_after_finish(
+    tmp_path: Path,
+) -> None:
+    recording = [
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-23T13:00:00Z",
+            "source": "fixture",
+            "payload": {
+                "key": "11353",
+                "name": "Race",
+                "meeting_name": "Dutch Grand Prix",
+                "session_type": "Race",
+                "started_at": "2026-08-23T13:00:00Z",
+                "ended_at": "2026-08-23T15:00:00Z",
+                "status": "RUNNING",
+            },
+        },
+        {
+            "kind": "timing",
+            "occurred_at": "2026-08-23T14:59:59Z",
+            "source": "fixture",
+            "payload": {"number": "1", "lap": 66, "status": "RUNNING"},
+        },
+        {
+            "kind": "timing",
+            "occurred_at": "2026-08-23T15:05:00Z",
+            "source": "fixture",
+            "payload": {"number": "1", "lap": 71, "status": "RUNNING"},
+        },
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-23T15:08:13Z",
+            "source": "fixture",
+            "payload": {
+                "status": "FINISHED",
+                "control_status": "CHEQUERED",
+                "lap": 72,
+            },
+        },
+        {
+            "kind": "race_control",
+            "occurred_at": "2026-08-23T15:20:00Z",
+            "source": "fixture",
+            "payload": {"category": "Other", "message": "POST SESSION ACCESS"},
+        },
+    ]
+    path = tmp_path / "dutch-11353.json"
+    path.write_text(json.dumps(recording), encoding="utf-8")
+
+    with (
+        TestClient(create_app(path)) as client,
+        client.websocket_connect("/api/v1/stream") as socket,
+    ):
+        metadata = client.get("/api/v1/replay").json()
+        socket.receive_json()
+        socket.send_json({"type": "seek", "at": metadata["endTime"]})
+        finished = socket.receive_json()
+        socket.send_json({"type": "seek", "at": "2026-08-23T14:59:59Z"})
+        rewound = socket.receive_json()
+
+    assert metadata["endTime"] == "2026-08-23T15:08:13Z"
+    assert metadata["durationSeconds"] == 7693
+    assert finished["playback"]["playing"] is False
+    assert finished["data"]["session"]["status"] == "FINISHED"
+    assert rewound["playback"]["playing"] is False
+    assert rewound["data"]["session"]["status"] == "RUNNING"
+    assert rewound["data"]["session"]["lap"] == 66
+    assert rewound["seq"] < finished["seq"]
+    assert rewound["analytics"]["sequence"] == rewound["seq"]
+
+
 def test_catalog_session_can_be_downloaded_and_used_without_restart(
     tmp_path: Path,
 ) -> None:

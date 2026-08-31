@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .adapters.openf1 import OpenF1Client, write_recording
 from .analytics import AnalyticsService
-from .events import parse_timestamp
+from .events import NormalizedEvent, parse_timestamp
 from .evidence import SessionEvidence
 from .library import ReplayLibrary, ReplayResource
 from .live import PublicLiveSession
@@ -731,10 +731,30 @@ def create_app(
 
 def _effective_end_time(selected: ReplayResource, now: datetime) -> str:
     if not selected.is_live:
-        return selected.descriptor.date_end
+        terminal = _first_terminal_time(selected.events)
+        return terminal or selected.descriptor.date_end
     scheduled_end = parse_timestamp(selected.descriptor.date_end)
     effective = min(now, scheduled_end)
     return effective.isoformat().replace("+00:00", "Z")
+
+
+def _first_terminal_time(events: tuple[NormalizedEvent, ...]) -> str | None:
+    """Return the first normalized, user-domain session terminal boundary."""
+
+    terminal_statuses = {"FINISHED", "CANCELLED"}
+    terminal_controls = {"CHEQUERED", "CANCELLED"}
+    for event in events:
+        if event.kind != "session":
+            continue
+        status = str(event.payload.get("status") or "").upper()
+        track = str(event.payload.get("track_status") or "").upper()
+        control = str(event.payload.get("control_status") or "").upper()
+        display = str(event.payload.get("display_status") or "").upper()
+        if status in terminal_statuses or terminal_controls.intersection(
+            {track, control, display}
+        ):
+            return event.occurred_at
+    return None
 
 
 async def _play(

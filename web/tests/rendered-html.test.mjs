@@ -76,12 +76,20 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(replayControls, /if \(isPlaying && commandAvailable\).*type: "play"/);
   assert.match(replayControls, /type: "delay"/);
   assert.match(replayControls, /disabled={!enabled}/);
+  assert.match(replayControls, /onPointerDown/);
+  assert.match(replayControls, /onPointerUp/);
+  assert.match(replayControls, /setPendingSeconds/);
+  assert.doesNotMatch(replayControls, /`SEQ \$\{/);
+  assert.match(replayControls, /ELAPSED/);
+  assert.match(replayControls, /SESSION/);
   assert.match(liveControls, /\[0, 5, 10, 15, 30\]/);
   assert.match(liveControls, /RESET \/ LIVE/);
   assert.doesNotMatch(liveControls, /seek|pause|speed/);
   assert.match(replayLibrary, /aria-label="Season"/);
   assert.match(replayLibrary, /aria-label="Race weekend"/);
   assert.match(replayLibrary, /aria-label="Weekend session"/);
+  assert.match(replayLibrary, /preferredWeekendSession/);
+  assert.match(replayLibrary, /removeAttribute\("open"\)/);
   assert.match(sessionHook, /commandAvailable && socketRef\.current\?\.send/);
   assert.doesNotMatch(sessionHook, /setAnalytics\(null\).*viewingMode === "live"/s);
   assert.match(sessionHook, /envelope = await slipstreamApi\.state\(selectedSessionKey, viewingMode\)/);
@@ -245,4 +253,3 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
     assert.doesNotMatch(source, /\braceStrategy\b|\.primaryStrategy\b|\.alternateStrategy\b|\.likelyNextCompound\b|\.pitWindow\b|\.undercutStrength\b|\.projectedRejoinPosition\b|\.freeStopMargin\b/);
   }
 });
-

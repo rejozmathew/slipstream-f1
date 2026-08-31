@@ -112,7 +112,7 @@ export function AppShell() {
       {view === "driver" && !session.connectionError && focusedDriver && session.state.drivers[focusedDriver] && <DriverFocusView state={session.state} analytics={session.analytics} sessionLayout={layout} driverNumber={focusedDriver} history={driverHistory.history} historyError={driverHistory.error} playhead={session.playhead} positionMode={positionMode} onChangeDriver={() => setFocusedDriver(null)} onBack={() => setView("session")} />}
       {view === "settings" && <SettingsView appearance={preferences.appearance} onAppearanceChange={preferences.setAppearance} raceLayout={preferences.raceLayout} onRaceLayoutChange={preferences.setRaceLayout} tvPreferences={preferences.tv} onTVPreferencesChange={preferences.setTV} drivers={Object.values(session.state.drivers)} section={settingsSection} onSectionChange={setSettingsSection} />}
     </main>
-    {view !== "settings" && session.viewingMode === "replay" && <ReplayControls metadata={session.metadata} playhead={session.playhead} isPlaying={session.isPlaying} sequence={session.sequence} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />}
+    {view !== "settings" && session.viewingMode === "replay" && <ReplayControls metadata={session.metadata} playhead={session.playhead} gmtOffset={session.state.session.gmt_offset} isPlaying={session.isPlaying} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />}
     {view !== "settings" && session.viewingMode === "live" && <LiveControls phase={session.livePhase} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />}
   </div>;
 }

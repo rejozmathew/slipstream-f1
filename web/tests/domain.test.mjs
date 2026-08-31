@@ -9,6 +9,12 @@ import {
   paceChartAvailability,
   trackCoverage,
 } from "../domain/correctness.mjs";
+import {
+  reconciledPendingPosition,
+  replayDisplayPosition,
+  sessionClockLabel,
+} from "../domain/replayControls.mjs";
+import { preferredWeekendSession } from "../domain/sessionSelection.mjs";
 
 // v2.1 §20 / invariant 6: Battle hysteresis is SERVER-owned (AnalyticsService,
 // session-scoped + cursor-keyed, pinned in tests/test_strategy_v21_battle.py).
@@ -87,4 +93,25 @@ test("interval feed is never claimed as same-snapshot gap arithmetic", () => {
   assert.equal(presentation.sameSnapshotArithmetic, false);
   assert.match(presentation.label, /SOURCE FEED/);
   assert.match(presentation.note, /NOT SAME-SNAPSHOT ARITHMETIC/);
+});
+
+test("weekend selection preserves the current session then follows product priority", () => {
+  const sessions = [
+    { sessionKey: "p1", sessionKind: "practice_1", dateStart: "2026-01-01T10:00:00Z" },
+    { sessionKey: "q", sessionKind: "qualifying", dateStart: "2026-01-02T10:00:00Z" },
+    { sessionKey: "s", sessionKind: "sprint", dateStart: "2026-01-02T12:00:00Z" },
+    { sessionKey: "r", sessionKind: "race", dateStart: "2026-01-03T10:00:00Z" },
+  ];
+
+  assert.equal(preferredWeekendSession(sessions, "q").sessionKey, "q");
+  assert.equal(preferredWeekendSession(sessions, "other").sessionKey, "r");
+  assert.equal(preferredWeekendSession(sessions.filter((item) => item.sessionKind !== "race"), null).sessionKey, "s");
+});
+
+test("local scrub preview owns the thumb until the committed server position arrives", () => {
+  assert.equal(replayDisplayPosition(10, 45, null), 45);
+  assert.equal(replayDisplayPosition(10, null, 45), 45);
+  assert.equal(reconciledPendingPosition(10, 45), 45);
+  assert.equal(reconciledPendingPosition(45, 45), null);
+  assert.equal(sessionClockLabel("2026-08-23T13:00:00Z", 3600, "02:00:00"), "16:00:00");
 });
