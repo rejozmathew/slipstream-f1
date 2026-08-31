@@ -19,10 +19,11 @@ function BattleContext({ label, value }: { label: string; value: DriverBattleCon
 
 function PitHistory({ events }: { events: PitEvent[] }) {
   if (events.length === 0) return <div className="panel-empty">NO OBSERVED PIT EVENTS AT THIS REPLAY TIME</div>;
-  return <><div className="pit-history-summary"><strong>{events.length}</strong><span>OBSERVED STOPS</span><small>Same-compound changes remain factual stops.</small></div><div className="pit-history-list">{events.map((event) => <div key={`${event.sequence}-${event.lap}`}>
+  return <><div className="pit-history-summary"><strong>{events.length}</strong><span>OBSERVED STOPS</span><small>Same-compound changes remain factual stops.</small></div><div className="pit-history-list">{events.map((event, index) => <div key={`${event.sequence}-${event.lap}`}>
+    <span><small>STOP</small><b>{index + 1}</b></span>
     <strong>LAP {event.lap}</strong>
     <CompoundTransition from={event.previousCompound} to={event.newCompound} compact />
-    <span><small>STOP</small><b>{event.stopDuration == null ? "—" : `${event.stopDuration.toFixed(1)}s`}</b></span>
+    <span><small>STATIONARY</small><b>{event.stopDuration == null ? "—" : `${event.stopDuration.toFixed(1)}s`}</b></span>
     <span><small>PIT LANE</small><b>{event.pitLaneDuration == null ? "—" : `${event.pitLaneDuration.toFixed(1)}s`}</b></span>
   </div>)}</div></>;
 }

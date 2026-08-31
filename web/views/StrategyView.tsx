@@ -10,7 +10,8 @@ import type { AnalyticsSnapshot, RaceState } from "../domain/protocol";
 type StrategyViewProps = { state: RaceState; analytics: AnalyticsSnapshot | null; onSelectDriver: (driverNumber: string) => void };
 
 function observedPath(values: string[] | undefined) {
-  return values?.length ? values.map((value) => value[0]).join(" → ") : "—";
+  if (!values?.length) return "—";
+  return <span className="published-path">{values.map((value, index) => <span key={`${value}-${index}`}>{index > 0 && <i aria-hidden="true">→</i>}<CompoundBadge compound={value} compact /></span>)}</span>;
 }
 
 function pendingWindow(driver: AnalyticsSnapshot["publishedStrategy"]["drivers"][string] | undefined, final: boolean) {

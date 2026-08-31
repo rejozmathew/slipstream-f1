@@ -1016,6 +1016,11 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .race-now-grid strong { font: 760 13px/1.15 var(--mono); }
 .race-now-grid small { color: var(--muted); font: 600 8px/1.25 var(--mono); }
 .race-now-grid .race-now-facts { grid-column: 1/-1; min-height: 62px; }
+.compound-counts { gap: 8px; }
+.race-now-sequences, .race-now-compound-list { display: grid; gap: 5px; }
+.race-now-sequences > span, .race-now-compound-list > span { display: flex; align-items: center; gap: 5px; }
+.race-now-sequences > span > b, .race-now-compound-list > span > b { color: var(--ink); font: inherit; }
+.pit-history-list > div { grid-template-columns: 44px 60px 78px 1fr 1fr; }
 .race-now-facts p { margin: 0; color: var(--ink); font-size: 10px; }
 .session-strategy-zones { display: grid; grid-template-columns: 1.25fr .8fr .95fr; }
 .session-strategy-zones > section { min-width: 0; min-height: 88px; border-right: 1px solid var(--line-soft); }

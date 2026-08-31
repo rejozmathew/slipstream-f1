@@ -120,6 +120,9 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(snapshot, /Pirelli baseline · Race now/);
   assert.match(driverView, /model\?\.read\.headline/);
   assert.match(driverView, /focusedDriverNumbers=\{\[driverNumber\]\}/);
+  assert.match(driverView, /events\.map\(\(event, index\)/);
+  assert.match(driverView, /STATIONARY/);
+  assert.match(driverView, /CompoundTransition/);
   assert.match(driverView, /sessionLayout === "qualifying"/);
   assert.match(driverView, /QUALIFYING LAP HISTORY/);
   assert.doesNotMatch(driverView, /CURSOR-SAFE LAP EVIDENCE|PHASE —/);
@@ -158,6 +161,10 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.doesNotMatch(tvMode, /STRATEGY · DISPOSITION/);
   assert.match(publishedStrategy, /ordered \? "→" : "\+"/);
   assert.match(publishedStrategy, /publishedWindowSummary/);
+  assert.match(publishedStrategy, /compoundCounts/);
+  assert.match(publishedStrategy, /race-now-sequences/);
+  assert.match(publishedStrategy, /drivers still need another dry compound/);
+  assert.match(strategyView, /published-path/);
   for (const source of [publishedStrategy, battleCard, timingTower, strategyView, tvMode]) {
     assert.doesNotMatch(source, /windows\[0\]/);
   }

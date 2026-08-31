@@ -6,7 +6,7 @@ import type {
   PublishedStrategyBaseline,
   PublishedStrategyOption,
 } from "../../domain/protocol";
-import { CompoundBadge } from "../shared/CompoundBadge";
+import { CompoundBadge, CompoundTransition } from "../shared/CompoundBadge";
 import { Panel } from "../shared/Panel";
 
 function rankLabel(rank: PublishedStrategyOption["rank"]) {
@@ -16,6 +16,17 @@ function rankLabel(rank: PublishedStrategyOption["rank"]) {
 function path(compounds: string[], empty = "—", ordered = true) {
   if (!compounds.length) return <span className="published-path-empty">{empty}</span>;
   return <span className="published-path">{compounds.map((compound, index) => <span key={`${compound}-${index}`}>{index > 0 && <i>{ordered ? "→" : "+"}</i>}<CompoundBadge compound={compound} compact /></span>)}</span>;
+}
+
+function compoundCounts(values: Record<string, number>) {
+  const entries = Object.entries(values);
+  if (!entries.length) return <span className="published-path-empty">—</span>;
+  return <span className="published-path compound-counts">{entries.map(([compound, count]) => <span key={compound}><CompoundBadge compound={compound} compact /><b>{count}</b></span>)}</span>;
+}
+
+function observedSequences(values: Array<{ sequence: string; drivers: number }> | undefined) {
+  if (!values?.length) return <span className="published-path-empty">—</span>;
+  return <span className="race-now-sequences">{values.map((item) => <span key={item.sequence}><b>{item.drivers} drivers</b>{path(item.sequence.split(/\s*→\s*/))}</span>)}</span>;
 }
 
 export function publishedWindowSummary(driver: DriverPublishedStrategy | undefined, empty = "NO PENDING PUBLISHED WINDOW") {
@@ -56,19 +67,18 @@ export function PirelliBaseline({ baseline, compact = false, action }: { baselin
 
 export function RaceNow({ analytics, compact = false }: { analytics: AnalyticsSnapshot | null; compact?: boolean }) {
   const read = analytics?.raceRead;
-  const distribution = (values: Record<string, number>) => Object.entries(values).map(([key, count]) => `${count}×${key}`).join(" · ") || "—";
-  const sequences = analytics?.observedSequences?.map((item) => `${item.drivers}× ${item.sequence}`).join(" · ") || "—";
-  const stints = read ? Object.entries(read.stintContextByCompound).map(([compound, value]) => `${compound} ${value.completedStints} stints · median ${value.medianLife.toFixed(1)}L`).join(" · ") || "—" : "—";
-  const recentPits = read?.recentPitActivity.slice(-3).map((pit) => `#${pit.driverNumber} L${pit.lap} ${pit.previousCompound ?? "—"}→${pit.newCompound ?? "—"}`).join(" · ") || "—";
+  const stopDistribution = read ? Object.entries(read.completedStopDistribution).map(([stops, count]) => `${stops} ${stops === "1" ? "stop" : "stops"}: ${count}`).join(" · ") || "—" : "—";
+  const stints = read && Object.keys(read.stintContextByCompound).length ? <span className="race-now-compound-list">{Object.entries(read.stintContextByCompound).map(([compound, value]) => <span key={compound}><CompoundBadge compound={compound} compact /><b>{value.completedStints} stints · median {value.medianLife.toFixed(1)}L</b></span>)}</span> : "—";
+  const recentPits = read?.recentPitActivity.length ? <span className="race-now-compound-list">{read.recentPitActivity.slice(-3).map((pit) => <span key={`${pit.driverNumber}-${pit.lap}`}><b>#{pit.driverNumber} · L{pit.lap}</b><CompoundTransition from={pit.previousCompound} to={pit.newCompound} compact /></span>)}</span> : "—";
   return <Panel eyebrow="CURRENT SESSION" title="Race now" className={`race-now${compact ? " race-now-compact" : ""}`}>
     {!read && <div className="pirelli-unavailable"><strong>RACE READ NOT YET AVAILABLE</strong><p>Current race facts will appear as the session develops.</p></div>}
     {read && <div className="race-now-grid">
       <div><span>RUNNING / RECENT PROGRESS</span><strong>{read.population.running}</strong><small>{read.population.inPit} in pit · {read.population.stopped} stopped · {read.population.unconfirmed} status unconfirmed · {read.population.terminal} terminal</small></div>
-      <div><span>CURRENT TYRES</span><strong>{distribution(read.currentTyreDistribution)}</strong><small>Current active-race distribution</small></div>
-      <div><span>COMPLETED STOPS</span><strong>{distribution(read.completedStopDistribution)}</strong><small>Observed stop-count distribution</small></div>
+      <div><span>CURRENT TYRES</span><strong>{compoundCounts(read.currentTyreDistribution)}</strong><small>Factually running or in-pit drivers</small></div>
+      <div><span>COMPLETED STOPS</span><strong>{stopDistribution}</strong><small>Observed stop-count distribution</small></div>
       <div><span>DRY RULE</span><strong>{read.dryRequirementLandscape.unsatisfied} drivers still need another dry compound</strong><small>{read.dryRequirementLandscape.unknown} unknown · {read.dryRequirementLandscape.denominator} running or in pit</small></div>
       <div><span>PACE CONTEXT</span><strong>{read.paceTrendDistribution.comparableDrivers} COMPARABLE</strong><small>{read.paceTrendDistribution.highFade} high fade · {read.paceTrendDistribution.moderateFade} moderate · {read.paceTrendDistribution.lowOrStable} stable</small></div>
-      <div><span>OBSERVED SEQUENCES</span><strong>{sequences}</strong><small>Completed compound paths</small></div>
+      <div><span>OBSERVED SEQUENCES</span><strong>{observedSequences(analytics?.observedSequences)}</strong><small>Completed compound paths</small></div>
       {!compact && <div><span>STINT CONTEXT</span><strong>{stints}</strong><small>Completed stints by compound</small></div>}
       {!compact && <div><span>RECENT PITS</span><strong>{recentPits}</strong><small>Latest factual pit activity</small></div>}
       <div className="race-now-facts"><span>NOW</span>{read.summaryFacts.slice(0, compact ? 1 : 3).map((fact) => <p key={fact}>{fact}</p>)}</div>
