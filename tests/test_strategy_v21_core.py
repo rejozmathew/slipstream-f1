@@ -49,11 +49,11 @@ def test_snapshot_publishes_phase_c_contract_fields(tmp_path) -> None:
     assert snap["strategyValidity"] in {"VALID", "UNAVAILABLE", "NOT_APPLICABLE"}
     assert snap["projectionGate"]["hardValidity"]["violations"] == 0
     assert snap["projectionGate"]["hardValidity"]["status"] == "PASS"
-    assert snap["activeRunnerCount"] == 2
+    assert snap["runningDriverCount"] == 2
     assert "startingTyreDistribution" in snap
     assert "stopDistribution" in snap
     assert "observedSequences" in snap
-    assert snap["raceRead"]["population"]["active"] == 2
+    assert snap["raceRead"]["population"]["running"] == 2
     assert snap["drivers"]["1"]["read"]["headline"] == "AAA is running P1."
     assert snap["drivers"]["1"]["read"]["modelVersion"] == snap["modelVersion"]
     # §17.1: NetPitLoss suppresses freeStopMargin + projectedRejoinPosition.
@@ -81,11 +81,11 @@ def test_field_distributions_excludes_retired_runners(tmp_path) -> None:
     snap = build_analytics_snapshot(resource, state, sequence=1, as_of="2026-08-01T14:00:00+00:00", context=ContextAvailability("unavailable"))
 
     # Starting tyres require first-stint evidence; current tyres use active runners.
-    assert snap["activeRunnerCount"] == 2
+    assert snap["runningDriverCount"] == 2
     assert snap["startingTyreDistribution"] == {}
     assert snap["startingTyrePopulation"] == {"known": 0, "participants": 3}
     assert snap["currentTyreDistribution"] == {"HARD": 1, "MEDIUM": 1}
-    assert snap["currentTyrePopulation"] == {"known": 2, "active": 2}
+    assert snap["currentTyrePopulation"] == {"known": 2, "running": 2}
 
 
 def test_projection_gate_publishes_hard_pass_and_truthful_insufficiency(tmp_path) -> None:

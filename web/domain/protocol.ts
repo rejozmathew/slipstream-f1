@@ -381,7 +381,7 @@ export type DryRequirementLandscape = {
 
 export type RaceRead = {
   raceLifecycle: StrategyLifecycle;
-  population: { participants: number; active: number; circulating: number; stopped: number; terminal: number };
+  population: { participants: number; running: number; inPit: number; stopped: number; unconfirmed: number; terminal: number };
   completedStopDistribution: Record<string, number>;
   startingTyreDistribution: Record<string, number>;
   currentTyreDistribution: Record<string, number>;
@@ -531,13 +531,13 @@ export type AnalyticsSnapshot = {
   netPitLoss?: NetPitLoss;
   // v2.1 §8.2 / §9 / §10: gate provenance for the published window.
   projectionGate?: ProjectionGate;
-  // v2.1 §18: field distributions over active runners at the cursor.
-  activeRunnerCount?: number;
+  // v2.1 §18: field distributions over factually running/in-pit drivers at the cursor.
+  runningDriverCount?: number;
   startingTyreDistribution?: Record<string, number>;
   stopDistribution?: Record<string, number>;
   startingTyrePopulation?: { known: number; participants: number };
   currentTyreDistribution?: Record<string, number>;
-  currentTyrePopulation?: { known: number; active: number };
+  currentTyrePopulation?: { known: number; running: number };
   observedSequences?: Array<{ sequence: string; drivers: number }>;
   dryRequirementLandscape?: DryRequirementLandscape;
   raceRead?: RaceRead;

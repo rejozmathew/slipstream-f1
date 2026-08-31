@@ -527,7 +527,7 @@ def test_historical_sparse_updates_preserve_full_field_track_progress() -> None:
     assert later.drivers["1"].track_position != state.drivers["1"].track_position
 
 
-def test_openf1_red_flag_is_history_only_and_degrades_after_track_clear() -> None:
+def test_openf1_red_flag_persists_after_track_clear_until_restart() -> None:
     raw = json.loads(STINT_RECORDING.read_text(encoding="utf-8"))
     raw["endpoints"]["race_control"] = [
         {
@@ -557,7 +557,7 @@ def test_openf1_red_flag_is_history_only_and_degrades_after_track_clear() -> Non
     assert after_clear.session.status == "RUNNING"
     assert after_clear.session.control_status == "UNKNOWN"
     assert after_clear.session.marshal_status == "ALL_CLEAR"
-    assert after_clear.session.display_status == "UNKNOWN"
+    assert after_clear.session.display_status == "RED_FLAG"
     assert not any(
         event.kind == "session" and event.payload.get("status") == "SUSPENDED"
         for event in events
@@ -693,8 +693,8 @@ def test_historical_green_uses_only_complete_race_control_transitions() -> None:
         "2025-01-01T12:31:00Z": "VSC_ENDING",
         "2025-01-01T12:32:00Z": "GREEN",
         "2025-01-01T12:40:00Z": "RED_FLAG",
-        "2025-01-01T12:41:00Z": "UNKNOWN",
-        "2025-01-01T12:42:00Z": "UNKNOWN",
+        "2025-01-01T12:41:00Z": "RED_FLAG",
+        "2025-01-01T12:42:00Z": "RED_FLAG",
         "2025-01-01T12:45:00Z": "GREEN",
         "2025-01-01T13:29:00Z": "CHEQUERED",
     }
@@ -736,8 +736,8 @@ def test_pcr0003_dutch_race_exact_neutralization_cursors() -> None:
         1013: "GREEN",
         1014: "RED_FLAG",
         1344: "RED_FLAG",
-        1345: "UNKNOWN",
-        1401: "UNKNOWN",
+        1345: "RED_FLAG",
+        1401: "RED_FLAG",
         1402: "GREEN",
         25830: "GREEN",
         25831: "VSC",

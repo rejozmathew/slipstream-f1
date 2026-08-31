@@ -8,7 +8,6 @@ from typing import Any
 
 from .evidence import LapObservation, PitEvent
 from .lifecycle import (
-    is_active_participant,
     is_circulating,
     is_session_participant,
     is_stopped,
@@ -124,7 +123,8 @@ def field_distributions(
     state: RaceState,
     evidence_by_driver: dict[str, tuple[LapObservation, ...]],
 ) -> dict[str, Any]:
-    active = [number for number, driver in state.drivers.items() if is_active_participant(driver)]
+    population = _race_population(state)
+    current_field = [*population["running"], *population["inPit"]]
     starting: Counter[str] = Counter()
     starting_known = 0
     sequences: Counter[str] = Counter()
@@ -152,12 +152,12 @@ def field_distributions(
 
     current = Counter(
         state.drivers[number].compound.upper()
-        for number in active
+        for number in current_field
         if state.drivers[number].compound
     )
-    stops = Counter(state.drivers[number].pit_count for number in active)
+    stops = Counter(state.drivers[number].pit_count for number in current_field)
     return {
-        "activeRunnerCount": len(active),
+        "runningDriverCount": len(current_field),
         "startingTyreDistribution": dict(sorted(starting.items())),
         "startingTyrePopulation": {
             "known": starting_known,
@@ -166,7 +166,7 @@ def field_distributions(
             ),
         },
         "currentTyreDistribution": dict(sorted(current.items())),
-        "currentTyrePopulation": {"known": sum(current.values()), "active": len(active)},
+        "currentTyrePopulation": {"known": sum(current.values()), "running": len(current_field)},
         "stopDistribution": {str(key): value for key, value in sorted(stops.items())},
         "observedSequences": [
             {"sequence": sequence, "drivers": count}
@@ -174,7 +174,7 @@ def field_distributions(
         ],
         "evidenceBasis": [
             "starting tyres use first-stint/race-start evidence, including later terminal starters",
-            f"current tyres and completed stops use {len(active)} active runners at this cursor",
+            f"current tyres and completed stops use {len(current_field)} factually running or in-pit drivers at this cursor",
         ],
     }
 
@@ -188,14 +188,12 @@ def race_read(
     lifecycle: str,
     distributions: dict[str, Any],
 ) -> dict[str, Any]:
-    active = [number for number, driver in state.drivers.items() if is_active_participant(driver)]
-    terminal = [number for number, driver in state.drivers.items() if is_terminal(driver)]
-    circulating = [number for number, driver in state.drivers.items() if is_circulating(driver)]
-    stopped = [number for number, driver in state.drivers.items() if is_stopped(driver)]
+    population = _race_population(state)
+    current_field = [*population["running"], *population["inPit"]]
 
     trend_counts = Counter({"highFade": 0, "moderateFade": 0, "lowOrStable": 0, "unknown": 0})
     comparable = 0
-    for number in active:
+    for number in current_field:
         pace = driver_models.get(number, {}).get("pace", {})
         trend = pace.get("paceTrend") or pace.get("degradation") or {}
         value = trend.get("value")
@@ -210,7 +208,7 @@ def race_read(
         else:
             trend_counts["lowOrStable"] += 1
 
-    dry_counts = Counter(dry_states.get(number, "UNKNOWN") for number in active)
+    dry_counts = Counter(dry_states.get(number, "UNKNOWN") for number in current_field)
     current_lap = state.session.lap or 0
     recent = [
         {
@@ -266,26 +264,27 @@ def race_read(
         dominant_stops, count = max(stop_distribution.items(), key=lambda item: item[1])
         noun = "stop" if dominant_stops == "1" else "stops"
         summary.append(
-            f"{count} of {len(active)} active participants have exactly "
+            f"{count} of {len(current_field)} running or in-pit drivers have exactly "
             f"{dominant_stops} completed {noun}."
         )
     if comparable:
         elevated = trend_counts["highFade"] + trend_counts["moderateFade"]
-        summary.append(f"{elevated} of {comparable} comparable active runners show moderate or high Pace Fade.")
+        summary.append(f"{elevated} of {comparable} comparable running drivers show moderate or high Pace Fade.")
     unsatisfied = dry_counts["UNSATISFIED"]
     if unsatisfied:
-        summary.append(f"{unsatisfied} of {len(active)} active runners have an unsatisfied dry-tyre requirement.")
+        summary.append(f"{unsatisfied} of {len(current_field)} running or in-pit drivers still need another dry compound.")
     if recent:
         summary.append(f"{len(recent)} pit events were observed in the last three race laps.")
 
     return {
         "raceLifecycle": lifecycle,
         "population": {
-            "participants": sum(1 for driver in state.drivers.values() if is_session_participant(driver)),
-            "active": len(active),
-            "circulating": len(circulating),
-            "stopped": len(stopped),
-            "terminal": len(terminal),
+            "participants": sum(len(numbers) for numbers in population.values()),
+            "running": len(population["running"]),
+            "inPit": len(population["inPit"]),
+            "stopped": len(population["stopped"]),
+            "unconfirmed": len(population["unconfirmed"]),
+            "terminal": len(population["terminal"]),
         },
         "completedStopDistribution": stop_distribution,
         "startingTyreDistribution": distributions["startingTyreDistribution"],
@@ -293,7 +292,7 @@ def race_read(
         "paceTrendDistribution": {
             "comparableDrivers": comparable,
             **dict(trend_counts),
-            "denominator": len(active),
+            "denominator": len(current_field),
             "basis": "current-race clean current-stint Pace Trend only; Weekend fallback excluded",
         },
         "stintContextByCompound": stint_context,
@@ -302,12 +301,38 @@ def race_read(
             "unsatisfied": unsatisfied,
             "notApplicable": dry_counts["NOT_APPLICABLE"],
             "unknown": dry_counts["UNKNOWN"],
-            "denominator": len(active),
+            "denominator": len(current_field),
         },
         "strategyArchetype": archetype,
         "recentPitActivity": recent,
         "summaryFacts": summary,
     }
+
+
+def _race_population(state: RaceState) -> dict[str, list[str]]:
+    """Partition session participants into mutually exclusive factual groups."""
+
+    population: dict[str, list[str]] = {
+        "running": [],
+        "inPit": [],
+        "stopped": [],
+        "unconfirmed": [],
+        "terminal": [],
+    }
+    for number, driver in state.drivers.items():
+        if not is_session_participant(driver):
+            continue
+        if is_terminal(driver):
+            population["terminal"].append(number)
+        elif is_stopped(driver):
+            population["stopped"].append(number)
+        elif is_circulating(driver) and str(driver.activity or "").upper() == "IN_PIT":
+            population["inPit"].append(number)
+        elif is_circulating(driver):
+            population["running"].append(number)
+        else:
+            population["unconfirmed"].append(number)
+    return population
 
 
 def hard_projection_violations(strategy: dict[str, Any], driver: DriverState | None, state: RaceState) -> list[str]:

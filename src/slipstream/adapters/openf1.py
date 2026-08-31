@@ -1021,7 +1021,7 @@ def _openf1_session_update(
         if scope == "TRACK" and flag in {"GREEN", "CLEAR"}:
             return {
                 "marshal_status": "ALL_CLEAR",
-                "display_status": "UNKNOWN",
+                "display_status": "RED_FLAG",
             }, True
         return {}, True
     if category == "SAFETYCAR" and text in {

@@ -63,10 +63,10 @@ export function RaceNow({ analytics, compact = false }: { analytics: AnalyticsSn
   return <Panel eyebrow="CURRENT SESSION" title="Race now" className={`race-now${compact ? " race-now-compact" : ""}`}>
     {!read && <div className="pirelli-unavailable"><strong>RACE READ NOT YET AVAILABLE</strong><p>Current race facts will appear as the session develops.</p></div>}
     {read && <div className="race-now-grid">
-      <div><span>CIRCULATING</span><strong>{read.population.circulating}</strong><small>{read.population.active} active participants · {read.population.terminal} terminal · {read.population.stopped} stopped</small></div>
+      <div><span>RUNNING / RECENT PROGRESS</span><strong>{read.population.running}</strong><small>{read.population.inPit} in pit · {read.population.stopped} stopped · {read.population.unconfirmed} status unconfirmed · {read.population.terminal} terminal</small></div>
       <div><span>CURRENT TYRES</span><strong>{distribution(read.currentTyreDistribution)}</strong><small>Current active-race distribution</small></div>
       <div><span>COMPLETED STOPS</span><strong>{distribution(read.completedStopDistribution)}</strong><small>Observed stop-count distribution</small></div>
-      <div><span>DRY RULE</span><strong>{read.dryRequirementLandscape.unsatisfied} NEED SPEC</strong><small>{read.dryRequirementLandscape.unknown} unknown · {read.dryRequirementLandscape.denominator} active</small></div>
+      <div><span>DRY RULE</span><strong>{read.dryRequirementLandscape.unsatisfied} drivers still need another dry compound</strong><small>{read.dryRequirementLandscape.unknown} unknown · {read.dryRequirementLandscape.denominator} running or in pit</small></div>
       <div><span>PACE CONTEXT</span><strong>{read.paceTrendDistribution.comparableDrivers} COMPARABLE</strong><small>{read.paceTrendDistribution.highFade} high fade · {read.paceTrendDistribution.moderateFade} moderate · {read.paceTrendDistribution.lowOrStable} stable</small></div>
       <div><span>OBSERVED SEQUENCES</span><strong>{sequences}</strong><small>Completed compound paths</small></div>
       {!compact && <div><span>STINT CONTEXT</span><strong>{stints}</strong><small>Completed stints by compound</small></div>}

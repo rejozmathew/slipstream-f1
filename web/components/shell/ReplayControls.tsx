@@ -31,7 +31,10 @@ export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, comma
     Math.max(duration, 1),
   );
   useEffect(() => {
-    setPendingSeconds((current) => reconciledPendingPosition(serverElapsed, current));
+    const reconciliation = window.setTimeout(() => {
+      setPendingSeconds((current) => reconciledPendingPosition(serverElapsed, current));
+    }, 0);
+    return () => window.clearTimeout(reconciliation);
   }, [serverElapsed]);
   const commitSeek = (seconds: number) => {
     if (!metadata?.startTime || !enabled) return;

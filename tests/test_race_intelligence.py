@@ -109,7 +109,7 @@ def test_starting_and_current_tyre_populations_are_distinct() -> None:
     assert result["startingTyreDistribution"] == {"HARD": 1, "MEDIUM": 2}
     assert result["currentTyreDistribution"] == {"MEDIUM": 1, "SOFT": 1}
     assert result["startingTyrePopulation"]["participants"] == 3
-    assert result["currentTyrePopulation"]["active"] == 2
+    assert result["currentTyrePopulation"]["running"] == 2
 
 
 def test_race_read_is_structured_and_uses_current_race_pace_only() -> None:
@@ -129,11 +129,47 @@ def test_race_read_is_structured_and_uses_current_race_pace_only() -> None:
         "LIVE",
         distributions,
     )
-    assert result["population"]["active"] == 2
+    assert result["population"] == {
+        "participants": 2,
+        "running": 2,
+        "inPit": 0,
+        "stopped": 0,
+        "unconfirmed": 0,
+        "terminal": 0,
+    }
     assert result["paceTrendDistribution"]["highFade"] == 1
     assert result["paceTrendDistribution"]["unknown"] == 1
     assert "current-race" in result["paceTrendDistribution"]["basis"]
     assert result["dryRequirementLandscape"]["denominator"] == 2
+
+
+def test_race_read_population_is_truthful_and_reconciles() -> None:
+    state = _state()
+    state = replace(
+        state,
+        drivers={
+            "1": state.drivers["1"],
+            "2": replace(state.drivers["2"], activity="IN_PIT"),
+            "3": DriverState(number="3", status="STOPPED", compound="SOFT"),
+            "4": DriverState(number="4", status="UNKNOWN", compound="HARD"),
+            "5": DriverState(number="5", status="DNF", compound="MEDIUM"),
+        },
+    )
+    distributions = field_distributions(state, {})
+    result = race_read(state, {}, {}, (), {}, "LIVE", distributions)
+
+    assert result["population"] == {
+        "participants": 5,
+        "running": 1,
+        "inPit": 1,
+        "stopped": 1,
+        "unconfirmed": 1,
+        "terminal": 1,
+    }
+    assert sum(value for key, value in result["population"].items() if key != "participants") == 5
+    assert distributions["runningDriverCount"] == 2
+    assert distributions["currentTyrePopulation"] == {"known": 2, "running": 2}
+    assert distributions["currentTyreDistribution"] == {"HARD": 1, "MEDIUM": 1}
 
 
 def test_projection_gate_blocks_unstable_or_invalid_future() -> None:
