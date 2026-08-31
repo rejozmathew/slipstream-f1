@@ -145,9 +145,10 @@ def test_stopped_resumes_only_with_positive_evidence_and_terminal_never_resumes(
     assert running_analytics["drivers"]["2"]["strategy"]["terminalState"] is None
     assert running_analytics["raceRead"]["population"] == {
         "participants": 2,
-        "active": 2,
-        "circulating": 2,
+        "running": 2,
+        "inPit": 0,
         "stopped": 0,
+        "unconfirmed": 0,
         "terminal": 0,
     }
 
@@ -156,9 +157,10 @@ def test_stopped_resumes_only_with_positive_evidence_and_terminal_never_resumes(
     assert stopped_analytics["drivers"]["2"]["strategy"]["terminalState"] is None
     assert stopped_analytics["raceRead"]["population"] == {
         "participants": 2,
-        "active": 2,
-        "circulating": 1,
+        "running": 1,
+        "inPit": 0,
         "stopped": 1,
+        "unconfirmed": 0,
         "terminal": 0,
     }
     assert all(
@@ -174,9 +176,10 @@ def test_stopped_resumes_only_with_positive_evidence_and_terminal_never_resumes(
     assert retired.drivers["2"].status == "RETIRED"
     assert retired_analytics["raceRead"]["population"] == {
         "participants": 2,
-        "active": 1,
-        "circulating": 1,
+        "running": 1,
+        "inPit": 0,
         "stopped": 0,
+        "unconfirmed": 0,
         "terminal": 1,
     }
     strategy = retired_analytics["drivers"]["2"]["strategy"]
