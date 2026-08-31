@@ -153,48 +153,11 @@ class PirelliRuntimeCoordinator:
         inventory: list[object],
         resource_loader: Callable[[str], object],
     ) -> PirelliIngestionTarget:
-        resource = resource_loader(str(descriptor.key))
-        drivers = tuple(
-            WeekendDriverIdentity(
-                driver_number=driver.number,
-                driver_code=driver.code or driver.number,
-                full_name=driver.name or driver.code or driver.number,
-                aliases=tuple(
-                    value
-                    for value in (driver.code, driver.name)
-                    if value is not None
-                ),
-            )
-            for driver in resource.final_state.drivers.values()
-        )
-        return PirelliIngestionTarget(
-            MeetingDiscoveryTarget(
-                meeting_key=meeting_key,
-                canonical_name=str(descriptor.meeting_name),
-                season=int(descriptor.year),
-                weekend_start=_as_utc(inventory[0].date_start),
-                weekend_end=_as_utc(inventory[-1].date_end),
-                aliases=tuple(
-                    dict.fromkeys(
-                        value
-                        for value in (
-                            getattr(descriptor, "location", None),
-                            getattr(descriptor, "circuit", None),
-                        )
-                        if value
-                    )
-                ),
-                exact_tag=pirelli_event_tag(
-                    int(descriptor.year), str(descriptor.meeting_name)
-                ),
-            ),
-            target_session_key=str(descriptor.key),
-            session_scope=(
-                SessionScope.SPRINT
-                if descriptor.session_kind == "sprint"
-                else SessionScope.RACE
-            ),
-            drivers=drivers,
+        return build_ingestion_target(
+            meeting_key,
+            descriptor,
+            inventory,
+            resource_loader,
         )
 
     async def run_forever(
@@ -222,3 +185,54 @@ def _as_utc(value: str | datetime) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def build_ingestion_target(
+    meeting_key: str,
+    descriptor: object,
+    inventory: list[object],
+    resource_loader: Callable[[str], object],
+) -> PirelliIngestionTarget:
+    """Build the shared runtime/manual ingestion target for one session."""
+
+    resource = resource_loader(str(descriptor.key))
+    drivers = tuple(
+        WeekendDriverIdentity(
+            driver_number=driver.number,
+            driver_code=driver.code or driver.number,
+            full_name=driver.name or driver.code or driver.number,
+            aliases=tuple(
+                value for value in (driver.code, driver.name) if value is not None
+            ),
+        )
+        for driver in resource.final_state.drivers.values()
+    )
+    return PirelliIngestionTarget(
+        MeetingDiscoveryTarget(
+            meeting_key=meeting_key,
+            canonical_name=str(descriptor.meeting_name),
+            season=int(descriptor.year),
+            weekend_start=_as_utc(inventory[0].date_start),
+            weekend_end=_as_utc(inventory[-1].date_end),
+            aliases=tuple(
+                dict.fromkeys(
+                    value
+                    for value in (
+                        getattr(descriptor, "location", None),
+                        getattr(descriptor, "circuit", None),
+                    )
+                    if value
+                )
+            ),
+            exact_tag=pirelli_event_tag(
+                int(descriptor.year), str(descriptor.meeting_name)
+            ),
+        ),
+        target_session_key=str(descriptor.key),
+        session_scope=(
+            SessionScope.SPRINT
+            if descriptor.session_kind == "sprint"
+            else SessionScope.RACE
+        ),
+        drivers=drivers,
+    )

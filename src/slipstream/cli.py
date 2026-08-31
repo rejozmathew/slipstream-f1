@@ -70,6 +70,25 @@ def main() -> None:
         "--output", type=Path, default=Path("recordings/catalog.json")
     )
     catalog_command.add_argument("--max-age-hours", type=float, default=24.0)
+    pirelli_command = commands.add_parser(
+        "sync-pirelli",
+        help="Archive and normalize official Pirelli context for historical Races",
+    )
+    pirelli_command.add_argument(
+        "--data-root", type=Path, default=Path("recordings")
+    )
+    pirelli_seasons = pirelli_command.add_mutually_exclusive_group()
+    pirelli_seasons.add_argument(
+        "--year", type=int, action="append", help="Sync one explicit season"
+    )
+    pirelli_seasons.add_argument(
+        "--years", type=int, default=3, help="Number of recent seasons to sync"
+    )
+    pirelli_command.add_argument(
+        "--meeting-key", action="append", default=[], help="Limit to a meeting key"
+    )
+    pirelli_command.add_argument("--force", action="store_true")
+    pirelli_command.add_argument("--dry-run", action="store_true")
     serve_command = commands.add_parser(
         "serve", help="Serve one replay or a recording directory over API v1"
     )
@@ -138,6 +157,29 @@ def main() -> None:
             f"Cached {len(catalog['sessions'])} sessions across "
             f"{len(catalog['meetings'])} weekends in {args.output}"
         )
+        return
+    if args.command == "sync-pirelli":
+        from .pirelli.backfill import (
+            format_pirelli_backfill_report,
+            sync_pirelli_backfill,
+        )
+
+        years = tuple(args.year or recent_seasons(args.years))
+        try:
+            report = asyncio.run(
+                sync_pirelli_backfill(
+                    args.data_root,
+                    years=years,
+                    meeting_keys=tuple(args.meeting_key),
+                    force=args.force,
+                    dry_run=args.dry_run,
+                )
+            )
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"Pirelli sync unavailable: {error}\n")
+        print(format_pirelli_backfill_report(report))
+        if report.count("FAILURE"):
+            parser.exit(1)
         return
     if args.command == "serve":
         import uvicorn

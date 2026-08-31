@@ -21,6 +21,7 @@ from .contracts import (
 )
 from .discovery import (
     PIRELLI_F1_RSS_URL,
+    FeedEntry,
     MeetingDiscoveryTarget,
     ReleaseCandidate,
     ReleasePurpose,
@@ -77,16 +78,19 @@ class PirelliIngestionService:
         target: PirelliIngestionTarget,
         *,
         now: datetime | None = None,
+        feed_entries: tuple[FeedEntry, ...] | None = None,
     ) -> PirelliIngestionReport:
         retrieved_at = now or datetime.now(UTC)
-        rss = await self.client.acquire(
-            archive=self.archive,
-            meeting_key=target.meeting.meeting_key,
-            url=PIRELLI_F1_RSS_URL,
-            now=retrieved_at,
+        entries = (
+            feed_entries
+            if feed_entries is not None
+            else await self.discovery_entries(
+                now=retrieved_at,
+                archive_key=target.meeting.meeting_key,
+            )
         )
         candidates = discover_for_meeting(
-            parse_formula1_feed(rss.body.decode("utf-8", errors="replace")),
+            entries,
             target.meeting,
         )
         normalized: list[str] = []
@@ -111,6 +115,23 @@ class PirelliIngestionService:
             )
             normalized.append(release.release_id)
         return PirelliIngestionReport(tuple(normalized), tuple(skipped), tuple(issues))
+
+    async def discovery_entries(
+        self,
+        *,
+        now: datetime | None = None,
+        archive_key: str = "_discovery",
+    ) -> tuple[FeedEntry, ...]:
+        """Acquire and archive one feed snapshot reusable across a bounded sweep."""
+
+        retrieved_at = now or datetime.now(UTC)
+        rss = await self.client.acquire(
+            archive=self.archive,
+            meeting_key=archive_key,
+            url=PIRELLI_F1_RSS_URL,
+            now=retrieved_at,
+        )
+        return parse_formula1_feed(rss.body.decode("utf-8", errors="replace"))
 
     async def _normalize_release(
         self,
