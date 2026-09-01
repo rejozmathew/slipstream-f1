@@ -18,7 +18,11 @@ import aiohttp
 
 from .events import NormalizedEvent, parse_timestamp
 from .evidence import SessionEvidence
-from .f1_timing import merge_f1_provider_value, normalize_f1_timing
+from .f1_timing import (
+    finalize_f1_classifications,
+    merge_f1_provider_value,
+    normalize_f1_timing,
+)
 from .live_recording import NormalizedLiveRecorder
 from .session import classify_session
 from .state import RaceState
@@ -528,12 +532,13 @@ class F1LiveAdapter:
         if stream == "SessionInfo":
             return self._session_info_events(merged, occurred_at)
         if stream == "SessionStatus":
+            status = _session_status(merged)
             return [
                 NormalizedEvent(
                     "session",
                     occurred_at,
                     self.source,
-                    {"status": _session_status(merged)},
+                    {"status": status},
                     received_at=occurred_at,
                 )
             ]
@@ -1012,6 +1017,7 @@ class PublicLiveSession:
         self._replay_ready = False
         self._final_recording: Path | None = None
         self._phase_history: list[str] = []
+        self._adapter: F1LiveAdapter | None = None
 
     @property
     def state(self) -> RaceState:
@@ -1146,6 +1152,7 @@ class PublicLiveSession:
             )
             self._restore_recorded_events(())
         adapter = F1LiveAdapter(str(session_key))
+        self._adapter = adapter
         for row in rows:
             self._apply(adapter.ingest(row), str(row.get("received_at") or utc_now()))
         if self._events and not self._completion_observed:
@@ -1278,6 +1285,20 @@ class PublicLiveSession:
             await asyncio.sleep(self._finalization_drain)
         if not self._completion_observed:
             return
+        if self._state.session.session_kind == "race" and self._adapter is not None:
+            at = max(
+                (event.occurred_at for event in self._events),
+                key=parse_timestamp,
+                default=self._state.updated_at or utc_now(),
+            )
+            self._apply(
+                finalize_f1_classifications(
+                    self._adapter.streams.get("TimingData", {}),
+                    at,
+                    source="f1-signalr-public",
+                ),
+                at,
+            )
         self._set_phase("COMPLETE")
         if self._normalized_recorder is None:
             return
@@ -1320,6 +1341,7 @@ class PublicLiveSession:
         backoff = 1.0
         while self._target_session_key == session_key and not self._replay_ready:
             adapter = F1LiveAdapter(session_key)
+            self._adapter = adapter
             self._status = "CONNECTING" if not self._ever_connected else "STALE"
             self._reconnecting = self._ever_connected
             self._set_phase("RECONNECTING" if self._reconnecting else "CONNECTING")

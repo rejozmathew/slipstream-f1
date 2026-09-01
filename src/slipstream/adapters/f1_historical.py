@@ -12,7 +12,9 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from ..events import NormalizedEvent, parse_timestamp
+from ..f1_timing import finalize_f1_classifications
 from ..live import F1LiveAdapter, canonical_utc
+from ..session import classify_session
 
 STATIC_ROOT = "https://livetiming.formula1.com/static"
 LOW_VOLUME_TOPICS = (
@@ -86,16 +88,16 @@ class F1HistoricalClient:
 
     def resolve_session(self, year: int, session_key: str | int) -> F1ArchiveSession:
         index = self._get_json(f"{STATIC_ROOT}/{int(year)}/Index.json")
-        found = _find_session(index, str(session_key))
-        if found is None:
+        path = _find_session_path(index, str(session_key))
+        if path is None:
+            root_index = self._get_json(f"{STATIC_ROOT}/Index.json")
+            path = _find_session_path(root_index, str(session_key))
+        if path is None:
             raise F1HistoricalError(
                 f"official F1 archive has no indexed session {session_key} in {year}"
             )
-        path = str(found.get("Path") or found.get("path") or "").strip("/")
-        if not path:
-            raise F1HistoricalError(
-                f"official F1 session {session_key} has no archive path"
-            )
+        if not path.startswith(f"{int(year)}/"):
+            path = f"{int(year)}/{path}"
         return F1ArchiveSession(str(session_key), path, int(year))
 
     def capture_events(
@@ -103,28 +105,36 @@ class F1HistoricalClient:
     ) -> tuple[NormalizedEvent, ...]:
         session = self.resolve_session(year, session_key)
         topic_rows: list[tuple[timedelta, int, str, Any]] = []
+        dynamic_snapshots: list[tuple[int, str, Any]] = []
         session_info: dict[str, Any] | None = None
         for order, topic in enumerate(LOW_VOLUME_TOPICS):
             base = f"{STATIC_ROOT}/{session.path}/{topic}"
             full = self._get_optional_json(f"{base}.json")
             stream = self._get_optional_text(f"{base}.jsonStream")
-            if stream is not None:
-                for offset, patch in parse_json_stream(stream):
-                    topic_rows.append((offset, order, topic, patch))
-            elif isinstance(full, dict):
+            if topic in {"SessionInfo", "DriverList"} and isinstance(full, dict):
                 initial = dict(full)
                 if topic == "SessionInfo":
                     for key in ("Status", "SessionStatus", "Started"):
                         initial.pop(key, None)
                 topic_rows.append((timedelta(0), order, topic, initial))
+            if stream is not None:
+                for offset, patch in parse_json_stream(stream):
+                    topic_rows.append((offset, order, topic, patch))
+            elif isinstance(full, dict) and topic not in {"SessionInfo", "DriverList"}:
+                dynamic_snapshots.append((order, topic, full))
             if topic == "SessionInfo" and isinstance(full, dict):
                 session_info = full
         if session_info is None:
             raise F1HistoricalError("official F1 reconstruction requires SessionInfo")
+        start = _session_start(session_info)
+        final_offset = _final_offset(topic_rows, session_info, start)
+        if final_offset is not None:
+            topic_rows.extend(
+                (final_offset, order, topic, payload)
+                for order, topic, payload in dynamic_snapshots
+            )
         if not any(topic == "TimingData" for _, _, topic, _ in topic_rows):
             raise F1HistoricalError("official F1 reconstruction requires TimingData")
-
-        start = _session_start(session_info)
         adapter = F1LiveAdapter(str(session_key), source="f1-static-public")
         events: list[NormalizedEvent] = []
         for offset, _order, topic, payload in sorted(
@@ -143,27 +153,27 @@ class F1HistoricalClient:
             )
 
         final_at = _final_cursor(events)
-        if final_at is not None:
-            lines = adapter.streams.get("TimingData", {}).get("Lines", {})
-            if isinstance(lines, dict):
-                for raw_number, line in lines.items():
-                    if not isinstance(line, dict):
-                        continue
-                    classification = _final_classification(line)
-                    if classification is None:
-                        continue
-                    events.append(
-                        NormalizedEvent(
-                            "timing",
-                            final_at,
-                            "f1-static-public",
-                            {
-                                "number": str(line.get("RacingNumber") or raw_number),
-                                "classification": classification,
-                            },
-                            received_at=final_at,
-                        )
-                    )
+        session_kind = classify_session(
+            str(session_info.get("Type") or ""),
+            str(session_info.get("Name") or ""),
+        ).kind.value
+        if final_at is not None and session_kind == "race":
+            events.extend(
+                finalize_f1_classifications(
+                    adapter.streams.get("TimingData", {}),
+                    final_at,
+                    source="f1-static-public",
+                )
+            )
+
+        if not any(
+            event.kind == "session"
+            and str(event.payload.get("key")) == str(session_key)
+            for event in events
+        ) or not any(event.kind == "timing" for event in events):
+            raise F1HistoricalError(
+                "official F1 reconstruction produced no usable canonical session"
+            )
         return tuple(
             event
             for _, event in sorted(
@@ -210,18 +220,20 @@ def write_canonical_recording(path: Path, events: tuple[NormalizedEvent, ...]) -
     staging.replace(path)
 
 
-def _find_session(value: Any, key: str) -> dict[str, Any] | None:
+def _find_session_path(value: Any, key: str, prefix: str = "") -> str | None:
     if isinstance(value, dict):
         own_key = value.get("Key", value.get("SessionKey", value.get("session_key")))
-        if str(own_key) == key and (value.get("Path") or value.get("path")):
-            return value
+        own_path = str(value.get("Path") or value.get("path") or "").strip("/")
+        if str(own_key) == key and own_path:
+            return "/".join(part for part in (prefix, own_path) if part)
+        child_prefix = "/".join(part for part in (prefix, own_path) if part)
         for child in value.values():
-            found = _find_session(child, key)
+            found = _find_session_path(child, key, child_prefix)
             if found is not None:
                 return found
     elif isinstance(value, list):
         for child in value:
-            found = _find_session(child, key)
+            found = _find_session_path(child, key, prefix)
             if found is not None:
                 return found
     return None
@@ -248,17 +260,22 @@ def _final_cursor(events: list[NormalizedEvent]) -> str | None:
     return max(terminal, key=parse_timestamp) if terminal else None
 
 
-def _final_classification(line: dict[str, Any]) -> str | None:
-    raw = str(
-        line.get("Classification")
-        or line.get("ResultStatus")
-        or line.get("Status")
-        or ""
-    ).upper()
-    if raw in {"DNF", "DNS", "DSQ", "DISQUALIFIED", "FINISHED"}:
-        return "DSQ" if raw == "DISQUALIFIED" else raw
-    if bool(line.get("Retired")) or bool(line.get("Stopped")):
-        return "DNF"
-    if line.get("Position") is not None:
-        return "FINISHED"
+def _final_offset(
+    rows: list[tuple[timedelta, int, str, Any]],
+    session_info: dict[str, Any],
+    start: datetime,
+) -> timedelta | None:
+    finished = [
+        offset
+        for offset, _order, topic, payload in rows
+        if topic == "SessionStatus"
+        and isinstance(payload, dict)
+        and str(payload.get("Status") or "").upper()
+        in {"FINISHED", "ENDED", "COMPLETE"}
+    ]
+    if finished:
+        return max(finished)
+    raw_end = session_info.get("EndDate")
+    if isinstance(raw_end, str):
+        return max(parse_timestamp(canonical_utc(raw_end)) - start, timedelta(0))
     return None

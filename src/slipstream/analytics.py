@@ -19,6 +19,7 @@ from .lifecycle import (
 )
 from .lifecycle import (
     is_battle_eligible,
+    is_retired_indicated,
     terminal_state,
 )
 from .pirelli.store import PirelliAvailability
@@ -81,6 +82,11 @@ class AnalyticsService:
 
     def __init__(self) -> None:
         self._cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+    def clear(self) -> None:
+        """Discard snapshots after replay storage/source replacement."""
+
+        self._cache.clear()
 
     def snapshot(
         self,
@@ -2036,6 +2042,8 @@ def _terminal_suppression(
     ``None`` means the driver is not terminal — no suppression.
     """
     term = terminal_state(driver)
+    if term is None and is_retired_indicated(driver):
+        term = "RETIRED (CURRENT SOURCE INDICATION)"
     if term is None:
         return None
     reason = (

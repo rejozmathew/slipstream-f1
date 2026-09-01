@@ -275,6 +275,35 @@ def test_terminal_and_final_states_never_publish_live_window_language():
     assert final["fieldFacts"] == []
 
 
+def test_current_retired_indication_suppresses_windows_but_can_recover() -> None:
+    option = _option(
+        "mh",
+        (Compound.MEDIUM, Compound.HARD),
+        windows=(PitWindow(17, 23),),
+    )
+    base = _state(lap=20)
+    indicated = RaceState(
+        session=base.session,
+        weather=base.weather,
+        drivers={
+            "1": DriverState(
+                number="1",
+                code="AAA",
+                compound="MEDIUM",
+                source_condition="RETIRED_INDICATED",
+                source_retired=True,
+            )
+        },
+    )
+    out = _build(_availability(option), indicated)
+    recovered = _build(_availability(option), base)
+
+    assert out["drivers"]["1"]["relation"] == "TERMINAL"
+    assert out["drivers"]["1"]["windows"] == []
+    assert recovered["drivers"]["1"]["relation"] == "MATCHING_ONE"
+    assert recovered["drivers"]["1"]["windows"]
+
+
 def test_rain_and_neutralization_facts_are_predicate_bound():
     option = _option(
         "mh",

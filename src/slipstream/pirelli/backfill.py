@@ -11,6 +11,7 @@ from ..library import ReplayLibrary
 from .archive import list_normalized_releases
 from .contracts import SessionScope
 from .coordinator import build_ingestion_target
+from .discovery import FeedEntry
 from .ingest import PirelliIngestionService
 from .store import PirelliEvidenceStore
 
@@ -78,6 +79,20 @@ async def sync_pirelli_backfill(
     store = PirelliEvidenceStore(data_root)
     ingestion = service or PirelliIngestionService(store.archive)
     retrieved_at = now or datetime.now(UTC)
+    shared_feed: tuple[FeedEntry, ...] | None = None
+    needs_refresh = any(
+        force or not list_normalized_releases(store.archive, meeting_key)
+        for meeting_key in by_meeting
+    )
+    if (
+        isinstance(ingestion, PirelliIngestionService)
+        and not dry_run
+        and needs_refresh
+    ):
+        try:
+            shared_feed = await ingestion.discovery_entries(now=retrieved_at)
+        except Exception:  # noqa: BLE001 - every meeting gets isolated archive fallback
+            shared_feed = ()
     items: list[PirelliBackfillItem] = []
     for meeting_key, descriptor in by_meeting.items():
         if dry_run:
@@ -103,7 +118,14 @@ async def sync_pirelli_backfill(
                     inventory,
                     replay_library.get,
                 )
-                refresh = await ingestion.refresh(target, now=retrieved_at)
+                if isinstance(ingestion, PirelliIngestionService):
+                    refresh = await ingestion.refresh(
+                        target,
+                        now=retrieved_at,
+                        feed_entries=shared_feed,
+                    )
+                else:
+                    refresh = await ingestion.refresh(target, now=retrieved_at)
                 if refresh.issues:
                     issue = "; ".join(refresh.issues)
             except Exception as error:  # noqa: BLE001 - one meeting must not stop a sweep

@@ -133,6 +133,7 @@ def normalize_f1_timing(
             updates.update(source_condition="IN_PIT", activity="IN_PIT")
         elif (
             _truthy(item.get("PitOut"))
+            or in_pit is False
             or "NumberOfLaps" in line_patch
             or retired is False
             or stopped is False
@@ -147,6 +148,55 @@ def normalize_f1_timing(
                 occurred_at,
                 source,
                 {"number": number, **updates},
+                received_at=occurred_at,
+            )
+        )
+    return events
+
+
+def finalize_f1_classifications(
+    timing_data: dict[str, Any], occurred_at: str, *, source: str
+) -> list[NormalizedEvent]:
+    """Project final results only after an authoritative finished cursor.
+
+    Retired/Stopped remain retractable during a session. They are interpreted
+    as result evidence only when the caller has observed provider completion;
+    explicit result fields always take precedence.
+    """
+
+    lines = timing_data.get("Lines")
+    if not isinstance(lines, dict):
+        return []
+    events: list[NormalizedEvent] = []
+    for raw_number, line in lines.items():
+        if not isinstance(line, dict):
+            continue
+        raw = str(
+            line.get("Classification")
+            or line.get("ResultStatus")
+            or line.get("Status")
+            or ""
+        ).upper()
+        classification = {"DISQUALIFIED": "DSQ", "OUT": "DNF"}.get(
+            raw, raw if raw in {"FINISHED", "DNF", "DNS", "DSQ"} else None
+        )
+        if classification is None and (
+            _truthy(line.get("Retired")) or _truthy(line.get("Stopped"))
+        ):
+            classification = "DNF"
+        if classification is None and line.get("Position") is not None:
+            classification = "FINISHED"
+        if classification is None:
+            continue
+        events.append(
+            NormalizedEvent(
+                "timing",
+                occurred_at,
+                source,
+                {
+                    "number": str(line.get("RacingNumber") or raw_number),
+                    "classification": classification,
+                },
                 received_at=occurred_at,
             )
         )

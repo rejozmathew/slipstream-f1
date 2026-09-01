@@ -90,16 +90,25 @@ def entries_from_event_archive(
     )
     entries: list[FeedEntry] = []
     seen: set[str] = set()
+    aliases = {
+        target.canonical_name.casefold(),
+        *(alias.casefold() for alias in target.aliases),
+    }
     for url, label, _media_type in document.links:
         parsed = urlparse(url)
-        if parsed.hostname != "press.pirelli.com" or not label.strip():
+        title = label.strip()
+        if parsed.hostname != "press.pirelli.com" or not title:
             continue
         if url in seen or parsed.path in {"", "/"}:
+            continue
+        if not any(alias and alias in title.casefold() for alias in aliases):
+            continue
+        if str(target.season) not in f"{title} {url}":
             continue
         seen.add(url)
         entries.append(
             FeedEntry(
-                title=label.strip(),
+                title=title,
                 url=url,
                 published_at=None,
                 categories=(exact_tag,),

@@ -68,15 +68,15 @@ export function PirelliBaseline({ baseline, compact = false, action }: { baselin
 export function RaceNow({ analytics, compact = false }: { analytics: AnalyticsSnapshot | null; compact?: boolean }) {
   const read = analytics?.raceRead;
   const lifecycleCounts = read ? [
-    `${read.population.inPit} in pit`,
-    `${read.population.stopped} stopped`,
-    `${read.population.retired} retired / out`,
-    `${read.population.unconfirmed} status unknown`,
-    ...(read.population.finished ? [`${read.population.finished} finished`] : []),
-    ...(read.population.dnf ? [`${read.population.dnf} DNF`] : []),
-    ...(read.population.dns ? [`${read.population.dns} DNS`] : []),
-    ...(read.population.dsq ? [`${read.population.dsq} DSQ`] : []),
-  ].join(" · ") : "";
+    [read.population.inPit, "in pit"],
+    [read.population.stopped, "stopped"],
+    [read.population.retired, "retired / out"],
+    [read.population.unconfirmed, "status unknown"],
+    [read.population.finished, "finished"],
+    [read.population.dnf, "DNF"],
+    [read.population.dns, "DNS"],
+    [read.population.dsq, "DSQ"],
+  ].filter(([count]) => Number(count) > 0).map(([count, label]) => `${count} ${label}`).join(" · ") : "";
   const stopDistribution = read ? Object.entries(read.completedStopDistribution).map(([stops, count]) => `${stops} ${stops === "1" ? "stop" : "stops"}: ${count}`).join(" · ") || "—" : "—";
   const stints = read && Object.keys(read.stintContextByCompound).length ? <span className="race-now-compound-list">{Object.entries(read.stintContextByCompound).map(([compound, value]) => <span key={compound}><CompoundBadge compound={compound} compact /><b>{value.completedStints} stints · median {value.medianLife.toFixed(1)}L</b></span>)}</span> : "—";
   const recentPits = read?.recentPitActivity.length ? <span className="race-now-compound-list">{read.recentPitActivity.slice(-3).map((pit) => <span key={`${pit.driverNumber}-${pit.lap}`}><b>#{pit.driverNumber} · L{pit.lap}</b><CompoundTransition from={pit.previousCompound} to={pit.newCompound} compact /></span>)}</span> : "—";

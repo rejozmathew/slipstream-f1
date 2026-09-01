@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from urllib.error import HTTPError
@@ -12,11 +13,15 @@ from slipstream.adapters.f1_historical import (
     parse_json_stream,
 )
 from slipstream.events import NormalizedEvent
-from slipstream.f1_timing import merge_f1_provider_value, normalize_f1_timing
+from slipstream.f1_timing import (
+    finalize_f1_classifications,
+    merge_f1_provider_value,
+    normalize_f1_timing,
+)
 from slipstream.historical_download import HistoricalSessionDownloader
 from slipstream.library import ReplayLibrary, SessionDescriptor
 from slipstream.lifecycle import is_retired_indicated, is_stopped, is_terminal
-from slipstream.live import F1LiveAdapter
+from slipstream.live import F1LiveAdapter, PublicLiveSession
 from slipstream.state import RaceState
 
 
@@ -134,6 +139,43 @@ def test_stopped_resumes_on_explicit_source_false() -> None:
     assert not is_stopped(state.drivers["31"])
 
 
+def test_explicit_in_pit_false_recovers_to_running() -> None:
+    state = RaceState().apply(
+        normalize_f1_timing(
+            {"Lines": {"1": {"InPit": True}}},
+            {"Lines": {"1": {"InPit": True}}},
+            "2026-08-23T01:00:00Z",
+            source="f1-static-public",
+        )[0]
+    )
+    state = state.apply(
+        normalize_f1_timing(
+            {"Lines": {"1": {"InPit": False}}},
+            {"Lines": {"1": {"InPit": False}}},
+            "2026-08-23T01:00:01Z",
+            source="f1-static-public",
+        )[0]
+    )
+    assert state.drivers["1"].source_condition == "RUNNING"
+
+
+def test_explicit_finished_classification_outranks_stopped_flag() -> None:
+    events = finalize_f1_classifications(
+        {
+            "Lines": {
+                "1": {
+                    "Position": "1",
+                    "Stopped": True,
+                    "Classification": "FINISHED",
+                }
+            }
+        },
+        "2026-08-23T03:10:00Z",
+        source="f1-signalr-public",
+    )
+    assert events[0].payload["classification"] == "FINISHED"
+
+
 @pytest.mark.parametrize(
     ("number", "at", "laps", "retired", "condition"),
     [
@@ -192,6 +234,146 @@ def test_live_adapter_uses_source_timestamp_for_cursor_semantics() -> None:
     assert events[0].occurred_at == "2026-08-23T01:14:29.632Z"
 
 
+def test_live_capture_finalizes_from_same_shared_f1_semantics_after_drain() -> None:
+    rows = (
+        {
+            "stream": "SessionInfo",
+            "payload": {"Key": 11353, "Name": "Race", "Type": "Race"},
+            "source_timestamp": "2026-08-23T00:00:00Z",
+        },
+        {
+            "stream": "TimingData",
+            "payload": {"Lines": {"3": {"Stopped": True, "Retired": False}}},
+            "source_timestamp": "2026-08-23T01:14:29.632Z",
+        },
+        {
+            "stream": "SessionStatus",
+            "payload": {"Status": "Finished"},
+            "source_timestamp": "2026-08-23T03:10:00Z",
+        },
+    )
+    live = PublicLiveSession(finalization_drain=0)
+    asyncio.run(live.apply_rows("11353", rows))
+    assert live.state.drivers["3"].classification == "DNF"
+
+
+def test_live_finalization_waits_for_late_result_update() -> None:
+    rows = (
+        {
+            "stream": "SessionInfo",
+            "payload": {"Key": 11353, "Name": "Race", "Type": "Race"},
+            "source_timestamp": "2026-08-23T00:00:00Z",
+        },
+        {
+            "stream": "TimingData",
+            "payload": {"Lines": {"3": {"Stopped": False, "Position": "20"}}},
+            "source_timestamp": "2026-08-23T03:09:59Z",
+        },
+        {
+            "stream": "SessionStatus",
+            "payload": {"Status": "Finished"},
+            "source_timestamp": "2026-08-23T03:10:00Z",
+        },
+        {
+            "stream": "TimingData",
+            "payload": {
+                "Lines": {
+                    "3": {
+                        "Stopped": True,
+                        "Classification": "DNF",
+                    }
+                }
+            },
+            "source_timestamp": "2026-08-23T03:10:01Z",
+        },
+    )
+    live = PublicLiveSession(finalization_drain=0)
+    asyncio.run(live.apply_rows("11353", rows))
+    result_events = [
+        event for event in live.events if event.payload.get("classification") == "DNF"
+    ]
+    assert [event.occurred_at for event in result_events] == [
+        "2026-08-23T03:10:01Z"
+    ]
+
+
+def test_dutch_six_reconstruct_without_future_projection_and_finalize_together() -> None:
+    adapter = F1LiveAdapter("11353", source="f1-static-public")
+    state = RaceState()
+
+    def ingest(stream: str, payload: dict, at: str) -> None:
+        nonlocal state
+        state = _apply(
+            state,
+            list(
+                adapter.ingest(
+                    {
+                        "stream": stream,
+                        "payload": payload,
+                        "source_timestamp": f"2026-08-23T{at}Z",
+                    }
+                )
+            ),
+        )
+
+    ingest("SessionInfo", {"Key": 11353}, "00:00:00")
+    initial = {
+        number: {"RacingNumber": number, "Retired": False, "Stopped": False}
+        for number in ("3", "87", "18", "31", "77", "23")
+    }
+    ingest("TimingData", {"Lines": initial}, "00:00:01")
+    assert all(
+        driver.source_condition == "RUNNING" for driver in state.drivers.values()
+    )
+
+    ingest(
+        "TimingData",
+        {"Lines": {"77": {"Retired": True, "Stopped": True, "NumberOfLaps": 2}}},
+        "01:10:09.491",
+    )
+    assert state.drivers["77"].source_condition == "RETIRED_INDICATED"
+    ingest(
+        "TimingData",
+        {"Lines": {"77": {"Retired": False, "Stopped": False}}},
+        "01:10:10.476",
+    )
+    assert state.drivers["77"].source_condition == "RUNNING"
+    transitions = (
+        ("3", "01:14:29.632", False, None, "STOPPED"),
+        ("87", "01:34:12.592", False, 2, "STOPPED"),
+        ("18", "02:30:02.568", True, 45, "RETIRED_INDICATED"),
+        ("31", "02:38:22.649", False, 52, "STOPPED"),
+        ("77", "02:53:07.662", True, 61, "RETIRED_INDICATED"),
+        ("23", "02:58:57.577", True, 66, "RETIRED_INDICATED"),
+    )
+    for number, at, retired, laps, expected in transitions:
+        assert state.drivers[number].source_condition == "RUNNING"
+        line = {"Retired": retired, "Stopped": True}
+        if laps is not None:
+            line["NumberOfLaps"] = laps
+        ingest("TimingData", {"Lines": {number: line}}, at)
+        assert state.drivers[number].source_condition == expected
+        assert state.drivers[number].classification is None
+
+    ingest("SessionStatus", {"Status": "Finished"}, "03:10:00")
+    state = _apply(
+        state,
+        finalize_f1_classifications(
+            adapter.streams["TimingData"],
+            "2026-08-23T03:10:00Z",
+            source="f1-static-public",
+        ),
+    )
+    assert {number: state.drivers[number].classification for number in state.drivers} == {
+        "3": "DNF",
+        "87": "DNF",
+        "18": "DNF",
+        "31": "DNF",
+        "77": "DNF",
+        "23": "DNF",
+    }
+
+
 def _descriptor() -> SessionDescriptor:
     return SessionDescriptor(
         key="11353",
@@ -226,13 +408,25 @@ def _session_event(source: str) -> NormalizedEvent:
     )
 
 
+def _timing_event(source: str) -> NormalizedEvent:
+    return NormalizedEvent(
+        "timing",
+        "2026-08-23T00:01:00Z",
+        source,
+        {"number": "3", "lap": 1},
+    )
+
+
 def test_official_success_is_one_whole_source_and_never_calls_openf1(
     tmp_path: Path,
 ) -> None:
     class Official:
         def capture_events(self, key, *, year):
             assert (str(key), year) == ("11353", 2026)
-            return (_session_event("f1-static-public"),)
+            return (
+                _session_event("f1-static-public"),
+                _timing_event("f1-static-public"),
+            )
 
     class Fallback:
         def capture_session(self, _key):
@@ -275,6 +469,26 @@ def test_openf1_fallback_is_whole_session_without_official_event_mixing(
     assert "f1-static-public" not in path.read_text()
 
 
+def test_unusable_official_output_falls_back_as_one_whole_source(tmp_path: Path) -> None:
+    class Official:
+        def capture_events(self, _key, *, year):
+            assert year == 2026
+            return (_session_event("f1-static-public"),)
+
+    fallback_recording = json.loads(
+        (Path(__file__).parent / "fixtures" / "openf1" / "session-9165.json").read_text()
+    )
+
+    class Fallback:
+        def capture_session(self, _key):
+            return fallback_recording
+
+    path = HistoricalSessionDownloader(
+        official=Official(), fallback=Fallback()
+    ).download(_descriptor(), tmp_path)
+    assert path.name == "openf1-11353.json"
+
+
 def test_replay_library_precedence_is_live_then_static_then_openf1(
     tmp_path: Path,
 ) -> None:
@@ -299,6 +513,7 @@ def test_replay_library_precedence_is_live_then_static_then_openf1(
     }
     (tmp_path / "catalog.json").write_text(json.dumps(catalog))
     for filename, source in (
+        ("openf1.json", "openf1"),
         ("z-static.json", "f1-static-public"),
         ("a-live.json", "f1-signalr-public"),
     ):
@@ -319,6 +534,10 @@ def test_replay_library_precedence_is_live_then_static_then_openf1(
     selected = ReplayLibrary(tmp_path).descriptors["11353"]
     assert selected.source == "f1-signalr-public"
     assert selected.path is not None and selected.path.name == "a-live.json"
+
+    (tmp_path / "a-live.json").unlink()
+    selected = ReplayLibrary(tmp_path).descriptors["11353"]
+    assert selected.source == "f1-static-public"
 
 
 def test_official_archive_uses_index_path_and_low_volume_streams() -> None:
@@ -380,4 +599,97 @@ def test_official_archive_uses_index_path_and_low_volume_streams() -> None:
     assert all(request.get_header("User-agent") == "BestHTTP" for request in requests)
     assert all(
         request.get_header("Accept-encoding") == "identity" for request in requests
+    )
+
+
+def test_official_full_session_info_seeds_sparse_stream_and_dynamic_full_is_final() -> None:
+    session_path = "2026/Dutch/Race"
+    responses = {
+        f"{STATIC_ROOT}/2026/Index.json": json.dumps(
+            {"Sessions": [{"Key": 11353, "Path": session_path}]}
+        ),
+        f"{STATIC_ROOT}/{session_path}/SessionInfo.json": json.dumps(
+            {
+                "Key": 11353,
+                "Name": "Race",
+                "Type": "Race",
+                "StartDate": "2026-08-23T00:00:00Z",
+            }
+        ),
+        f"{STATIC_ROOT}/{session_path}/SessionInfo.jsonStream": (
+            '00:00:10.000{"Name":"Race"}'
+        ),
+        f"{STATIC_ROOT}/{session_path}/TimingData.json": json.dumps(
+            {
+                "Lines": {
+                    "3": {
+                        "RacingNumber": "3",
+                        "Position": "20",
+                        "Stopped": True,
+                        "Retired": False,
+                    }
+                }
+            }
+        ),
+        f"{STATIC_ROOT}/{session_path}/SessionStatus.jsonStream": (
+            '00:00:01.000{"Status":"Started"}\n'
+            '03:10:00.000{"Status":"Finished"}'
+        ),
+    }
+
+    class Response:
+        def __init__(self, body: str) -> None:
+            self.body = body.encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return self.body
+
+    def opener(request, timeout):
+        assert timeout == 30
+        if request.full_url not in responses:
+            raise HTTPError(request.full_url, 404, "missing", {}, None)
+        return Response(responses[request.full_url])
+
+    events = F1HistoricalClient(opener=opener).capture_events("11353", year=2026)
+    timing = [event for event in events if event.kind == "timing"]
+    assert timing
+    assert min(event.occurred_at for event in timing) == "2026-08-23T03:10:00Z"
+    assert timing[-1].payload["classification"] == "DNF"
+
+
+def test_official_index_composes_year_meeting_and_relative_session_paths() -> None:
+    index_url = f"{STATIC_ROOT}/2026/Index.json"
+    payload = {
+        "Meetings": [
+            {
+                "Path": "2026-08-23_Dutch_Grand_Prix",
+                "Sessions": [{"Key": 11353, "Path": "2026-08-23_Race"}],
+            }
+        ]
+    }
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return json.dumps(payload).encode()
+
+    def opener(request, timeout):
+        assert request.full_url == index_url
+        assert timeout == 30
+        return Response()
+
+    resolved = F1HistoricalClient(opener=opener).resolve_session(2026, "11353")
+    assert resolved.path == (
+        "2026/2026-08-23_Dutch_Grand_Prix/2026-08-23_Race"
     )

@@ -10,6 +10,7 @@ from typing import Any
 from .adapters.f1_historical import F1HistoricalClient, write_canonical_recording
 from .adapters.openf1 import OpenF1Client, write_recording
 from .library import SessionDescriptor
+from .replay import replay
 
 
 class HistoricalSessionDownloader:
@@ -33,6 +34,13 @@ class HistoricalSessionDownloader:
         }
         try:
             events = self.official.capture_events(key, year=descriptor.year)
+            state = replay(list(events))
+            if (
+                not events
+                or str(state.session.key or "") != str(key)
+                or not any(event.kind == "timing" for event in events)
+            ):
+                raise ValueError("official F1 source produced an unusable session recording")
             path = data_root / f"f1-static-{key}.json"
             write_canonical_recording(path, events)
             provenance.update(

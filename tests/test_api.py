@@ -360,10 +360,30 @@ def test_delete_replay_keeps_durable_context_and_redownload_restores_it(
     (tmp_path / "openf1-999.json").write_text(json.dumps(recording), encoding="utf-8")
     pirelli = tmp_path / ".slipstream" / "pirelli" / "999" / "keep.json"
     source = tmp_path / ".slipstream" / "sources" / "999.json"
+    context = tmp_path / ".slipstream" / "weekend-context" / "999" / "999.json"
+    raw = tmp_path / ".slipstream" / "raw-timing" / "999" / "TimingData.jsonStream"
+    unrelated = tmp_path / "unrelated.json"
     pirelli.parent.mkdir(parents=True)
     source.parent.mkdir(parents=True)
+    context.parent.mkdir(parents=True)
+    raw.parent.mkdir(parents=True)
     pirelli.write_text("{}", encoding="utf-8")
     source.write_text("{}", encoding="utf-8")
+    context.write_text("{}", encoding="utf-8")
+    raw.write_text("raw", encoding="utf-8")
+    unrelated.write_text(
+        json.dumps(
+            [
+                {
+                    "kind": "session",
+                    "occurred_at": "2023-09-17T12:00:00Z",
+                    "source": "fixture",
+                    "payload": {"key": "1000", "name": "Other"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
 
     with TestClient(
         create_app(
@@ -384,5 +404,46 @@ def test_delete_replay_keeps_durable_context_and_redownload_restores_it(
     assert after["circuitShapeAvailable"] is True
     assert pirelli.is_file()
     assert source.is_file()
+    assert not context.exists()
+    assert not raw.exists()
+    assert unrelated.is_file()
     assert restored.status_code == 200
     assert final["available"] is True
+
+
+def test_download_never_reports_available_for_an_unusable_recording(tmp_path: Path) -> None:
+    catalog = {
+        "format": CATALOG_FORMAT,
+        "schema_version": 1,
+        "source": "openf1",
+        "updated_at": "2026-08-11T00:00:00Z",
+        "years": [2023],
+        "meetings": {"999": {"meeting_key": 999, "meeting_name": "Test"}},
+        "sessions": [
+            {
+                "session_key": 999,
+                "meeting_key": 999,
+                "session_name": "Race",
+                "session_type": "Race",
+                "date_start": "2023-09-17T12:00:00+00:00",
+                "date_end": "2023-09-17T14:00:00+00:00",
+                "year": 2023,
+            }
+        ],
+    }
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+
+    with TestClient(
+        create_app(
+            tmp_path,
+            capture_session=lambda _session_key: {
+                "format": "invalid-recording",
+                "session_key": 999,
+            },
+        )
+    ) as client:
+        response = client.post("/api/v1/download?session_key=999")
+        after = client.get("/api/v1/catalog").json()["sessions"][0]
+
+    assert response.status_code == 502
+    assert after["available"] is False

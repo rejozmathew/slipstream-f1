@@ -74,8 +74,6 @@ class PirelliIngestionService:
     ) -> None:
         self.archive = archive
         self.client = client or PirelliPublicClient()
-        self._cached_feed: tuple[FeedEntry, ...] | None = None
-        self._feed_error: Exception | None = None
 
     async def refresh(
         self,
@@ -94,7 +92,10 @@ class PirelliIngestionService:
             entries,
             target.meeting,
         )
-        if not candidates and feed_entries is not None:
+        if not any(
+            candidate.status == ExtractionStatus.ACCEPTED
+            for candidate in candidates
+        ):
             entries = await self.event_archive_entries(target.meeting, now=retrieved_at)
             candidates = discover_for_meeting(entries, target.meeting)
         normalized: list[str] = []
@@ -126,27 +127,16 @@ class PirelliIngestionService:
         now: datetime | None = None,
         archive_key: str = "_discovery",
     ) -> tuple[FeedEntry, ...]:
-        """Acquire and archive one feed snapshot reusable across a bounded sweep."""
+        """Acquire a fresh feed snapshot; callers may reuse it for one sweep."""
 
-        if self._cached_feed is not None:
-            return self._cached_feed
-        if self._feed_error is not None:
-            raise self._feed_error
         retrieved_at = now or datetime.now(UTC)
-        try:
-            rss = await self.client.acquire(
-                archive=self.archive,
-                meeting_key=archive_key,
-                url=PIRELLI_F1_RSS_URL,
-                now=retrieved_at,
-            )
-            self._cached_feed = parse_formula1_feed(
-                rss.body.decode("utf-8", errors="replace")
-            )
-            return self._cached_feed
-        except Exception as error:
-            self._feed_error = error
-            raise
+        rss = await self.client.acquire(
+            archive=self.archive,
+            meeting_key=archive_key,
+            url=PIRELLI_F1_RSS_URL,
+            now=retrieved_at,
+        )
+        return parse_formula1_feed(rss.body.decode("utf-8", errors="replace"))
 
     async def discovery_entries_for_meeting(
         self, target: MeetingDiscoveryTarget, *, now: datetime | None = None
@@ -155,10 +145,13 @@ class PirelliIngestionService:
 
         try:
             feed = await self.discovery_entries(now=now)
-            if discover_for_meeting(feed, target):
+            if any(
+                candidate.status == ExtractionStatus.ACCEPTED
+                for candidate in discover_for_meeting(feed, target)
+            ):
                 return feed
-        except Exception as error:  # noqa: BLE001 - shared feed is optional
-            self._feed_error = error
+        except Exception:  # noqa: BLE001 - shared feed is optional
+            return await self.event_archive_entries(target, now=now)
         return await self.event_archive_entries(target, now=now)
 
     async def event_archive_entries(

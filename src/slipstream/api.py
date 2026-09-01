@@ -319,6 +319,12 @@ def create_app(
                             recording_path,
                         )
                     library_ref[0] = ReplayLibrary(recording_path, now=clock)
+                    restored = library_ref[0].descriptors.get(session_key)
+                    if restored is None or not restored.available:
+                        raise RuntimeError(
+                            "download did not publish a usable replay for the selected session"
+                        )
+                    analytics_service.clear()
                 except Exception as error:
                     raise HTTPException(
                         status_code=502,
@@ -341,6 +347,15 @@ def create_app(
         descriptor = library_ref[0].descriptors.get(session_key)
         if descriptor is None:
             raise HTTPException(status_code=404, detail="Unknown catalog session")
+        live_view = live.view(session_key)
+        if (
+            live.target_session_key == session_key
+            and live_view.phase != "REPLAY_READY"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete a replay while its live recording is active",
+            )
         async with download_lock:
             deletion = await asyncio.to_thread(
                 delete_replay_artifacts, recording_path, session_key
@@ -348,6 +363,7 @@ def create_app(
             if context_coordinator is not None:
                 context_coordinator.forget(descriptor)
             library_ref[0] = ReplayLibrary(recording_path, now=clock)
+            analytics_service.clear()
         return {
             "v": 1,
             "sessionKey": session_key,

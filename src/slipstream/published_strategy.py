@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from .evidence import LapObservation
-from .lifecycle import terminal_state
+from .lifecycle import is_retired_indicated, terminal_state
 from .pirelli.contracts import StrategyOption, StrategyOrder
 from .pirelli.snapshot import PirelliEvidenceSnapshot
 from .pirelli.store import PirelliAvailability
@@ -172,6 +172,8 @@ def _driver_published_strategy(
 ) -> dict[str, Any]:
     observed = observed_compounds(driver, observations)
     terminal = terminal_state(driver)
+    if terminal is None and is_retired_indicated(driver):
+        terminal = "RETIRED"
     comparable = tuple(option for option in options if option.order == StrategyOrder.ORDERED)
     matching = tuple(
         option

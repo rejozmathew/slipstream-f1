@@ -92,6 +92,52 @@ def _meeting(name: str = "Hungarian Grand Prix") -> MeetingDiscoveryTarget:
     )
 
 
+def test_runtime_discovery_reacquires_feed_for_later_strategy_release(tmp_path) -> None:
+    preview = (
+        "Preview for Hungarian Grand Prix",
+        "https://press.pirelli.com/preview",
+        "Fri, 24 Jul 2026 09:00:00 GMT",
+        "2026 Hungarian Grand Prix",
+    )
+    strategy = (
+        "Race strategy for Hungarian Grand Prix",
+        "https://press.pirelli.com/strategy",
+        "Sat, 25 Jul 2026 09:00:00 GMT",
+        "2026 Hungarian Grand Prix",
+    )
+
+    class SequencedClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def acquire(self, *, archive, meeting_key, url, now):
+            assert url == PIRELLI_F1_RSS_URL
+            self.calls += 1
+            body = _feed(preview) if self.calls == 1 else _feed(preview, strategy)
+            artifact = archive.archive_artifact(
+                meeting_key=meeting_key,
+                source_url=url,
+                source_type=SourceType.RSS,
+                body=body,
+                retrieved_at=now,
+                published_at=None,
+                modified_at=None,
+                media_type="application/rss+xml",
+                collector_version="test",
+                extension="xml",
+            )
+            return AcquiredArtifact(artifact, body)
+
+    client = SequencedClient()
+    service = PirelliIngestionService(PirelliArchive(tmp_path), client)
+    first = asyncio.run(service.discovery_entries(now=datetime(2026, 7, 24, tzinfo=UTC)))
+    second = asyncio.run(service.discovery_entries(now=datetime(2026, 7, 25, tzinfo=UTC)))
+
+    assert client.calls == 2
+    assert len(first) == 1
+    assert len(second) == 2
+
+
 def _descriptor(kind: str = "race"):
     return SimpleNamespace(
         key=f"{kind}-30",

@@ -25,10 +25,16 @@ from slipstream.pirelli.contracts import (
 from slipstream.pirelli.discovery import (
     PIRELLI_F1_RSS_URL,
     MeetingDiscoveryTarget,
+    entries_from_event_archive,
     pirelli_event_archive_url,
     pirelli_event_tag,
 )
-from slipstream.pirelli.ingest import PirelliIngestionReport, PirelliIngestionService
+from slipstream.pirelli.extractors.base import HtmlDocument
+from slipstream.pirelli.ingest import (
+    PirelliIngestionReport,
+    PirelliIngestionService,
+    PirelliIngestionTarget,
+)
 from slipstream.pirelli.store import PirelliEvidenceStore
 from slipstream.state import DriverState, RaceState
 
@@ -370,7 +376,7 @@ def test_malformed_rss_falls_back_per_event_and_one_failure_is_isolated(tmp_path
             media_type="application/rss+xml",
         ),
         pirelli_event_archive_url(dutch_target): _Payload(
-            f'<html><a href="{article_url}">Race strategies for Dutch Grand Prix</a></html>'.encode(),
+            f'<html><a href="{article_url}">2026 Race strategies for Dutch Grand Prix</a></html>'.encode(),
             SourceType.NEWSROOM_HTML,
         ),
         article_url: _Payload(
@@ -403,3 +409,123 @@ def test_malformed_rss_falls_back_per_event_and_one_failure_is_isolated(tmp_path
     assert report.count("FAILURE") == 1
     assert client.calls.count(PIRELLI_F1_RSS_URL) == 1
     assert pirelli_event_archive_url(dutch_target) in client.calls
+
+
+def test_event_archive_discards_unscoped_navigation_links() -> None:
+    target = MeetingDiscoveryTarget(
+        meeting_key="30",
+        canonical_name="Dutch Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 8, 21, tzinfo=UTC),
+        weekend_end=datetime(2026, 8, 23, tzinfo=UTC),
+        exact_tag="2026 Dutch Grand Prix",
+    )
+    document = HtmlDocument(
+        title="Archive",
+        article_text="",
+        published_at_text=None,
+        modified_at_text=None,
+        links=(
+            ("https://press.pirelli.com/corporate", "Corporate", "text/html"),
+            (
+                "https://press.pirelli.com/dutch-strategies",
+                "2026 Race strategies for Dutch Grand Prix",
+                "text/html",
+            ),
+        ),
+        tables=(),
+    )
+
+    entries = entries_from_event_archive(document, target)
+    assert [entry.url for entry in entries] == [
+        "https://press.pirelli.com/dutch-strategies"
+    ]
+
+
+def test_event_archive_rejects_same_event_name_from_another_season() -> None:
+    target = MeetingDiscoveryTarget(
+        meeting_key="30",
+        canonical_name="Dutch Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 8, 21, tzinfo=UTC),
+        weekend_end=datetime(2026, 8, 23, tzinfo=UTC),
+    )
+    document = HtmlDocument(
+        title="Archive",
+        article_text="",
+        published_at_text=None,
+        modified_at_text=None,
+        links=(
+            (
+                "https://press.pirelli.com/2025-dutch-strategy",
+                "2025 Race strategies for Dutch Grand Prix",
+                "text/html",
+            ),
+            (
+                "https://press.pirelli.com/2026-dutch-strategy",
+                "2026 Race strategies for Dutch Grand Prix",
+                "text/html",
+            ),
+        ),
+        tables=(),
+    )
+
+    entries = entries_from_event_archive(document, target)
+    assert [entry.url for entry in entries] == [
+        "https://press.pirelli.com/2026-dutch-strategy"
+    ]
+
+
+def test_needs_review_rss_match_still_uses_exact_event_archive(tmp_path) -> None:
+    target = MeetingDiscoveryTarget(
+        meeting_key="30",
+        canonical_name="Dutch Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 8, 21, tzinfo=UTC),
+        weekend_end=datetime(2026, 8, 23, tzinfo=UTC),
+        exact_tag="2026 Dutch Grand Prix",
+    )
+    rss_url = "https://press.pirelli.com/untrusted-preview"
+    archive_release = "https://press.pirelli.com/2026-dutch-strategy"
+    published = datetime(2026, 8, 22, 18, tzinfo=UTC)
+    payloads = {
+        PIRELLI_F1_RSS_URL: _Payload(
+            _feed(
+                [
+                    (
+                        "Dutch Grand Prix preview",
+                        rss_url,
+                        published,
+                        "formula 1",
+                    )
+                ]
+            ),
+            SourceType.RSS,
+            media_type="application/rss+xml",
+        ),
+        pirelli_event_archive_url(target): _Payload(
+            f'<html><a href="{archive_release}">2026 Race strategies for Dutch Grand Prix</a></html>'.encode(),
+            SourceType.NEWSROOM_HTML,
+        ),
+        archive_release: _Payload(
+            _page(
+                "The quickest race strategy is Medium-Hard, with the stop between laps 20 and 26."
+            ),
+            SourceType.NEWSROOM_HTML,
+            published,
+            published,
+        ),
+    }
+    client = _FakeClient(payloads)
+    service = PirelliIngestionService(PirelliArchive(tmp_path), client)
+
+    report = asyncio.run(
+        service.refresh(
+            PirelliIngestionTarget(target, "race-30", SessionScope.RACE),
+            now=published,
+        )
+    )
+
+    assert report.normalized_release_ids
+    assert pirelli_event_archive_url(target) in client.calls
+    assert rss_url not in client.calls
