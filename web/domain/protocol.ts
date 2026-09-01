@@ -431,6 +431,9 @@ export type PublishedStrategyBaseline = {
   retrievedAt: string | null;
   sourceUrl: string | null;
   evidenceCutoff: string;
+  evidenceTier: "STRICT_MODEL" | "DISPLAY_ONLY_OFFICIAL_HISTORICAL" | "NONE";
+  modelAdmissible: boolean;
+  provenanceLabel: string | null;
   options: PublishedStrategyOption[];
   compoundSelection: { hard: string; medium: string; soft: string } | null;
   tyreBank: PublishedTyreBank;

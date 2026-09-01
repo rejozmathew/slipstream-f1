@@ -90,21 +90,30 @@ def entries_from_event_archive(
     )
     entries: list[FeedEntry] = []
     seen: set[str] = set()
-    aliases = {
-        target.canonical_name.casefold(),
-        *(alias.casefold() for alias in target.aliases),
-    }
-    for url, label, _media_type in document.links:
+    scoped_archive_links = bool(document.archive_links)
+    aliases = tuple(
+        {
+            target.canonical_name.casefold(),
+            *(alias.casefold() for alias in target.aliases),
+        }
+    )
+    for url, label, _media_type in document.archive_links or document.links:
         parsed = urlparse(url)
         title = label.strip()
         if parsed.hostname != "press.pirelli.com" or not title:
             continue
-        if url in seen or parsed.path in {"", "/"}:
+        if url in seen or parsed.path in {"", "/"} or parsed.query or parsed.fragment:
             continue
-        if not any(alias and alias in title.casefold() for alias in aliases):
-            continue
-        if str(target.season) not in f"{title} {url}":
-            continue
+        # The newsroom's text_latestnews_more links are the result cards on this
+        # exact event-tag archive. Their article titles/slugs need not repeat the
+        # canonical meeting name or season (for example, "Zandvoort"). Synthetic
+        # or legacy documents without structural card data retain the old
+        # conservative name + season fallback.
+        if not scoped_archive_links:
+            if not any(alias and alias in title.casefold() for alias in aliases):
+                continue
+            if str(target.season) not in f"{title} {url}":
+                continue
         seen.add(url)
         entries.append(
             FeedEntry(
@@ -210,6 +219,17 @@ def _localized_sprint_qualifying(title: str, text: str) -> bool:
 def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
     title_lower = title.casefold()
     lower = f"{title} {summary}".casefold()
+    race_guidance_title = any(
+        marker in title_lower
+        for marker in ("race strateg", "for the race", "grand prix strategy")
+    )
+    ranked_stop_strategy = re.search(
+        r"\b(?:fastest|quickest|best)\s+strateg(?:y|ies)\b[^.]{0,100}"
+        r"\b(?:one|two|three)[ -]stop\b",
+        lower,
+    )
+    if race_guidance_title and (_explicit_race_strategy(lower) or ranked_stop_strategy):
+        return ReleasePurpose.RACE_STRATEGY
     if "compound" in lower and any(
         word in lower for word in ("selected", "selection", "choices")
     ):

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from .acquisition import PirelliPublicClient
 from .archive import PirelliArchive, save_normalized_release
 from .contracts import (
+    ArtifactVersion,
     CompoundSelection,
     ExtractionMethod,
     ExtractionStatus,
@@ -32,6 +33,7 @@ from .discovery import (
     parse_formula1_feed,
     pirelli_event_archive_url,
 )
+from .extractors.base import HtmlDocument
 from .extractors.html import parse_html
 from .extractors.pdf_text import extract_pdf_text
 from .extractors.prose import extract_strategy_prose
@@ -184,22 +186,32 @@ class PirelliIngestionService:
         )
         if acquired.artifact.source_type != SourceType.NEWSROOM_HTML:
             return None
-        document = parse_html(acquired.body.decode("utf-8", errors="replace"), url)
+        artifact_version = acquired.artifact
+        body = acquired.body
+        document = parse_html(body.decode("utf-8", errors="replace"), url)
+        if not body.rstrip().lower().endswith(b"</html>"):
+            archived = self._complete_archived_html(
+                target.meeting.meeting_key,
+                source_url=artifact_version.source_url,
+                expected_title=document.title or candidate.entry.title,
+            )
+            if archived is not None:
+                artifact_version, _archived_body, document = archived
         purpose = classify_release_purpose(
             candidate.entry.title,
             f"{candidate.entry.summary} {document.article_text}",
         )
         self.archive.save_text_representation(
             meeting_key=target.meeting.meeting_key,
-            artifact_id=acquired.artifact.artifact_id,
+            artifact_id=artifact_version.artifact_id,
             text=document.article_text,
             representation_tool="pirelli_html_jsonld_semantic_v5",
         )
-        artifact = self.archive.load_evidence_artifact(
+        evidence_artifact = self.archive.load_evidence_artifact(
             meeting_key=target.meeting.meeting_key,
-            artifact_id=acquired.artifact.artifact_id,
+            artifact_id=artifact_version.artifact_id,
         )
-        if artifact is None:
+        if evidence_artifact is None:
             return None
         target_scope = FactApplicability(
             meeting_key=target.meeting.meeting_key,
@@ -219,13 +231,14 @@ class PirelliIngestionService:
         }
         nomination_result = extract_compound_nominations(
             document.article_text,
-            source_url=acquired.artifact.source_url,
-            artifact_id=acquired.artifact.artifact_id,
+            source_url=artifact_version.source_url,
+            artifact_id=artifact_version.artifact_id,
             meeting_aliases=aliases,
             default_applicability=weekend_scope,
         )
         nomination_result = validate_result_against_artifacts(
-            nomination_result, {artifact.artifact_id: artifact}
+            nomination_result,
+            {evidence_artifact.artifact_id: evidence_artifact},
         )
         selections = tuple(
             fact
@@ -238,13 +251,14 @@ class PirelliIngestionService:
         if purpose_scope == target.session_scope:
             strategy_result = extract_strategy_prose(
                 document.article_text,
-                source_url=acquired.artifact.source_url,
-                artifact_id=acquired.artifact.artifact_id,
+                source_url=artifact_version.source_url,
+                artifact_id=artifact_version.artifact_id,
                 compound_code_map=code_map,
                 applicability=target_scope,
             )
             strategy_result = validate_result_against_artifacts(
-                strategy_result, {artifact.artifact_id: artifact}
+                strategy_result,
+                {evidence_artifact.artifact_id: evidence_artifact},
             )
             strategies = tuple(
                 fact
@@ -311,8 +325,8 @@ class PirelliIngestionService:
         facts = (
             extract_context_facts(
                 document.article_text,
-                source_url=acquired.artifact.source_url,
-                artifact_id=acquired.artifact.artifact_id,
+                source_url=artifact_version.source_url,
+                artifact_id=artifact_version.artifact_id,
                 applicability=context_scope,
             )
             if context_scope is not None
@@ -321,21 +335,59 @@ class PirelliIngestionService:
         if not (selections or strategies or banks or facts):
             return None
         return PirelliRelease(
-            release_id=acquired.artifact.artifact_id,
-            source_url=acquired.artifact.source_url,
-            published_at=acquired.artifact.published_at,
-            modified_at=acquired.artifact.modified_at,
-            retrieved_at=acquired.artifact.retrieved_at,
-            content_hash=acquired.artifact.content_hash,
-            source_type=acquired.artifact.source_type,
+            release_id=artifact_version.artifact_id,
+            source_url=artifact_version.source_url,
+            published_at=artifact_version.published_at,
+            modified_at=artifact_version.modified_at,
+            retrieved_at=artifact_version.retrieved_at,
+            content_hash=artifact_version.content_hash,
+            source_type=artifact_version.source_type,
             extraction_method=ExtractionMethod.HYBRID,
             normalizer_version=NORMALIZER_VERSION,
-            artifact_ids=(acquired.artifact.artifact_id, *asset_ids),
+            artifact_ids=(artifact_version.artifact_id, *asset_ids),
             applicability=weekend_scope,
             compound_selections=selections,
             strategies=strategies,
             tyre_bank_snapshots=tuple(banks),
             context_facts=facts,
+        )
+
+    def _complete_archived_html(
+        self,
+        meeting_key: str,
+        *,
+        source_url: str,
+        expected_title: str,
+    ) -> tuple[ArtifactVersion, bytes, HtmlDocument] | None:
+        """Recover a complete immutable version of one exact official URL.
+
+        Presspage can close an older article response mid-document. Reuse is
+        bounded to a previously archived, complete HTML version with the same
+        canonical URL and article title; no cross-article fallback is allowed.
+        """
+
+        expected = " ".join(expected_title.casefold().split())
+        candidates = []
+        for version in self.archive.list_versions(meeting_key):
+            if (
+                version.source_type != SourceType.NEWSROOM_HTML
+                or version.source_url.rstrip("/") != source_url.rstrip("/")
+            ):
+                continue
+            body = self.archive.load_asset_bytes(meeting_key, version.artifact_id)
+            if body is None or not body.rstrip().lower().endswith(b"</html>"):
+                continue
+            document = parse_html(
+                body.decode("utf-8", errors="replace"), version.source_url
+            )
+            title = " ".join(document.title.casefold().split())
+            if expected and title != expected:
+                continue
+            candidates.append((version, body, document))
+        return max(
+            candidates,
+            key=lambda item: (item[0].retrieved_at, len(item[1])),
+            default=None,
         )
 
 

@@ -131,7 +131,7 @@ def test_store_is_meeting_scoped_and_cursor_safe(tmp_path):
     assert wrong_target.status == "ABSENT"
 
 
-def test_post_cutoff_content_without_exact_version_proof_is_rejected(tmp_path):
+def test_post_cutoff_official_pre_race_content_is_display_only(tmp_path):
     archive = PirelliArchive(tmp_path)
     _save_release(
         archive,
@@ -143,8 +143,13 @@ def test_post_cutoff_content_without_exact_version_proof_is_rejected(tmp_path):
         target_session_key="race",
         evidence_cutoff="2026-07-26T12:00:00Z",
     )
-    assert result.status == "ABSENT"
-    assert result.error == "no_admissible_pirelli_release"
+    assert result.status == "PRESENT"
+    assert result.model_admissible is False
+    assert result.evidence_tier == "DISPLAY_ONLY_OFFICIAL_HISTORICAL"
+    assert result.provenance_label == "PUBLISHED PRE-RACE · ARCHIVED LATER"
+    assert not PirelliEvidenceStore(tmp_path).releases_as_of(
+        "hungary", evidence_cutoff="2026-07-26T12:00:00Z"
+    )
 
 
 def test_source_version_timestamp_can_prove_late_archive_existed_at_cutoff(tmp_path):
@@ -164,6 +169,8 @@ def test_source_version_timestamp_can_prove_late_archive_existed_at_cutoff(tmp_p
         evidence_cutoff="2026-07-26T12:00:00Z",
     )
     assert result.status == "PRESENT"
+    assert result.model_admissible is True
+    assert result.evidence_tier == "STRICT_MODEL"
 
 
 def test_three_leg_strategy_is_not_truncated_into_false_two_leg_fact():
@@ -219,6 +226,14 @@ def test_modern_pirelli_strategy_phrasings_preserve_explicit_options_and_windows
                 "finishing on Hard."
             ),
             {("S-M-H", ((14, 20), None))},
+        ),
+        (
+            (
+                "The quickest strategy is therefore a one-stop, starting on the Medium "
+                "and running until laps 27-33 before switching to the Hard for the "
+                "remainder of the race."
+            ),
+            {("M-H", ((27, 33),))},
         ),
     )
 

@@ -22,3 +22,4 @@ class HtmlDocument:
     modified_at_text: str | None
     links: tuple[tuple[str, str, str | None], ...]
     tables: tuple[tuple[tuple[str, ...], ...], ...]
+    archive_links: tuple[tuple[str, str, str | None], ...] = ()

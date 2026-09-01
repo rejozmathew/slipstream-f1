@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from slipstream.evidence import LapObservation
@@ -183,6 +184,34 @@ def test_ordered_prefix_matching_and_window_state_are_server_authored():
     assert driver["relation"] == "MATCHING_ONE"
     assert driver["compatibleOptionIds"] == ["mh"]
     assert driver["windows"][0]["state"] == "ACTIVE"
+
+
+def test_archived_later_baseline_is_displayed_but_never_models_windows() -> None:
+    display_only = replace(
+        _availability(
+            _option(
+                "mh",
+                (Compound.MEDIUM, Compound.HARD),
+                windows=(PitWindow(17, 23),),
+            )
+        ),
+        model_admissible=False,
+        evidence_tier="DISPLAY_ONLY_OFFICIAL_HISTORICAL",
+        provenance_label="PUBLISHED PRE-RACE · ARCHIVED LATER",
+    )
+
+    result = _build(display_only, _state(lap=20))
+
+    assert result["baseline"]["status"] == "PRESENT"
+    assert result["baseline"]["options"][0]["id"] == "mh"
+    assert result["baseline"]["modelAdmissible"] is False
+    assert result["baseline"]["provenanceLabel"] == (
+        "PUBLISHED PRE-RACE · ARCHIVED LATER"
+    )
+    assert result["drivers"]["1"]["relation"] == "UNKNOWN"
+    assert result["drivers"]["1"]["compatibleOptionIds"] == []
+    assert result["drivers"]["1"]["windows"] == []
+    assert result["fieldFacts"] == []
 
 
 def test_equivalent_options_remain_multiple_without_inventing_preference():

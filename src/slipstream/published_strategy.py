@@ -83,6 +83,9 @@ def _baseline(
                 "retrievedAt": None,
                 "sourceUrl": None,
                 "evidenceCutoff": evidence_cutoff,
+                "evidenceTier": "NONE",
+                "modelAdmissible": False,
+                "provenanceLabel": None,
                 "options": [],
                 "compoundSelection": None,
                 "tyreBank": {
@@ -98,6 +101,7 @@ def _baseline(
         )
     latest = snapshot.latest_strategy_release
     options = latest.strategies if latest is not None else ()
+    model_options = options if availability.model_admissible else ()
     selection = snapshot.compound_selections[-1] if snapshot.compound_selections else None
     useful = bool(options or selection or snapshot.context_facts)
     if not useful:
@@ -114,6 +118,9 @@ def _baseline(
             "retrievedAt": _iso(latest.retrieved_at) if latest else None,
             "sourceUrl": latest.source_url if latest else None,
             "evidenceCutoff": evidence_cutoff,
+            "evidenceTier": availability.evidence_tier,
+            "modelAdmissible": availability.model_admissible,
+            "provenanceLabel": availability.provenance_label,
             "options": [_option_payload(option) for option in options],
             "compoundSelection": {
                 "hard": selection.hard,
@@ -129,7 +136,7 @@ def _baseline(
             ],
             "reason": reason,
         },
-        options,
+        model_options,
     )
 
 
@@ -257,7 +264,9 @@ def build_published_strategy(
     lifecycle: str,
 ) -> dict[str, Any]:
     baseline, options = _baseline(availability, evidence_cutoff)
-    baseline_present = baseline["status"] == "PRESENT"
+    baseline_present = (
+        baseline["status"] == "PRESENT" and baseline["modelAdmissible"] is True
+    )
     final = lifecycle == "FINAL"
     drivers = {
         number: _driver_published_strategy(

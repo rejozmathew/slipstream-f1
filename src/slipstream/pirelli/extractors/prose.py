@@ -29,7 +29,10 @@ from ..contracts import (
 
 _COMPOUND = r"(?:Hard|Medium|Soft)"
 _CODE = r"C[1-5]"
-_WIN = r"(?:between\s+laps?|laps?)\s+(\d+)\s+(?:and|to|[-–])\s+(\d+)"
+_WIN = (
+    r"(?:between\s+laps?|laps?)\s+(\d+)"
+    r"(?:\s+(?:and|to)\s+|\s*[-–]\s*)(\d+)"
+)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z“\"'])")
 
 _STRATEGY_CONTEXT = re.compile(
@@ -278,7 +281,36 @@ def extract_strategy_prose(
                 )
             )
 
-    # 3) Explicit Cx/compound start -> switch, but don't truncate longer clauses.
+    # 3) Explicit start, run-until window, then switch. Recent Pirelli prose puts
+    # the window before the transition verb rather than after the destination.
+    until_switch = re.compile(
+        rf"(?:start|starting)\s+on\s+(?:the\s+)?({_CODE}|{_COMPOUND})"
+        rf"[^.]{{0,160}}?\buntil\s+{_WIN}\s+before\s+switch(?:ing)?\s+to\s+"
+        rf"(?:the\s+)?({_CODE}|{_COMPOUND})",
+        re.IGNORECASE,
+    )
+    for match in until_switch.finditer(text):
+        first = _compound(match.group(1), compound_code_map)
+        second = _compound(match.group(4), compound_code_map)
+        if first is None or second is None:
+            review.append(
+                ExtractionIssue("compound_code_unresolved", match.group(0), artifact_id)
+            )
+            continue
+        local = text[max(0, match.start() - 100) : match.end()]
+        options.append(
+            _make(
+                source_url=source_url,
+                artifact_id=artifact_id,
+                compounds=(first, second),
+                windows=(PitWindow(int(match.group(2)), int(match.group(3))),),
+                evidence_text=match.group(0),
+                rank_text=local,
+                applicability=applicability,
+            )
+        )
+
+    # 4) Explicit Cx/compound start -> switch, but don't truncate longer clauses.
     coded = re.compile(
         rf"(?:start|starting)\s+on\s+(?:the\s+)?({_CODE}|{_COMPOUND})"
         rf".{{0,100}}?(?:switching|switch)\s+to\s+(?:the\s+)?({_CODE}|{_COMPOUND})"
@@ -318,7 +350,7 @@ def extract_strategy_prose(
             )
         )
 
-    # 4) Natural-language three-leg strategy with two explicit windows.
+    # 5) Natural-language three-leg strategy with two explicit windows.
     natural_three = re.compile(
         rf"(?:start|starting)\s+on\s+(?:the\s+)?({_COMPOUND})[^.]*?"
         rf"(?:change|switch)\s+to\s+(?:the\s+)?({_COMPOUND})\s+{_WIN}[^.]*?"
@@ -348,7 +380,7 @@ def extract_strategy_prose(
             )
         )
 
-    # 5) Natural-language two-leg strategy with explicit start and transition window.
+    # 6) Natural-language two-leg strategy with explicit start and transition window.
     natural_two = re.compile(
         rf"(?:start|starting)\s+on\s+(?:the\s+)?"
         rf"(?:P\s+Zero\s+(?:White|Yellow|Red)\s+)?({_COMPOUND})"
@@ -384,7 +416,7 @@ def extract_strategy_prose(
             )
         )
 
-    # 6) Modern Pirelli prose often states the start choices first and then pairs
+    # 7) Modern Pirelli prose often states the start choices first and then pairs
     # their Hard transition windows in the same sentence. The ordering of both
     # lists is explicit, so no semantic guess is required.
     paired_starts = re.compile(
@@ -498,7 +530,7 @@ def extract_strategy_prose(
                 )
             )
 
-    # 7) Explicit 'respectively' paired alternatives.
+    # 8) Explicit 'respectively' paired alternatives.
     paired = re.compile(
         rf"final\s+stint\s+on\s+(?:the\s+)?({_COMPOUND}).{{0,100}}?"
         rf"starting\s+on\s+either\s+({_COMPOUND})\s+or\s+({_COMPOUND}).{{0,120}}?"
@@ -527,7 +559,7 @@ def extract_strategy_prose(
                 )
             )
 
-    # 8) Coded start + two same-compound sets explicitly completing race.
+    # 9) Coded start + two same-compound sets explicitly completing race.
     same_finish = re.compile(
         rf"Starting\s+on\s+(?:the\s+)?({_CODE}|{_COMPOUND}),[^.]*?"
         rf"two\s+sets\s+of\s+({_CODE}|{_COMPOUND})\s+available[^.]*?"

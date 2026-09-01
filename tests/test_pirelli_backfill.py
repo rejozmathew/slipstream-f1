@@ -4,7 +4,11 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from slipstream.pirelli.acquisition import AcquiredArtifact
-from slipstream.pirelli.archive import PirelliArchive, save_normalized_release
+from slipstream.pirelli.archive import (
+    PirelliArchive,
+    list_normalized_releases,
+    save_normalized_release,
+)
 from slipstream.pirelli.backfill import (
     format_pirelli_backfill_report,
     sync_pirelli_backfill,
@@ -24,7 +28,10 @@ from slipstream.pirelli.contracts import (
 )
 from slipstream.pirelli.discovery import (
     PIRELLI_F1_RSS_URL,
+    FeedEntry,
     MeetingDiscoveryTarget,
+    ReleasePurpose,
+    classify_release_purpose,
     entries_from_event_archive,
     pirelli_event_archive_url,
     pirelli_event_tag,
@@ -440,6 +447,113 @@ def test_event_archive_discards_unscoped_navigation_links() -> None:
     assert [entry.url for entry in entries] == [
         "https://press.pirelli.com/dutch-strategies"
     ]
+
+
+def test_exact_event_archive_card_does_not_require_meeting_name_or_season() -> None:
+    target = MeetingDiscoveryTarget(
+        meeting_key="30",
+        canonical_name="Dutch Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 8, 21, tzinfo=UTC),
+        weekend_end=datetime(2026, 8, 23, tzinfo=UTC),
+        exact_tag="2026 Dutch Grand Prix",
+    )
+    article = (
+        "https://press.pirelli.com/"
+        "norris-to-start-from-the-front-at-zandvoort-all-three-compounds-in-play-for-the-race/"
+    )
+    document = HtmlDocument(
+        title="Archive",
+        article_text="",
+        published_at_text=None,
+        modified_at_text=None,
+        links=(("https://press.pirelli.com/it/", "Italiano", None),),
+        tables=(),
+        archive_links=((article, "All three compounds in play for the race", None),),
+    )
+
+    entries = entries_from_event_archive(document, target)
+
+    assert [entry.url for entry in entries] == [article]
+    assert entries[0].categories == ("2026 Dutch Grand Prix",)
+
+
+def test_race_guidance_title_outranks_incidental_compound_selection_text() -> None:
+    purpose = classify_release_purpose(
+        "Norris to start from the front at Zandvoort, all three compounds in play for the race",
+        "The compound selection was confirmed earlier. "
+        "The quickest strategy is therefore a one-stop, starting on the Medium "
+        "and running until laps 27-33 before switching to the Hard.",
+    )
+
+    assert purpose == ReleasePurpose.RACE_STRATEGY
+
+
+def test_truncated_article_reuses_only_complete_same_url_archived_version(
+    tmp_path,
+) -> None:
+    target = MeetingDiscoveryTarget(
+        meeting_key="30",
+        canonical_name="Dutch Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 8, 21, tzinfo=UTC),
+        weekend_end=datetime(2026, 8, 23, tzinfo=UTC),
+        exact_tag="2026 Dutch Grand Prix",
+    )
+    title = (
+        "Norris to start from the front at Zandvoort, "
+        "all three compounds in play for the race"
+    )
+    article_url = "https://press.pirelli.com/zandvoort-race-guidance/"
+    published = datetime(2026, 8, 22, 17, 20, tzinfo=UTC)
+    complete = (
+        f"<html><head><meta property=\"og:title\" content=\"{title}\"></head>"
+        "<main>The compound selection was confirmed earlier. "
+        "The quickest race strategy is Medium-Hard, with the stop between laps "
+        "20 and 26.</main></html>"
+    ).encode()
+    archive = PirelliArchive(tmp_path)
+    archive.archive_artifact(
+        meeting_key="30",
+        source_url=article_url,
+        source_type=SourceType.NEWSROOM_HTML,
+        body=complete,
+        retrieved_at=datetime(2026, 8, 24, tzinfo=UTC),
+        published_at=published,
+        modified_at=published,
+        media_type="text/html",
+        collector_version="test",
+        extension="html",
+    )
+    truncated = (
+        f"<html><head><meta property=\"og:title\" content=\"{title}\"></head>"
+        "<main>Article shell only"
+    ).encode()
+    client = _FakeClient(
+        {article_url: _Payload(truncated, SourceType.NEWSROOM_HTML)}
+    )
+    service = PirelliIngestionService(archive, client)
+
+    report = asyncio.run(
+        service.refresh(
+            PirelliIngestionTarget(target, "race-30", SessionScope.RACE),
+            now=datetime(2026, 9, 1, tzinfo=UTC),
+            feed_entries=(
+                FeedEntry(
+                    title,
+                    article_url,
+                    published,
+                    ("2026 Dutch Grand Prix",),
+                    "Official pre-race strategy guidance",
+                ),
+            ),
+        )
+    )
+
+    assert report.normalized_release_ids
+    releases = list_normalized_releases(archive, "30")
+    assert releases[-1].applicability.target_session_key == "race-30"
+    assert [option.sequence for option in releases[-1].strategies] == ["M-H"]
 
 
 def test_event_archive_rejects_same_event_name_from_another_season() -> None:

@@ -28,9 +28,10 @@ class _Parser(HTMLParser):
         self._ignore = 0
         self._article = 0
         self._article_chunks: list[str] = []
-        self._link: tuple[str, str | None] | None = None
+        self._link: tuple[str, str | None, bool] | None = None
         self._link_chunks: list[str] = []
         self.links: list[tuple[str, str, str | None]] = []
+        self.archive_links: list[tuple[str, str, str | None]] = []
         self._table: list[list[str]] | None = None
         self._row: list[str] | None = None
         self._cell = False
@@ -56,7 +57,12 @@ class _Parser(HTMLParser):
         if tag in {"article", "main"}:
             self._article += 1
         if tag == "a" and d.get("href"):
-            self._link = (urljoin(self.base_url, d["href"]), d.get("type") or None)
+            classes = set(d.get("class", "").split())
+            self._link = (
+                urljoin(self.base_url, d["href"]),
+                d.get("type") or None,
+                "text_latestnews_more" in classes,
+            )
             self._link_chunks = []
         if tag == "table":
             self._table = []
@@ -79,8 +85,11 @@ class _Parser(HTMLParser):
         if tag in {"article", "main"} and self._article:
             self._article -= 1
         if tag == "a" and self._link is not None:
-            url, media_type = self._link
-            self.links.append((url, _clean(" ".join(self._link_chunks)), media_type))
+            url, media_type, archive_entry = self._link
+            link = (url, _clean(" ".join(self._link_chunks)), media_type)
+            self.links.append(link)
+            if archive_entry:
+                self.archive_links.append(link)
             self._link = None
             self._link_chunks = []
         if tag in {"td", "th"} and self._cell and self._row is not None:
@@ -169,4 +178,5 @@ def parse_html(source: str, base_url: str) -> HtmlDocument:
         modified_at_text=modified,
         links=tuple(parser.links),
         tables=tuple(parser.tables),
+        archive_links=tuple(parser.archive_links),
     )
