@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 from xml.etree import ElementTree
 
 from .acquisition import _parse_dt
@@ -14,6 +14,7 @@ from .contracts import ExtractionStatus
 from .extractors.base import HtmlDocument
 
 PIRELLI_F1_RSS_URL = "https://press.pirelli.com/tagfeed/en/tags/formula__1"
+PIRELLI_EVENT_ARCHIVE_URL = "https://press.pirelli.com/"
 
 
 class ReleasePurpose(StrEnum):
@@ -72,6 +73,40 @@ def pirelli_event_tag(season: int, canonical_name: str) -> str:
     name = re.sub(r"\s+", " ", canonical_name).strip()
     prefix = f"{season} "
     return name if name.casefold().startswith(prefix.casefold()) else f"{prefix}{name}"
+
+
+def pirelli_event_archive_url(target: MeetingDiscoveryTarget) -> str:
+    tag = target.exact_tag or pirelli_event_tag(target.season, target.canonical_name)
+    return f"{PIRELLI_EVENT_ARCHIVE_URL}?h=1&t={quote_plus(tag)}"
+
+
+def entries_from_event_archive(
+    document: HtmlDocument, target: MeetingDiscoveryTarget
+) -> tuple[FeedEntry, ...]:
+    """Turn one exact-event archive result page into conservatively scoped entries."""
+
+    exact_tag = target.exact_tag or pirelli_event_tag(
+        target.season, target.canonical_name
+    )
+    entries: list[FeedEntry] = []
+    seen: set[str] = set()
+    for url, label, _media_type in document.links:
+        parsed = urlparse(url)
+        if parsed.hostname != "press.pirelli.com" or not label.strip():
+            continue
+        if url in seen or parsed.path in {"", "/"}:
+            continue
+        seen.add(url)
+        entries.append(
+            FeedEntry(
+                title=label.strip(),
+                url=url,
+                published_at=None,
+                categories=(exact_tag,),
+                summary=f"Official Pirelli event archive result for {exact_tag}",
+            )
+        )
+    return tuple(entries)
 
 
 def _local(tag: str) -> str:
@@ -158,8 +193,7 @@ def _explicit_race_strategy(text: str) -> bool:
 def _localized_sprint_qualifying(title: str, text: str) -> bool:
     segments = (title, *re.split(r"(?<=[.!?])\s+", text))
     return any(
-        "sprint" in segment
-        and any(word in segment for word in ("pole", "qualifying"))
+        "sprint" in segment and any(word in segment for word in ("pole", "qualifying"))
         for segment in segments
     )
 
@@ -175,7 +209,9 @@ def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
         return ReleasePurpose.SPRINT
     if any(word in title_lower for word in ("friday", "practice", "fp1", "fp2", "fp3")):
         return ReleasePurpose.PRACTICE
-    if any(marker in title_lower for marker in ("last year", "previous race", "history of")):
+    if any(
+        marker in title_lower for marker in ("last year", "previous race", "history of")
+    ):
         return ReleasePurpose.UNKNOWN
     if any(word in title_lower for word in ("wins", "victory", "winner")):
         return (

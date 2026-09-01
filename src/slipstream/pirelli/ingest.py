@@ -28,7 +28,9 @@ from .discovery import (
     classify_release_purpose,
     discover_for_meeting,
     discover_official_assets,
+    entries_from_event_archive,
     parse_formula1_feed,
+    pirelli_event_archive_url,
 )
 from .extractors.html import parse_html
 from .extractors.pdf_text import extract_pdf_text
@@ -72,6 +74,8 @@ class PirelliIngestionService:
     ) -> None:
         self.archive = archive
         self.client = client or PirelliPublicClient()
+        self._cached_feed: tuple[FeedEntry, ...] | None = None
+        self._feed_error: Exception | None = None
 
     async def refresh(
         self,
@@ -81,18 +85,18 @@ class PirelliIngestionService:
         feed_entries: tuple[FeedEntry, ...] | None = None,
     ) -> PirelliIngestionReport:
         retrieved_at = now or datetime.now(UTC)
-        entries = (
-            feed_entries
-            if feed_entries is not None
-            else await self.discovery_entries(
-                now=retrieved_at,
-                archive_key=target.meeting.meeting_key,
+        entries = feed_entries
+        if entries is None:
+            entries = await self.discovery_entries_for_meeting(
+                target.meeting, now=retrieved_at
             )
-        )
         candidates = discover_for_meeting(
             entries,
             target.meeting,
         )
+        if not candidates and feed_entries is not None:
+            entries = await self.event_archive_entries(target.meeting, now=retrieved_at)
+            candidates = discover_for_meeting(entries, target.meeting)
         normalized: list[str] = []
         skipped: list[str] = []
         issues: list[str] = []
@@ -124,14 +128,53 @@ class PirelliIngestionService:
     ) -> tuple[FeedEntry, ...]:
         """Acquire and archive one feed snapshot reusable across a bounded sweep."""
 
+        if self._cached_feed is not None:
+            return self._cached_feed
+        if self._feed_error is not None:
+            raise self._feed_error
         retrieved_at = now or datetime.now(UTC)
-        rss = await self.client.acquire(
+        try:
+            rss = await self.client.acquire(
+                archive=self.archive,
+                meeting_key=archive_key,
+                url=PIRELLI_F1_RSS_URL,
+                now=retrieved_at,
+            )
+            self._cached_feed = parse_formula1_feed(
+                rss.body.decode("utf-8", errors="replace")
+            )
+            return self._cached_feed
+        except Exception as error:
+            self._feed_error = error
+            raise
+
+    async def discovery_entries_for_meeting(
+        self, target: MeetingDiscoveryTarget, *, now: datetime | None = None
+    ) -> tuple[FeedEntry, ...]:
+        """Use RSS as a fast path, then isolate fallback to this one event."""
+
+        try:
+            feed = await self.discovery_entries(now=now)
+            if discover_for_meeting(feed, target):
+                return feed
+        except Exception as error:  # noqa: BLE001 - shared feed is optional
+            self._feed_error = error
+        return await self.event_archive_entries(target, now=now)
+
+    async def event_archive_entries(
+        self, target: MeetingDiscoveryTarget, *, now: datetime | None = None
+    ) -> tuple[FeedEntry, ...]:
+        acquired = await self.client.acquire(
             archive=self.archive,
-            meeting_key=archive_key,
-            url=PIRELLI_F1_RSS_URL,
-            now=retrieved_at,
+            meeting_key=target.meeting_key,
+            url=pirelli_event_archive_url(target),
+            now=now or datetime.now(UTC),
         )
-        return parse_formula1_feed(rss.body.decode("utf-8", errors="replace"))
+        document = parse_html(
+            acquired.body.decode("utf-8", errors="replace"),
+            acquired.artifact.source_url,
+        )
+        return entries_from_event_archive(document, target)
 
     async def _normalize_release(
         self,
@@ -267,8 +310,7 @@ class PirelliIngestionService:
             )
         context_scope = (
             weekend_scope
-            if purpose
-            in {ReleasePurpose.COMPOUND_NOMINATION, ReleasePurpose.PREVIEW}
+            if purpose in {ReleasePurpose.COMPOUND_NOMINATION, ReleasePurpose.PREVIEW}
             else target_scope
             if purpose_scope == target.session_scope
             else None

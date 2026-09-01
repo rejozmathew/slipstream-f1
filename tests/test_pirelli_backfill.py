@@ -22,7 +22,12 @@ from slipstream.pirelli.contracts import (
     StrategyOption,
     StrategyRank,
 )
-from slipstream.pirelli.discovery import PIRELLI_F1_RSS_URL, pirelli_event_tag
+from slipstream.pirelli.discovery import (
+    PIRELLI_F1_RSS_URL,
+    MeetingDiscoveryTarget,
+    pirelli_event_archive_url,
+    pirelli_event_tag,
+)
 from slipstream.pirelli.ingest import PirelliIngestionReport, PirelliIngestionService
 from slipstream.pirelli.store import PirelliEvidenceStore
 from slipstream.state import DriverState, RaceState
@@ -331,3 +336,70 @@ def test_backfill_dry_run_and_meeting_filter_do_not_fetch(tmp_path):
     assert report.selected == 1
     assert report.meetings_attempted == 0
     assert report.count("PLANNED") == 1
+
+
+def test_malformed_rss_falls_back_per_event_and_one_failure_is_isolated(tmp_path):
+    races = (
+        _descriptor(
+            2026,
+            "30",
+            "Dutch Grand Prix",
+            datetime(2026, 8, 23, 13, tzinfo=UTC),
+        ),
+        _descriptor(
+            2026,
+            "31",
+            "Missing Grand Prix",
+            datetime(2026, 9, 6, 13, tzinfo=UTC),
+        ),
+    )
+    dutch_target = MeetingDiscoveryTarget(
+        meeting_key="30",
+        canonical_name="Dutch Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 8, 21, tzinfo=UTC),
+        weekend_end=datetime(2026, 8, 23, 18, tzinfo=UTC),
+        exact_tag="2026 Dutch Grand Prix",
+    )
+    article_url = "https://press.pirelli.com/dutch-race-strategies"
+    published = datetime(2026, 8, 22, 18, tzinfo=UTC)
+    payloads = {
+        PIRELLI_F1_RSS_URL: _Payload(
+            b"<rss><channel><![CDATA[unclosed",
+            SourceType.RSS,
+            media_type="application/rss+xml",
+        ),
+        pirelli_event_archive_url(dutch_target): _Payload(
+            f'<html><a href="{article_url}">Race strategies for Dutch Grand Prix</a></html>'.encode(),
+            SourceType.NEWSROOM_HTML,
+        ),
+        article_url: _Payload(
+            _page(
+                "A one-stop strategy is clearly fastest for tomorrow's Grand Prix. "
+                "The quickest race strategy is Medium-Hard, with the stop between laps 20 and 26."
+            ),
+            SourceType.NEWSROOM_HTML,
+            published,
+            published,
+        ),
+    }
+    client = _FakeClient(payloads)
+    service = PirelliIngestionService(PirelliArchive(tmp_path), client)
+
+    report = asyncio.run(
+        sync_pirelli_backfill(
+            tmp_path,
+            years=(2026,),
+            force=True,
+            now=datetime(2026, 9, 7, tzinfo=UTC),
+            library=_Library(races),
+            service=service,
+        )
+    )
+
+    assert report.selected == 2
+    assert report.meetings_attempted == 2
+    assert report.count("PRESENT") == 1
+    assert report.count("FAILURE") == 1
+    assert client.calls.count(PIRELLI_F1_RSS_URL) == 1
+    assert pirelli_event_archive_url(dutch_target) in client.calls

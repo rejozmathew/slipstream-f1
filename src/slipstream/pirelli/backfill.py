@@ -69,10 +69,7 @@ async def sync_pirelli_backfill(
         for descriptor in descriptors.values()
         if descriptor.session_kind == "race"
         and int(descriptor.year) in selected_years
-        and (
-            not selected_meetings
-            or str(descriptor.meeting_key) in selected_meetings
-        )
+        and (not selected_meetings or str(descriptor.meeting_key) in selected_meetings)
     ]
     by_meeting: dict[str, object] = {}
     for descriptor in sorted(races, key=lambda item: item.date_start):
@@ -81,9 +78,6 @@ async def sync_pirelli_backfill(
     store = PirelliEvidenceStore(data_root)
     ingestion = service or PirelliIngestionService(store.archive)
     retrieved_at = now or datetime.now(UTC)
-    feed_entries: tuple[Any, ...] | None = None
-    feed_attempted = False
-    feed_error: str | None = None
     items: list[PirelliBackfillItem] = []
     for meeting_key, descriptor in by_meeting.items():
         if dry_run:
@@ -94,22 +88,6 @@ async def sync_pirelli_backfill(
         attempted = force or not existing
         issue: str | None = None
         if attempted:
-            if not feed_attempted and hasattr(ingestion, "discovery_entries"):
-                feed_attempted = True
-                try:
-                    feed_entries = await ingestion.discovery_entries(now=retrieved_at)
-                except Exception as error:  # noqa: BLE001 - report each selected meeting
-                    feed_error = f"{type(error).__name__}: {error}"
-            if feed_error is not None:
-                items.append(
-                    _item(
-                        descriptor,
-                        "FAILURE",
-                        attempted=True,
-                        issue=feed_error,
-                    )
-                )
-                continue
             inventory = sorted(
                 (
                     item
@@ -125,14 +103,7 @@ async def sync_pirelli_backfill(
                     inventory,
                     replay_library.get,
                 )
-                if feed_entries is not None:
-                    refresh = await ingestion.refresh(
-                        target,
-                        now=retrieved_at,
-                        feed_entries=feed_entries,
-                    )
-                else:
-                    refresh = await ingestion.refresh(target, now=retrieved_at)
+                refresh = await ingestion.refresh(target, now=retrieved_at)
                 if refresh.issues:
                     issue = "; ".join(refresh.issues)
             except Exception as error:  # noqa: BLE001 - one meeting must not stop a sweep

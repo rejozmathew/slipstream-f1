@@ -4,7 +4,7 @@ This document is the normative description of Slipstream's published-strategy si
 
 ## Evidence pipeline
 
-1. The single server-owned coordinator checks the official Pirelli Formula 1 RSS/newsroom using the event's exact Pirelli category tag. It follows sparse pre-weekend, post-session, race-morning, final-pre-race, and post-race triggers, plus startup recovery for missing/stale evidence. A failed attempt is observable and retries after 30 minutes; it is not recorded as success.
+1. The single server-owned coordinator uses the official Pirelli Formula 1 RSS feed as an optional fast path and the exact event archive page as the per-meeting fallback. A malformed shared RSS response cannot poison a sweep; one event-page failure belongs only to that meeting. Runtime refresh and historical backfill call this same discovery/ingestion core. It follows sparse pre-weekend, post-session, race-morning, final-pre-race, and post-race triggers, plus startup recovery for missing/stale evidence. A failed attempt is observable and retries after 30 minutes; it is not recorded as success.
 2. Responses are archived immutably under `/data/.slipstream/pirelli/<meeting_key>/` with retrieval and source metadata.
 3. Deterministic HTML/prose and structured extractors normalize compound nominations, ranked or unranked strategy options, published pit windows, context facts, and optional native-text PDF tyre-bank rows.
 4. Validation requires source-backed evidence. Strategy purpose and target scope are explicit: Practice/Qualifying prose cannot populate Race, Sprint cannot populate Race, and Race cannot populate Sprint. WEEKEND compound nominations are reusable only inside their meeting; UNKNOWN applicability fails closed.
