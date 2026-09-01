@@ -320,6 +320,69 @@ def test_race_replay_end_waits_for_complete_classification(tmp_path: Path) -> No
     assert {driver["classification"] for driver in final["data"]["drivers"].values()} == {"FINISHED", "DNF"}
 
 
+def test_qualifying_replay_end_uses_final_phase_terminal(tmp_path: Path) -> None:
+    recording = [
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-22T14:00:00Z",
+            "source": "fixture",
+            "payload": {
+                "key": "11349",
+                "name": "Qualifying",
+                "session_type": "Qualifying",
+                "started_at": "2026-08-22T14:00:00Z",
+                "ended_at": "2026-08-22T15:00:00Z",
+                "status": "RUNNING",
+                "qualifying_phase": "Q1",
+            },
+        },
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-22T14:18:00Z",
+            "source": "fixture",
+            "payload": {"status": "FINISHED", "qualifying_phase": "Q1"},
+        },
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-22T14:25:00Z",
+            "source": "fixture",
+            "payload": {"status": "RUNNING", "qualifying_phase": "Q2"},
+        },
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-22T14:40:00Z",
+            "source": "fixture",
+            "payload": {"status": "FINISHED", "qualifying_phase": "Q2"},
+        },
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-22T14:48:00Z",
+            "source": "fixture",
+            "payload": {"status": "RUNNING", "qualifying_phase": "Q3"},
+        },
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-22T15:00:00Z",
+            "source": "fixture",
+            "payload": {"status": "FINISHED", "qualifying_phase": "Q3"},
+        },
+        {
+            "kind": "race_control",
+            "occurred_at": "2026-08-22T15:05:00Z",
+            "source": "fixture",
+            "payload": {"category": "Other", "message": "POST SESSION ACCESS"},
+        },
+    ]
+    path = tmp_path / "qualifying.json"
+    path.write_text(json.dumps(recording), encoding="utf-8")
+
+    with TestClient(create_app(path)) as client:
+        replay = client.get("/api/v1/replay").json()
+
+    assert replay["endTime"] == "2026-08-22T15:00:00Z"
+    assert replay["durationSeconds"] == 3600
+
+
 def test_catalog_session_can_be_downloaded_and_used_without_restart(
     tmp_path: Path,
 ) -> None:

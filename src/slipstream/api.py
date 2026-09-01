@@ -811,12 +811,36 @@ def _first_terminal_time(events: tuple[NormalizedEvent, ...]) -> str | None:
     return None
 
 
+def _last_terminal_time(events: tuple[NormalizedEvent, ...]) -> str | None:
+    """Return the final normalized, user-domain session terminal boundary."""
+
+    last_terminal: str | None = None
+    terminal_statuses = {"FINISHED", "CANCELLED"}
+    terminal_controls = {"CHEQUERED", "CANCELLED"}
+    for event in events:
+        if event.kind != "session":
+            continue
+        status = str(event.payload.get("status") or "").upper()
+        track = str(event.payload.get("track_status") or "").upper()
+        control = str(event.payload.get("control_status") or "").upper()
+        display = str(event.payload.get("display_status") or "").upper()
+        if status in terminal_statuses or terminal_controls.intersection(
+            {track, control, display}
+        ):
+            last_terminal = event.occurred_at
+    return last_terminal
+
+
 def _settled_terminal_time(selected: ReplayResource) -> str | None:
-    """Return a race end only after the expected classification has settled."""
+    """Return the factual end after all phases or race classification settle."""
 
     first_terminal = _first_terminal_time(selected.events)
-    if first_terminal is None or selected.descriptor.session_kind != "race":
+    if first_terminal is None:
         return first_terminal
+    if selected.descriptor.session_kind != "race":
+        # Qualifying emits a FINISHED boundary for each phase. Exposing the
+        # first one would cap a full Q1/Q2/Q3 recording at the end of Q1.
+        return _last_terminal_time(selected.events)
 
     participants: set[str] = set()
     classified: set[str] = set()
