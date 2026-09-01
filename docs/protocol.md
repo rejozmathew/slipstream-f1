@@ -17,7 +17,9 @@ Adding optional fields is compatible within version 1. Removing a field, changin
 
 `session.session_kind` distinguishes `practice_1`, `practice_2`, `practice_3`, `qualifying`, `sprint_qualifying`, `sprint`, `race`, and `unknown`. `session.layout_family` maps those discovered kinds to the shared `practice`, `qualifying`, `race`, or `unsupported` presentation family. Catalog entries expose the same values as `sessionKind` and `layoutFamily`.
 
-Qualifying session facts use `session.qualifying_phase` (`Q1`, `Q2`, `Q3`, `SQ1`, `SQ2`, `SQ3`, or `UNKNOWN`), `session.session_clock`, `session.session_clock_running`, and stable `session.eligible_field_size`. Driver facts add source-observed `activity` (`ON_TRACK`, `IN_PIT`, or `UNKNOWN`), `progress_observed_at_lap`, `qualifying_eliminated`, session-end `qualifying_results`/`qualifying_phase_reached`, and `tyre_usage` (`NEW`, `USED`, or `UNKNOWN`). Activity is not lifecycle: `STOPPED` is non-terminal, while retirement/DNF requires explicit terminal evidence. `NO_RECENT_PROGRESS` is not derived in M3.5.
+Qualifying session facts use `session.qualifying_phase` (`Q1`, `Q2`, `Q3`, `SQ1`, `SQ2`, `SQ3`, or `UNKNOWN`), `session.session_clock`, `session.session_clock_running`, and stable `session.eligible_field_size`. Driver facts add source-observed `activity` (`ON_TRACK`, `IN_PIT`, or `UNKNOWN`), `progress_observed_at_lap`, `qualifying_eliminated`, session-end `qualifying_results`/`qualifying_phase_reached`, and `tyre_usage` (`NEW`, `USED`, or `UNKNOWN`).
+
+F1 provider lifecycle is split into current `source_condition` (`RUNNING`, `IN_PIT`, `STOPPED`, `RETIRED_INDICATED`, or `UNKNOWN`), raw/current `source_retired` and `source_stopped` booleans, and irreversible `classification` (`FINISHED`, `DNF`, `DNS`, `DSQ`, or an authoritative `RETIRED`). Explicit false and positive progress may recover a current condition. STOPPED and RETIRED_INDICATED are not final classification; final facts never project backward. `status` remains a compatibility projection. `NO_RECENT_PROGRESS` is not derived in M3.5.
 
 Session control is deliberately split across factual axes. `session.status` is `SCHEDULED`, `RUNNING`, `SUSPENDED`, `FINISHED`, or `UNKNOWN`. `session.control_status` is `NORMAL`, `RED_FLAG`, `SAFETY_CAR`, `VSC`, `VSC_ENDING`, `CHEQUERED`, or `UNKNOWN`. `session.marshal_status` is `ALL_CLEAR`, `YELLOW`, `RED`, or `UNKNOWN`. Server-authored `session.display_status` applies global UI precedence: suspended/red flag, then Safety Car/VSC, then marshal red/yellow, then user-facing `GREEN` for all-clear. It may deliberately be `UNKNOWN`/omitted when a source proves a red-flag event but cannot prove the later sporting endpoint; clients must not synthesize GREEN/YELLOW from marshal changes in that case. The compatibility field `track_status` mirrors effective state for older consumers; new clients use `display_status`.
 
@@ -70,11 +72,14 @@ Live envelopes additionally carry `mode: "live"` and a `live` object containing 
 | `GET /api/v1/driver-history` | Return one driver's normalized lap evidence on demand, outside high-frequency state snapshots |
 | `GET /api/v1/analytics` | Return the versioned analytics sidecar at an optional inclusive `at` or `seq` cutoff and start non-blocking Weekend Context preparation |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
+| `DELETE /api/v1/replay` | Remove one session's rebuildable replay/timing artifacts while retaining durable context |
 | `WS /api/v1/stream` | Create an independent replay controller or delayed-live cursor for one client |
 
 Pass `session_key` as a query parameter where a session can be selected. Omitting it uses the library default.
 
 `POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past. Downloads are serialized per application instance. After a successful write, the library is refreshed and the session becomes available without restarting the process.
+
+`DELETE /api/v1/replay?session_key=...` removes supported canonical/raw timing recordings and rebuildable Weekend Context for exactly one session. Catalog metadata, circuit geometry, immutable Pirelli artifacts/releases, and the small source manifest remain. The catalog session immediately becomes `available: false` and can be downloaded again using the normal preferred-source path.
 
 `GET /api/v1/driver-history?session_key=...&driver_number=...` returns source-neutral completed-lap observations for Driver Focus and future analytics. It is an on-demand viewer endpoint rather than part of `RaceState`; consumers filter the returned evidence against the current replay time or cursor. An unavailable recording returns an empty evidence list with `available: false`.
 

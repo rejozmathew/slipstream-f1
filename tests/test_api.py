@@ -35,9 +35,7 @@ def test_versioned_state_and_capabilities_endpoints() -> None:
 def test_driver_history_is_on_demand_and_outside_race_state() -> None:
     with TestClient(create_app(RECORDING)) as client:
         state = client.get("/api/v1/state").json()
-        history = client.get(
-            "/api/v1/driver-history?session_key=9165&driver_number=55"
-        )
+        history = client.get("/api/v1/driver-history?session_key=9165&driver_number=55")
 
     assert history.status_code == 200
     payload = history.json()
@@ -315,3 +313,76 @@ def test_catalog_session_can_be_downloaded_and_used_without_restart(
     assert after["sessions"][0]["available"] is True
     assert state["data"]["session"]["key"] == "999"
     assert (tmp_path / "openf1-999.json").exists()
+
+
+def test_delete_replay_keeps_durable_context_and_redownload_restores_it(
+    tmp_path: Path,
+) -> None:
+    catalog = {
+        "format": CATALOG_FORMAT,
+        "schema_version": 1,
+        "source": "openf1",
+        "updated_at": "2026-08-11T00:00:00Z",
+        "years": [2023],
+        "meetings": {
+            "999": {
+                "meeting_key": 999,
+                "meeting_name": "Durable Grand Prix",
+                "circuit_short_name": "Durable Circuit",
+                "circuit": {
+                    "key": "77",
+                    "name": "Durable Circuit",
+                    "path": [[0, 0], [1, 0], [0, 1]],
+                    "source": "catalog",
+                    "availability": {"path": "available"},
+                },
+            }
+        },
+        "sessions": [
+            {
+                "session_key": 999,
+                "meeting_key": 999,
+                "session_name": "Race",
+                "session_type": "Race",
+                "date_start": "2023-09-17T12:00:00+00:00",
+                "date_end": "2023-09-17T14:00:00+00:00",
+                "year": 2023,
+            }
+        ],
+    }
+    recording = json.loads(RECORDING.read_text(encoding="utf-8"))
+    recording["session_key"] = 999
+    recording["endpoints"]["sessions"][0].update(session_key=999, meeting_key=999)
+    recording["endpoints"]["meetings"][0].update(
+        meeting_key=999, meeting_name="Durable Grand Prix"
+    )
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+    (tmp_path / "openf1-999.json").write_text(json.dumps(recording), encoding="utf-8")
+    pirelli = tmp_path / ".slipstream" / "pirelli" / "999" / "keep.json"
+    source = tmp_path / ".slipstream" / "sources" / "999.json"
+    pirelli.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True)
+    pirelli.write_text("{}", encoding="utf-8")
+    source.write_text("{}", encoding="utf-8")
+
+    with TestClient(
+        create_app(
+            tmp_path,
+            capture_session=lambda _session_key: recording,
+            prepare_weekend_context=lambda **_: {},
+        )
+    ) as client:
+        before = client.get("/api/v1/catalog").json()["sessions"][0]
+        deleted = client.delete("/api/v1/replay?session_key=999")
+        after = client.get("/api/v1/catalog").json()["sessions"][0]
+        restored = client.post("/api/v1/download?session_key=999")
+        final = client.get("/api/v1/catalog").json()["sessions"][0]
+
+    assert before["available"] is True
+    assert deleted.status_code == 200
+    assert after["available"] is False
+    assert after["circuitShapeAvailable"] is True
+    assert pirelli.is_file()
+    assert source.is_file()
+    assert restored.status_code == 200
+    assert final["available"] is True

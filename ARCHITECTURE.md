@@ -137,6 +137,10 @@ The catalog and recordings solve different problems:
 
 `ReplayLibrary` overlays local recordings on catalog descriptors. It normalizes only the selected recording and caches only that selected resource. A catalog-only session produces a small placeholder state so the UI can show its date, circuit, download status, and live schedule window without inventing timing.
 
+When more than one local timing artifact exists for a session, selection is explicit and whole-session: finalized canonical Live (`f1-signalr-public`) precedes official static archive (`f1-static-public`), which precedes OpenF1. Filename order never selects a source and timing facts are never mixed. Catalog circuit geometry and Pirelli remain separately scoped durable inputs.
+
+Deleting a replay removes only rebuildable session timing/raw/context artifacts. It preserves catalog/session metadata, circuit geometry, immutable Pirelli evidence, and the small source manifest so the session stays visible and redownloadable.
+
 The default session is the currently active scheduled session when one exists. Otherwise it is the newest locally available recording, falling back to the newest catalog entry.
 
 ## Track and car position
@@ -170,7 +174,7 @@ Routes and message compatibility are defined in [docs/protocol.md](docs/protocol
 
 ## Live-source boundary
 
-`PublicLiveSession` owns one reconnecting unauthenticated SignalR connection for the currently scheduled session. `F1LiveAdapter` keeps source-specific sparse-update merging at the boundary and rejects a provider session whose `SessionInfo.Key` differs from the selected catalog session. Browser clients receive canonical API v1 snapshots, never provider payloads.
+`PublicLiveSession` owns one reconnecting unauthenticated SignalR connection for the currently scheduled session. `F1LiveAdapter` keeps SignalR framing/session verification at the boundary and rejects a provider session whose `SessionInfo.Key` differs from the selected catalog session. Official static history owns index discovery and `.jsonStream` parsing separately; both paths call the same F1 TimingData normalizer. Browser clients receive canonical API v1 snapshots, never provider payloads.
 
 The proven public subset is `DriverList`, `TimingData`, `TimingAppData`, `LapCount`, `SessionInfo`, `SessionData`, `ExtrapolatedClock`, `SessionStatus`, `TrackStatus`, `RaceControlMessages`, and `WeatherData`. Timestamped `SessionData.StatusSeries` contributes cursor-safe session and marshal history; `SessionData` and `ExtrapolatedClock` also provide factual Qualifying segment/clock evidence where present. Protected GPS, car data, team radio, and other enhanced topics are not requested. Because precise X/Y is absent from the public slice, `positionMode` is `unavailable`; the product renders the circuit but does not invent car locations.
 
@@ -180,7 +184,7 @@ Transport status (`OFFLINE`, `CONNECTING`, `LIVE`, `STALE`, `UNAVAILABLE`) is in
 
 At zero delay, `PublicLiveSession` serves its incrementally maintained `state` and `evidence`; it does not rebuild the full event history for every snapshot. Delayed viewers may reconstruct at their private cursor. The live WebSocket keeps one shared immutable event history and a private delay per viewer (0–300 seconds), and state plus analytics always share the same inclusive event sequence. A viewer can reset to live or select a compact delay but cannot pause, seek backward, or alter playback speed. `FINALIZING` retains the same session's last authoritative Live state while accepted late canonical events drain. When that session reaches `REPLAY_READY`, the socket sends the same session's finalized ReplayLibrary state and retires; the browser changes only its transport mode, retaining the selected session while any later live session is offered separately. The browser persists explicit session selection so a hard refresh resolves the same session across the transition. Raw versioned JSONL remains optional provider evidence and is not the replay artifact.
 
-Driver lifecycle and activity are independent. `RETIRED`, DNF, DNS, DSQ, and withdrawal require explicit evidence and are terminal; sparse later timing cannot resurrect them. `STOPPED` is non-terminal. M3.5 deliberately has no `NO_RECENT_PROGRESS` product derivation. Public Live establishes Lance Stroll #18 as `RETIRED` at `2026-08-23T14:36:46.926204Z`; independent OpenF1 historical data does not establish his DNF until the session-end result, so replay must not move that terminal fact earlier.
+Driver lifecycle, provider condition, and activity are independent. F1 `Retired=true` becomes current `RETIRED_INDICATED` and can be retracted by explicit false; it does not enter the irreversible terminal guard. `Stopped=true` becomes resumable `STOPPED`, never inferred retirement. Only final classification establishes FINISHED/DNF/DNS/DSQ, and that fact appears at its source cursor rather than moving backward. M3.5 deliberately has no lap-deficit or `NO_RECENT_PROGRESS` lifecycle derivation.
 
 ## Deployment
 

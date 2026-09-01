@@ -107,6 +107,15 @@ class WeekendContextCoordinator:
         self._tasks[descriptor.key] = task
         return self._results[descriptor.key]
 
+    def forget(self, descriptor: SessionDescriptor) -> None:
+        """Drop only rebuildable session context after replay deletion."""
+
+        task = self._tasks.pop(descriptor.key, None)
+        if task is not None:
+            task.cancel()
+        self._results.pop(descriptor.key, None)
+        self.store.path_for(descriptor).unlink(missing_ok=True)
+
     async def _prepare(
         self,
         descriptor: SessionDescriptor,

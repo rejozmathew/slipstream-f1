@@ -20,6 +20,7 @@ from .adapters.openf1 import OpenF1Client, write_recording
 from .analytics import AnalyticsService
 from .events import NormalizedEvent, parse_timestamp
 from .evidence import SessionEvidence
+from .historical_download import HistoricalSessionDownloader
 from .library import ReplayLibrary, ReplayResource
 from .live import PublicLiveSession
 from .pirelli.contracts import SessionScope
@@ -28,6 +29,7 @@ from .pirelli.ingest import PirelliIngestionService
 from .pirelli.store import PirelliAvailability, PirelliEvidenceStore
 from .playback import ReplayController
 from .serialization import state_envelope
+from .storage import delete_replay_artifacts
 from .weekend import (
     ContextAvailability,
     WeekendContextCoordinator,
@@ -55,7 +57,8 @@ def create_app(
     library_ref = [ReplayLibrary(recording_path, now=clock)]
     live = live_session or PublicLiveSession(now=clock)
     live_monitor_task: list[asyncio.Task[None] | None] = [None]
-    downloader = capture_session or OpenF1Client().capture_session
+    downloader = capture_session
+    historical_downloader = HistoricalSessionDownloader()
     analytics_service = AnalyticsService()
     download_lock = asyncio.Lock()
     downloads_enabled = recording_path.is_dir() and os.access(recording_path, os.W_OK)
@@ -97,7 +100,7 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -300,12 +303,21 @@ def create_app(
             current = library_ref[0].descriptors.get(session_key)
             if current is not None and not current.available:
                 try:
-                    recording = await asyncio.to_thread(downloader, int(session_key))
-                    await asyncio.to_thread(
-                        write_recording,
-                        recording_path / f"openf1-{session_key}.json",
-                        recording,
-                    )
+                    if downloader is not None:
+                        recording = await asyncio.to_thread(
+                            downloader, int(session_key)
+                        )
+                        await asyncio.to_thread(
+                            write_recording,
+                            recording_path / f"openf1-{session_key}.json",
+                            recording,
+                        )
+                    else:
+                        await asyncio.to_thread(
+                            historical_downloader.download,
+                            current,
+                            recording_path,
+                        )
                     library_ref[0] = ReplayLibrary(recording_path, now=clock)
                 except Exception as error:
                     raise HTTPException(
@@ -316,6 +328,31 @@ def create_app(
             "v": 1,
             "sessionKey": session_key,
             "status": "available",
+            "catalog": catalog_payload(),
+        }
+
+    @app.delete("/api/v1/replay")
+    async def delete_replay(session_key: str) -> dict[str, Any]:
+        if not downloads_enabled:
+            raise HTTPException(
+                status_code=409,
+                detail="Replay deletion requires writable recording storage",
+            )
+        descriptor = library_ref[0].descriptors.get(session_key)
+        if descriptor is None:
+            raise HTTPException(status_code=404, detail="Unknown catalog session")
+        async with download_lock:
+            deletion = await asyncio.to_thread(
+                delete_replay_artifacts, recording_path, session_key
+            )
+            if context_coordinator is not None:
+                context_coordinator.forget(descriptor)
+            library_ref[0] = ReplayLibrary(recording_path, now=clock)
+        return {
+            "v": 1,
+            "sessionKey": session_key,
+            "status": "unavailable",
+            "removed": list(deletion.removed),
             "catalog": catalog_payload(),
         }
 
