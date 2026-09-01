@@ -13,7 +13,10 @@ export function classifySession(
   explicitKind?: SessionKind | null,
   explicitLayout?: LayoutFamily | null,
 ): SessionClassification {
-  if (explicitKind && explicitLayout) return { kind: explicitKind, layoutFamily: explicitLayout };
+  if (
+    explicitKind && explicitKind !== "unknown"
+    && explicitLayout && explicitLayout !== "unsupported"
+  ) return { kind: explicitKind, layoutFamily: explicitLayout };
   const value = `${sessionType ?? ""} ${sessionName ?? ""}`.trim().toLowerCase();
   if (/sprint qualifying|sprint shootout/.test(value)) return { kind: "sprint_qualifying", layoutFamily: "qualifying" };
   if (/qualifying|shootout/.test(value)) return { kind: "qualifying", layoutFamily: "qualifying" };

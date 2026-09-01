@@ -47,7 +47,7 @@ test("builds the replay-driven desktop shell as static files", async () => {
 });
 
 test("keeps versioned API and WebSocket transport in typed clients", async () => {
-  const [apiClient, socketClient, page, packageJson, viteConfig, replayControls, liveControls, replayLibrary, sessionHook, raceView, preferences] = await Promise.all([
+  const [apiClient, socketClient, page, packageJson, viteConfig, replayControls, liveControls, replayLibrary, sessionHook, raceView, preferences, sessionLayout] = await Promise.all([
     readFile(new URL("../api/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../api/replaySocket.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -59,6 +59,7 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
     readFile(new URL("../hooks/useSlipstreamSession.ts", import.meta.url), "utf8"),
     readFile(new URL("../views/RaceView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../hooks/useProductPreferences.ts", import.meta.url), "utf8"),
+    readFile(new URL("../domain/sessionLayout.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(apiClient, /api\/v1\/state/);
@@ -100,6 +101,8 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(preferences, /includedRaceStates/);
   assert.match(preferences, /rotationIntervalSeconds/);
   assert.match(preferences, /alertOnCriticalStatus/);
+  assert.match(sessionLayout, /explicitKind !== "unknown"/);
+  assert.match(sessionLayout, /explicitLayout !== "unsupported"/);
   assert.doesNotMatch(packageJson, /vinext|wrangler|cloudflare|next/);
 });
 
