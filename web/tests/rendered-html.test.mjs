@@ -136,6 +136,24 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(shell, /layout === "race" \|\| \(view !== "strategy" && view !== "battle"\)/);
   assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
 });
+
+test("preserves semantic compound colors and bounded functional layouts", async () => {
+  const [styles, driverFocus] = await Promise.all([
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../views/DriverFocusView.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(styles, /\.published-path i\s*\{/);
+  assert.doesNotMatch(styles, /\.physical-nomination i\s*\{/);
+  assert.match(styles, /\.published-path > span > i\s*\{/);
+  for (const [compound, color] of [["soft", "#ff7676"], ["medium", "#ffe079"], ["hard", "#fff"], ["intermediate", "#65e8a5"], ["wet", "#72a6ff"]]) {
+    assert.match(styles, new RegExp(`compound-badge\\.compound-${compound}[^}]*color: ${color.replace("#", "\\#")}`));
+  }
+  assert.match(styles, /\.practice-layout \.track-map\s*\{[^}]*min-height: 220px/);
+  assert.match(styles, /pit-history-columns-stationary-pit-lane/);
+  assert.match(driverFocus, /events\.some\(\(event\) => event\.stopDuration != null\)/);
+  assert.match(driverFocus, /events\.some\(\(event\) => event\.pitLaneDuration != null\)/);
+});
 test("keeps Packet E TV and analytics contracts truthful", async () => {
   const [tvMode, protocol, publishedStrategy, battleCard, timingTower, strategyView, styles] = await Promise.all([
     readFile(new URL("../views/TVModeView.tsx", import.meta.url), "utf8"),

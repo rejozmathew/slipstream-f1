@@ -97,6 +97,16 @@ test("track coverage is over active cars and reports factual out states", () => 
   });
 });
 
+test("transient in-pit cars are omitted from markers without entering OUT / STOPPED", () => {
+  const inPit = { number: "1", code: "NOR", status: "IN_PIT", source_condition: "IN_PIT", activity: "IN_PIT", track_position: 0.4 };
+  const stopped = { number: "2", code: "VER", status: "STOPPED", source_condition: "STOPPED", track_position: null };
+  const coverage = trackCoverage([inPit, stopped], "timing_estimate");
+
+  assert.equal(isTrackMapActive(inPit), false);
+  assert.deepEqual(coverage.inactiveLabels, ["VER · STOPPED"]);
+  assert.equal(coverage.inactiveLabels.some((label) => label.includes("IN PIT")), false);
+});
+
 test("lap deficits are shown only when a usable seconds gap is absent", () => {
   const leader = { number: "1", position: 1, lap: 45 };
   assert.equal(lapDeficitGap({ position: 7, lap: 44, gap_to_leader: null, availability: {} }, leader), "+1 LAP");

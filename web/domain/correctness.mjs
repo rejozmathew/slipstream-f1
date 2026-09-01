@@ -37,7 +37,6 @@ export function trackMapLifecycleLabel(driver) {
   const condition = String(driver.source_condition ?? "").toUpperCase();
   if (condition === "RETIRED_INDICATED") return "RETIRED";
   if (condition === "STOPPED") return "STOPPED";
-  if (condition === "IN_PIT") return "IN PIT";
   const status = String(driver.status ?? "").toUpperCase();
   if (TERMINAL_TRACK_STATUSES.has(status)) return status;
   if (status === "STOPPED") return "STOPPED";
