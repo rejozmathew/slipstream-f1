@@ -362,6 +362,12 @@ def test_qualifying_replay_end_uses_final_phase_terminal(tmp_path: Path) -> None
         },
         {
             "kind": "session",
+            "occurred_at": "2026-08-22T14:59:59Z",
+            "source": "fixture",
+            "payload": {"control_status": "CHEQUERED", "qualifying_phase": "Q3"},
+        },
+        {
+            "kind": "session",
             "occurred_at": "2026-08-22T15:00:00Z",
             "source": "fixture",
             "payload": {"status": "FINISHED", "qualifying_phase": "Q3"},

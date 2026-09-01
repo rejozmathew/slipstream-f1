@@ -820,14 +820,21 @@ def _qualifying_terminal_time(
 ) -> str | None:
     final_phase = "SQ3" if sprint else "Q3"
     final_phase_started = False
+    first_terminal_boundary: str | None = None
     for event in events:
         if event.kind == "session" and str(
             event.payload.get("qualifying_phase") or ""
         ).upper() == final_phase:
             final_phase_started = True
-        if final_phase_started and _is_terminal_session_event(event):
+        if not final_phase_started or not _is_terminal_session_event(event):
+            continue
+        first_terminal_boundary = first_terminal_boundary or event.occurred_at
+        if str(event.payload.get("status") or "").upper() in {
+            "FINISHED",
+            "CANCELLED",
+        }:
             return event.occurred_at
-    return None
+    return first_terminal_boundary
 
 
 def _settled_terminal_time(selected: ReplayResource) -> str | None:
