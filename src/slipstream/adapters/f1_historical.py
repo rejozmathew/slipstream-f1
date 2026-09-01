@@ -130,7 +130,7 @@ class F1HistoricalClient:
                     if topic == "SessionInfo" and isinstance(patch, dict):
                         patch = _normalize_session_info_times(patch, full)
                     topic_rows.append((offset, order, topic, patch))
-            elif isinstance(full, dict) and topic not in {"SessionInfo", "DriverList"}:
+            if isinstance(full, dict) and topic not in {"SessionInfo", "DriverList"}:
                 dynamic_snapshots.append((order, topic, full))
             if topic == "SessionInfo" and isinstance(full, dict):
                 session_info = full

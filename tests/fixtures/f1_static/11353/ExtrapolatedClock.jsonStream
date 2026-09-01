@@ -1,0 +1,5 @@
+﻿00:00:02.232{"Utc":"2026-08-23T12:06:45.008Z","Remaining":"00:00:00","Extrapolating":false}
+00:00:28.232{"Utc":"2026-08-23T12:07:11.008Z","Remaining":"02:00:00"}
+00:56:46.230{"Utc":"2026-08-23T13:03:29.006Z","Remaining":"01:59:59","Extrapolating":true}
+00:58:45.227{"Utc":"2026-08-23T13:05:28.003Z","Remaining":"01:58:01","Extrapolating":false}
+01:26:18.218{"Utc":"2026-08-23T13:33:00.994Z","Remaining":"01:58:00","Extrapolating":true}

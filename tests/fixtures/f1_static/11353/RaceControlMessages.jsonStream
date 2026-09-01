@@ -1,0 +1,10 @@
+00:48:19.000{"Messages":{"90":{"Utc":"2026-08-23T12:55:02","Lap":1,"Category":"Other","Message":"SAFETY CAR LIGHTS ON"}}}
+00:54:27.717{"Messages":{"91":{"Utc":"2026-08-23T13:01:10","Lap":1,"Category":"Other","Message":"STANDING START"}}}
+00:58:45.416{"Messages":{"98":{"Utc":"2026-08-23T13:05:28","Lap":2,"Category":"Other","Message":"RED FLAG - RACE SUSPENDED"}}}
+01:15:46.054{"Messages":{"127":{"Utc":"2026-08-23T13:22:29","Lap":3,"Category":"Other","Message":"RACE WILL RESUME AT 15:33"}}}
+01:27:04.064{"Messages":{"132":{"Utc":"2026-08-23T13:33:47","Lap":3,"Category":"Other","Message":"STANDING START"}}}
+02:37:52.244{"Messages":{"232":{"Utc":"2026-08-23T14:44:35","Lap":55,"Category":"SafetyCar","Status":"DEPLOYED","Mode":"VSC","Message":"VSC DEPLOYED"}}}
+02:41:58.705{"Messages":{"237":{"Utc":"2026-08-23T14:48:41","Lap":57,"Category":"SafetyCar","Status":"ENDING","Mode":"VSC","Message":"VSC ENDING"}}}
+02:57:39.030{"Messages":{"288":{"Utc":"2026-08-23T15:04:22","Lap":70,"Category":"SafetyCar","Status":"DEPLOYED","Mode":"VSC","Message":"VSC DEPLOYED"}}}
+02:58:30.518{"Messages":{"294":{"Utc":"2026-08-23T15:05:13","Lap":70,"Category":"SafetyCar","Status":"ENDING","Mode":"VSC","Message":"VSC ENDING"}}}
+03:01:30.867{"Messages":{"304":{"Utc":"2026-08-23T15:08:13","Lap":72,"Category":"Flag","Flag":"CHEQUERED","Scope":"Track","Message":"CHEQUERED FLAG"}}}

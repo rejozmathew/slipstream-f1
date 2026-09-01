@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import HTTPError
 
@@ -12,6 +13,7 @@ from slipstream.adapters.f1_historical import (
     F1HistoricalClient,
     F1HistoricalError,
     parse_json_stream,
+    write_canonical_recording,
 )
 from slipstream.events import NormalizedEvent
 from slipstream.f1_timing import (
@@ -23,6 +25,7 @@ from slipstream.historical_download import HistoricalSessionDownloader
 from slipstream.library import ReplayLibrary, SessionDescriptor
 from slipstream.lifecycle import is_retired_indicated, is_stopped, is_terminal
 from slipstream.live import F1LiveAdapter, PublicLiveSession
+from slipstream.playback import ReplayController
 from slipstream.state import RaceState
 
 
@@ -781,6 +784,148 @@ def test_sparse_session_info_never_overwrites_known_identity_with_placeholder() 
     assert events[0].payload == {"key": "11353"}
     assert "name" not in events[0].payload
     assert "layout_family" not in events[0].payload
+
+
+def test_authentic_dutch_11353_provider_rows_replay_end_to_end(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "f1_static" / "11353"
+    session_path = "2026/2026-08-23_Dutch_Grand_Prix/2026-08-23_Race"
+    responses = {
+        f"{STATIC_ROOT}/2026/Index.json": json.dumps(
+            {
+                "Meetings": [
+                    {
+                        "Path": "2026-08-23_Dutch_Grand_Prix",
+                        "Sessions": [{"Key": 11353, "Path": "2026-08-23_Race"}],
+                    }
+                ]
+            }
+        )
+    }
+    for path in fixture.iterdir():
+        if path.suffix not in {".json", ".jsonStream"}:
+            continue
+        responses[f"{STATIC_ROOT}/{session_path}/{path.name}"] = path.read_text(
+            encoding="utf-8-sig"
+        )
+
+    class Response:
+        def __init__(self, body: str) -> None:
+            self.body = body.encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return self.body
+
+    def opener(request, timeout):
+        assert timeout == 30
+        if request.full_url not in responses:
+            raise HTTPError(request.full_url, 404, "fixture topic absent", {}, None)
+        return Response(responses[request.full_url])
+
+    events = F1HistoricalClient(opener=opener).capture_events(
+        "11353",
+        year=2026,
+        session_identity={
+            "meeting_name": "Dutch Grand Prix",
+            "session_name": "Race",
+            "session_type": "Race",
+            "session_kind": "race",
+            "layout_family": "race",
+            "circuit": "Zandvoort",
+            "location": "Zandvoort",
+            "date_start": "2026-08-23T13:00:00Z",
+            "date_end": "2026-08-23T15:00:00Z",
+            "gmt_offset": "02:00:00",
+        },
+    )
+    recording = tmp_path / "f1-static-11353.json"
+    write_canonical_recording(recording, events)
+    (tmp_path / "catalog.json").write_text(
+        json.dumps(
+            {
+                "format": "slipstream.openf1-catalog.v1",
+                "schema_version": 1,
+                "source": "openf1",
+                "updated_at": "2026-08-24T00:00:00Z",
+                "years": [2026],
+                "meetings": {
+                    "1292": {
+                        "meeting_key": 1292,
+                        "meeting_name": "Dutch Grand Prix",
+                    }
+                },
+                "sessions": [
+                    {
+                        "session_key": 11353,
+                        "meeting_key": 1292,
+                        "session_name": "Race",
+                        "session_type": "Race",
+                        "date_start": "2026-08-23T13:00:00Z",
+                        "date_end": "2026-08-23T15:00:00Z",
+                        "gmt_offset": "02:00:00",
+                        "year": 2026,
+                        "location": "Zandvoort",
+                        "circuit_short_name": "Zandvoort",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    library = ReplayLibrary(
+        tmp_path, now=lambda: datetime(2026, 8, 24, tzinfo=UTC)
+    )
+    resource = library.get("11353")
+    controller = ReplayController(resource.events)
+
+    started = controller.seek("2026-08-23T13:03:28.567Z")
+    assert started.session.meeting_name == "Dutch Grand Prix"
+    assert started.session.name == "Race"
+    assert started.session.session_kind == "race"
+    assert started.session.layout_family == "race"
+    assert started.session.started_at == "2026-08-23T13:00:00Z"
+    assert started.session.local_time == "2026-08-23T15:03:28.567000+02:00"
+    assert started.session.lap == 1
+    assert started.session.total_laps == 72
+    assert len(started.drivers) == 22
+
+    lap_six = controller.seek("2026-08-23T13:41:01.645Z")
+    assert lap_six.session.lap == 6
+    assert lap_six.session.local_time == "2026-08-23T15:41:01.645000+02:00"
+
+    transitions = (
+        ("77", "2026-08-23T13:16:52.267Z", "RETIRED_INDICATED"),
+        ("3", "2026-08-23T13:21:12.408Z", "STOPPED"),
+        ("87", "2026-08-23T13:40:55.368Z", "STOPPED"),
+        ("18", "2026-08-23T14:36:45.344Z", "RETIRED_INDICATED"),
+        ("31", "2026-08-23T14:45:05.425Z", "STOPPED"),
+        ("77", "2026-08-23T14:59:50.438Z", "RETIRED_INDICATED"),
+        ("23", "2026-08-23T15:05:40.353Z", "RETIRED_INDICATED"),
+    )
+    for number, occurred_at, condition in transitions:
+        state = controller.seek(occurred_at)
+        assert state.drivers[number].source_condition == condition
+        assert state.drivers[number].classification is None
+
+    recovered = controller.seek("2026-08-23T13:16:53.252Z")
+    assert recovered.drivers["77"].source_condition == "RUNNING"
+    assert recovered.drivers["77"].source_retired is False
+    assert recovered.drivers["77"].source_stopped is False
+    assert all(driver.classification is None for driver in recovered.drivers.values())
+
+    final = controller.seek("2026-08-23T15:28:47.876Z")
+    classifications = [driver.classification for driver in final.drivers.values()]
+    assert classifications.count("FINISHED") == 16
+    assert classifications.count("DNF") == 6
+    assert final.session.status == "FINISHED"
+    assert final.session.lap == final.session.total_laps == 72
+    assert controller.events[-1].occurred_at == "2026-08-23T15:28:47.876000Z"
 
 
 def test_official_index_composes_year_meeting_and_relative_session_paths() -> None:

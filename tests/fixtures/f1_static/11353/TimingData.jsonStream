@@ -1,0 +1,8 @@
+01:10:09.491{"Lines":{"77":{"Retired":true,"Stopped":true,"Status":92}}}
+01:10:10.476{"Lines":{"77":{"Retired":false,"Stopped":false,"Status":80}}}
+01:14:29.632{"Lines":{"3":{"Stopped":true,"Status":68,"Sectors":{"2":{"Stopped":true}}}}}
+01:34:12.592{"Lines":{"87":{"Stopped":true,"Status":580,"Sectors":{"1":{"Stopped":true}}}}}
+02:30:02.568{"Lines":{"63":{"Sectors":{"2":{"PreviousValue":"22.738"}}},"18":{"Retired":true,"Stopped":true,"Status":92}}}
+02:38:22.649{"Lines":{"31":{"Stopped":true,"Status":68,"Sectors":{"0":{"Stopped":true,"Value":""},"1":{"Value":""},"2":{"Value":""}},"Speeds":{"I2":{"Value":""},"FL":{"Value":""}}}}}
+02:53:07.662{"Lines":{"77":{"Retired":true,"Stopped":true,"Status":92}}}
+02:58:57.577{"Lines":{"16":{"Sectors":{"1":{"PreviousValue":"31.648"}}},"23":{"Retired":true,"Stopped":true,"Status":92}}}
