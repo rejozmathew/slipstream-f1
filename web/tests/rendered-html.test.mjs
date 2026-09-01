@@ -172,6 +172,8 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.match(publishedStrategy, /race-now-sequences/);
   assert.match(publishedStrategy, /Active running \/ in-pit compound paths/);
   assert.match(publishedStrategy, /CompoundBadge compound="HARD" compact/);
+  assert.match(styles, /\.strategy-stage > strong/);
+  assert.doesNotMatch(styles, /\.strategy-stage strong/);
   assert.match(publishedStrategy, /drivers still need another dry compound/);
   assert.match(strategyView, /published-path/);
   for (const source of [publishedStrategy, battleCard, timingTower, strategyView, tvMode]) {

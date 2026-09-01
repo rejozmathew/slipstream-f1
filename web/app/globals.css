@@ -458,8 +458,8 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .timing-race-strategy { grid-template-columns: 38px minmax(160px, 1.35fr) 44px 44px 54px 38px minmax(72px, .65fr) minmax(72px, .65fr); }
 
 .strategy-stage { min-height: 26px; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--line-soft); background: #090d12; }
-.strategy-stage span { color: var(--accent); font: 700 8px/1 var(--mono); letter-spacing: .09em; }
-.strategy-stage strong { color: var(--muted); font: 650 8px/1 var(--mono); }
+.strategy-stage > span { color: var(--accent); font: 700 8px/1 var(--mono); letter-spacing: .09em; }
+.strategy-stage > strong { color: var(--muted); font: 650 8px/1 var(--mono); }
 .strategy-change { padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--accent), transparent 72%); background: color-mix(in srgb, var(--accent), transparent 91%); color: var(--accent); font: 750 8px/1.2 var(--mono); letter-spacing: .07em; }
 .strategy-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); }
 .strategy-metric { min-height: 58px; display: grid; align-content: center; gap: 5px; padding: 8px 10px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
@@ -654,8 +654,8 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .timing-race-strategy { grid-template-columns: 38px minmax(160px, 1.35fr) 44px 44px 54px 38px minmax(72px, .65fr) minmax(72px, .65fr); }
 
 .strategy-stage { min-height: 26px; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--line-soft); background: #090d12; }
-.strategy-stage span { color: var(--accent); font: 700 8px/1 var(--mono); letter-spacing: .09em; }
-.strategy-stage strong { color: var(--muted); font: 650 8px/1 var(--mono); }
+.strategy-stage > span { color: var(--accent); font: 700 8px/1 var(--mono); letter-spacing: .09em; }
+.strategy-stage > strong { color: var(--muted); font: 650 8px/1 var(--mono); }
 .strategy-change { padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--accent), transparent 72%); background: color-mix(in srgb, var(--accent), transparent 91%); color: var(--accent); font: 750 8px/1.2 var(--mono); letter-spacing: .07em; }
 .strategy-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); margin-bottom: 18px; }
 .strategy-metric { min-height: 58px; display: grid; align-content: center; gap: 5px; padding: 8px 10px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }

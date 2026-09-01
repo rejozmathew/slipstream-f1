@@ -44,7 +44,7 @@ from .extractors.structured import (
 from .extractors.tyre_bank import parse_tyre_bank_text
 from .validation import validate_result_against_artifacts
 
-NORMALIZER_VERSION = "slipstream-pirelli-v5-adapted.2"
+NORMALIZER_VERSION = "slipstream-pirelli-v5-adapted.3"
 
 
 @dataclass(frozen=True)

@@ -498,6 +498,32 @@ def extract_strategy_prose(
                 )
             )
 
+    # Some releases state an alternative as a complete start/window/finish
+    # sentence rather than using "switch" or "stop". All four facts are
+    # explicit, so this remains deterministic and does not infer a chain.
+    alternative_window_finish = re.compile(
+        rf"\balternative\b[^.]*?start(?:ing)?\s+on\s+(?:the\s+)?({_COMPOUND})"
+        rf"[^.]*?(?:window\s+)?between\s+laps?\s+(\d+)\s+and\s+(\d+)"
+        rf"[^.]*?finish(?:ing)?(?:\s+the\s+race)?\s+on\s+(?:the\s+)?({_COMPOUND})",
+        re.IGNORECASE,
+    )
+    for match in alternative_window_finish.finditer(text):
+        first = _compound(match.group(1))
+        second = _compound(match.group(4))
+        if first is not None and second is not None:
+            local = text[max(0, match.start() - 100) : match.end()]
+            options.append(
+                _make(
+                    source_url=source_url,
+                    artifact_id=artifact_id,
+                    compounds=(first, second),
+                    windows=(PitWindow(int(match.group(2)), int(match.group(3))),),
+                    evidence_text=match.group(0),
+                    rank_text=local,
+                    applicability=applicability,
+                )
+            )
+
     # The three-leg form used by recent releases gives the first window before
     # naming the second and third compounds; the absent second window stays None.
     first_window_three = re.compile(

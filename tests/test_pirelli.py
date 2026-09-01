@@ -267,6 +267,14 @@ def test_modern_pirelli_strategy_phrasings_preserve_explicit_options_and_windows
             ),
             {("M-H", ((27, 33),))},
         ),
+        (
+            (
+                "An alternative, around one second slower, involves starting on the Soft, "
+                "using it until the window between laps 26 and 32, and then finishing the "
+                "race on the Hard."
+            ),
+            {("S-H", ((26, 32),))},
+        ),
     )
 
     for text, expected in cases:
@@ -287,6 +295,23 @@ def test_modern_pirelli_strategy_phrasings_preserve_explicit_options_and_windows
             if isinstance(option, StrategyOption)
         }
         assert expected <= actual
+
+
+def test_exact_dutch_soft_hard_option_is_source_ranked_alternative():
+    result = extract_strategy_prose(
+        "An alternative, around one second slower, involves starting on the Soft, "
+        "using it until the window between laps 26 and 32, and then finishing the "
+        "race on the Hard.",
+        source_url="https://press.pirelli.com/dutch-2026",
+        artifact_id="dutch-2026",
+    )
+    option = next(
+        fact
+        for fact in result.facts
+        if isinstance(fact, StrategyOption) and fact.sequence == "S-H"
+    )
+    assert option.rank == StrategyRank.ALTERNATIVE
+    assert option.pit_windows == (PitWindow(26, 32),)
 
 
 def test_multi_event_nomination_keeps_each_meeting_binding():
