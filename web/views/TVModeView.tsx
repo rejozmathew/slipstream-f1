@@ -40,7 +40,7 @@ function DriverTV({ driver, analytics, state, positionMode }: {
   const model = driver ? analytics?.drivers[driver.number] : null;
   const samples = model?.pace.samples.slice(-22) ?? [];
   const latestPit = model?.pitEvents.at(-1) ?? null;
-  if (!driver) return <div className="unknown-block"><strong>DRIVER · NOT SELECTED</strong><p>Choose a Driver TV target in Settings → Preferences.</p></div>;
+  if (!driver) return <div className="unknown-block"><strong>DRIVER · NOT AVAILABLE</strong><p>No classified driver is available at this cursor.</p></div>;
   const lifecycle = driverLifecycle(driver);
   return <div className="tv-driver-state">
     <header style={{ borderColor: `#${driver.team_colour ?? "77808f"}` }}><div><span>DRIVER</span><strong>#{driver.number}</strong></div><div><h2>{driver.name ?? driver.code ?? driver.number}</h2><p>{driver.team ?? "Team unavailable"}</p>{lifecycle.label && <span className="driver-status-badge terminal">{lifecycle.label}</span>}</div><b>P{driver.position ?? "—"}</b></header>
@@ -119,7 +119,9 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
       : null;
   const previousStatus = useRef(effectiveStatus);
   const drivers = useMemo(() => Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999)), [state.drivers]);
-  const selectedDriver = preferences.selectedDriverNumber ? drivers.find((driver) => driver.number === preferences.selectedDriverNumber) ?? null : null;
+  const selectedDriver = preferences.selectedDriverNumber
+    ? drivers.find((driver) => driver.number === preferences.selectedDriverNumber) ?? null
+    : drivers[0] ?? null;
   const battleDrivers = useMemo(() => drivers.filter((driver) => driverLifecycle(driver).battleEligible), [drivers]);
   const leaderPair = battleDrivers.length >= 2 ? [battleDrivers[0].number, battleDrivers[1].number] as [string, string] : null;
   const selectedPair = preferences.battleMode === "leader" ? leaderPair : preferences.battleMode === "pinned" ? preferences.pinnedBattle : recommendedBattle;

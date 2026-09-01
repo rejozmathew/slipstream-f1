@@ -134,13 +134,14 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
 });
 test("keeps Packet E TV and analytics contracts truthful", async () => {
-  const [tvMode, protocol, publishedStrategy, battleCard, timingTower, strategyView] = await Promise.all([
+  const [tvMode, protocol, publishedStrategy, battleCard, timingTower, strategyView, styles] = await Promise.all([
     readFile(new URL("../views/TVModeView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../domain/protocol.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/analysis/PublishedStrategy.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/battle/BattleDriverCard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/timing/TimingTower.tsx", import.meta.url), "utf8"),
     readFile(new URL("../views/StrategyView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
   assert.doesNotMatch(tvMode, /drivers\.slice\(/);
@@ -153,6 +154,9 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.doesNotMatch(tvMode, /TVQualifyingCutline|TVQualifyingSectors|"cutline"|"sectors"|"runs"|"stints"|CLOCK UNKNOWN|PHASE UNKNOWN/);
   assert.match(tvMode, /practice: \["tower"\]/);
   assert.match(tvMode, /hasRenderableCarPositions/);
+  assert.match(tvMode, /: drivers\[0\] \?\? null/);
+  assert.doesNotMatch(styles, /\.tv-mini-tower \.timing-race > :nth-child\(n\+6\)/);
+  assert.match(styles, /\.tv-mini-tower \.timing-row\.timing-race > :nth-child\(n\+6\)/);
   assert.match(protocol, /perDriverState\?: Record<string, DryTyreRequirementState>/);
   assert.match(protocol, /status: "NOT_IMPLEMENTED"/);
   assert.match(protocol, /metrics: null/);
@@ -163,6 +167,8 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.match(publishedStrategy, /publishedWindowSummary/);
   assert.match(publishedStrategy, /compoundCounts/);
   assert.match(publishedStrategy, /race-now-sequences/);
+  assert.match(publishedStrategy, /Active running \/ in-pit compound paths/);
+  assert.match(publishedStrategy, /CompoundBadge compound="HARD" compact/);
   assert.match(publishedStrategy, /drivers still need another dry compound/);
   assert.match(strategyView, /published-path/);
   for (const source of [publishedStrategy, battleCard, timingTower, strategyView, tvMode]) {
@@ -241,7 +247,7 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(driverFocus, /segmentResults/);
   assert.match(driverFocus, /formatLapTime/);
   assert.match(tvMode, /QUALIFYING FINAL/);
-  assert.match(tvMode, /DRIVER · NOT SELECTED/);
+  assert.doesNotMatch(tvMode, /DRIVER · NOT SELECTED/);
   assert.match(tvMode, /COMPLETED-LAP TREND/);
   assert.match(tvMode, /pitLaneDuration/);
   assert.match(battleView, /preferences\.pinnedPair/);

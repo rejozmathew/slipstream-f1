@@ -58,7 +58,7 @@ export function PirelliBaseline({ baseline, compact = false, action }: { baselin
     {!present && <div className="pirelli-unavailable pirelli-unavailable-row" role="status"><strong>PIRELLI CONTEXT NOT AVAILABLE</strong><p>Race facts remain primary.</p></div>}
     {present && <div className="pirelli-baseline-body">
       <div className="pirelli-source-row"><span>PIRELLI · PRE-RACE PUBLICATION</span>{baseline.publishedAt && <small>{new Date(baseline.publishedAt).toLocaleString()}</small>}{baseline.sourceUrl && <a href={baseline.sourceUrl} target="_blank" rel="noreferrer">SOURCE ↗</a>}</div>
-      {baseline.compoundSelection && <div className="physical-nomination"><span>WEEKEND NOMINATION</span><strong><i>H</i>{baseline.compoundSelection.hard}<i>M</i>{baseline.compoundSelection.medium}<i>S</i>{baseline.compoundSelection.soft}</strong></div>}
+      {baseline.compoundSelection && <div className="physical-nomination"><span>WEEKEND NOMINATION</span><strong><CompoundBadge compound="HARD" compact />{baseline.compoundSelection.hard}<CompoundBadge compound="MEDIUM" compact />{baseline.compoundSelection.medium}<CompoundBadge compound="SOFT" compact />{baseline.compoundSelection.soft}</strong></div>}
       <div className="published-options">{baseline.options.length ? baseline.options.map((option) => <PublishedOptionCard key={option.id} option={option} compact={compact} />) : <div className="pirelli-no-options">NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED</div>}</div>
       {!compact && baseline.contextFacts.length > 0 && <div className="pirelli-context-facts">{baseline.contextFacts.slice(0, 3).map((fact) => <p key={`${fact.category}-${fact.statement}`}><span>{fact.category.replaceAll("_", " ")}</span>{fact.statement}</p>)}</div>}
     </div>}
@@ -83,12 +83,12 @@ export function RaceNow({ analytics, compact = false }: { analytics: AnalyticsSn
   return <Panel eyebrow="CURRENT SESSION" title="Race now" className={`race-now${compact ? " race-now-compact" : ""}`}>
     {!read && <div className="pirelli-unavailable"><strong>RACE READ NOT YET AVAILABLE</strong><p>Current race facts will appear as the session develops.</p></div>}
     {read && <div className="race-now-grid">
-      <div><span>RUNNING / RECENT PROGRESS</span><strong>{read.population.running}</strong><small>{lifecycleCounts}</small></div>
+      <div><span>RUNNING / RECENT PROGRESS</span><strong>{read.population.running} RUNNING</strong><small>{lifecycleCounts}</small></div>
       <div><span>CURRENT TYRES</span><strong>{compoundCounts(read.currentTyreDistribution)}</strong><small>Factually running or in-pit drivers</small></div>
       <div><span>COMPLETED STOPS</span><strong>{stopDistribution}</strong><small>Observed stop-count distribution</small></div>
       <div><span>DRY RULE</span><strong>{read.dryRequirementLandscape.unsatisfied} drivers still need another dry compound</strong><small>{read.dryRequirementLandscape.unknown} unknown · {read.dryRequirementLandscape.denominator} running or in pit</small></div>
       <div><span>PACE CONTEXT</span><strong>{read.paceTrendDistribution.comparableDrivers} COMPARABLE</strong><small>{read.paceTrendDistribution.highFade} high fade · {read.paceTrendDistribution.moderateFade} moderate · {read.paceTrendDistribution.lowOrStable} stable</small></div>
-      <div><span>OBSERVED SEQUENCES</span><strong>{observedSequences(analytics?.observedSequences)}</strong><small>Completed compound paths</small></div>
+      <div><span>OBSERVED SEQUENCES</span><strong>{observedSequences(analytics?.observedSequences)}</strong><small>Active running / in-pit compound paths</small></div>
       {!compact && <div><span>STINT CONTEXT</span><strong>{stints}</strong><small>Completed stints by compound</small></div>}
       {!compact && <div><span>RECENT PITS</span><strong>{recentPits}</strong><small>Latest factual pit activity</small></div>}
       <div className="race-now-facts"><span>NOW</span>{read.summaryFacts.slice(0, compact ? 1 : 3).map((fact) => <p key={fact}>{fact}</p>)}</div>
