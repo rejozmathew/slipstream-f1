@@ -795,40 +795,39 @@ def _effective_end_time(selected: ReplayResource, now: datetime) -> str:
 def _first_terminal_time(events: tuple[NormalizedEvent, ...]) -> str | None:
     """Return the first normalized, user-domain session terminal boundary."""
 
-    terminal_statuses = {"FINISHED", "CANCELLED"}
-    terminal_controls = {"CHEQUERED", "CANCELLED"}
     for event in events:
-        if event.kind != "session":
-            continue
-        status = str(event.payload.get("status") or "").upper()
-        track = str(event.payload.get("track_status") or "").upper()
-        control = str(event.payload.get("control_status") or "").upper()
-        display = str(event.payload.get("display_status") or "").upper()
-        if status in terminal_statuses or terminal_controls.intersection(
-            {track, control, display}
-        ):
+        if _is_terminal_session_event(event):
             return event.occurred_at
     return None
 
 
-def _last_terminal_time(events: tuple[NormalizedEvent, ...]) -> str | None:
-    """Return the final normalized, user-domain session terminal boundary."""
-
-    last_terminal: str | None = None
+def _is_terminal_session_event(event: NormalizedEvent) -> bool:
+    if event.kind != "session":
+        return False
     terminal_statuses = {"FINISHED", "CANCELLED"}
     terminal_controls = {"CHEQUERED", "CANCELLED"}
+    status = str(event.payload.get("status") or "").upper()
+    track = str(event.payload.get("track_status") or "").upper()
+    control = str(event.payload.get("control_status") or "").upper()
+    display = str(event.payload.get("display_status") or "").upper()
+    return status in terminal_statuses or bool(
+        terminal_controls.intersection({track, control, display})
+    )
+
+
+def _qualifying_terminal_time(
+    events: tuple[NormalizedEvent, ...], *, sprint: bool
+) -> str | None:
+    final_phase = "SQ3" if sprint else "Q3"
+    final_phase_started = False
     for event in events:
-        if event.kind != "session":
-            continue
-        status = str(event.payload.get("status") or "").upper()
-        track = str(event.payload.get("track_status") or "").upper()
-        control = str(event.payload.get("control_status") or "").upper()
-        display = str(event.payload.get("display_status") or "").upper()
-        if status in terminal_statuses or terminal_controls.intersection(
-            {track, control, display}
-        ):
-            last_terminal = event.occurred_at
-    return last_terminal
+        if event.kind == "session" and str(
+            event.payload.get("qualifying_phase") or ""
+        ).upper() == final_phase:
+            final_phase_started = True
+        if final_phase_started and _is_terminal_session_event(event):
+            return event.occurred_at
+    return None
 
 
 def _settled_terminal_time(selected: ReplayResource) -> str | None:
@@ -837,10 +836,16 @@ def _settled_terminal_time(selected: ReplayResource) -> str | None:
     first_terminal = _first_terminal_time(selected.events)
     if first_terminal is None:
         return first_terminal
+    if selected.descriptor.session_kind in {"qualifying", "sprint_qualifying"}:
+        # Qualifying emits a FINISHED boundary for each phase and may repeat
+        # terminal packets after Q3. The replay ends at the first terminal
+        # boundary after the final phase actually starts.
+        return _qualifying_terminal_time(
+            selected.events,
+            sprint=selected.descriptor.session_kind == "sprint_qualifying",
+        ) or first_terminal
     if selected.descriptor.session_kind != "race":
-        # Qualifying emits a FINISHED boundary for each phase. Exposing the
-        # first one would cap a full Q1/Q2/Q3 recording at the end of Q1.
-        return _last_terminal_time(selected.events)
+        return first_terminal
 
     participants: set[str] = set()
     classified: set[str] = set()

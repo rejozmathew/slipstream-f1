@@ -372,6 +372,12 @@ def test_qualifying_replay_end_uses_final_phase_terminal(tmp_path: Path) -> None
             "source": "fixture",
             "payload": {"category": "Other", "message": "POST SESSION ACCESS"},
         },
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-22T15:06:00Z",
+            "source": "fixture",
+            "payload": {"status": "FINISHED", "qualifying_phase": "Q3"},
+        },
     ]
     path = tmp_path / "qualifying.json"
     path.write_text(json.dumps(recording), encoding="utf-8")
