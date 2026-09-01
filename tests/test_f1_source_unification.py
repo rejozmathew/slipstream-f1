@@ -292,6 +292,81 @@ def test_official_completed_lap_quality_uses_stint_and_track_evidence() -> None:
     assert laps[1].contamination_reasons == ("neutralized_track",)
 
 
+def test_official_qualifying_parts_and_results_are_cursor_safe() -> None:
+    adapter = F1LiveAdapter("11349", source="f1-static-public")
+    events = list(
+        adapter.ingest(
+            {
+                "stream": "SessionInfo",
+                "payload": {"Key": 11349, "Name": "Qualifying", "Type": "Qualifying"},
+                "source_timestamp": "2026-08-22T13:46:33Z",
+            }
+        )
+    )
+    events.extend(
+        adapter.ingest(
+            {
+                "stream": "SessionData",
+                "payload": {"Series": {"0": {"QualifyingPart": 1}}},
+                "source_timestamp": "2026-08-22T13:46:45Z",
+            }
+        )
+    )
+    events.extend(
+        adapter.ingest(
+            {
+                "stream": "TimingData",
+                "payload": {
+                    "Lines": {
+                        "44": {
+                            "RacingNumber": "44",
+                            "BestLapTimes": {
+                                "0": {"Value": "1:12.673", "Lap": 9},
+                                "1": {},
+                                "2": {},
+                            },
+                        }
+                    }
+                },
+                "source_timestamp": "2026-08-22T14:18:00Z",
+            }
+        )
+    )
+    q1_state = _apply(RaceState(), events)
+    assert q1_state.session.qualifying_phase == "Q1"
+    assert q1_state.drivers["44"].qualifying_results == (72.673, None, None)
+    assert q1_state.drivers["44"].qualifying_phase_reached == "Q1"
+
+    q2_events = list(
+        adapter.ingest(
+            {
+                "stream": "SessionData",
+                "payload": {"Series": {"1": {"QualifyingPart": 2}}},
+                "source_timestamp": "2026-08-22T14:23:59Z",
+            }
+        )
+    )
+    q2_events.extend(
+        adapter.ingest(
+            {
+                "stream": "TimingData",
+                "payload": {
+                    "Lines": {
+                        "44": {
+                            "BestLapTimes": {"1": {"Value": "1:11.970", "Lap": 13}}
+                        }
+                    }
+                },
+                "source_timestamp": "2026-08-22T14:40:00Z",
+            }
+        )
+    )
+    q2_state = _apply(q1_state, q2_events)
+    assert q2_state.session.qualifying_phase == "Q2"
+    assert q2_state.drivers["44"].qualifying_results == (72.673, 71.97, None)
+    assert q2_state.drivers["44"].qualifying_phase_reached == "Q2"
+
+
 def test_official_minisectors_supply_timing_estimate_without_xy() -> None:
     sectors = [
         {"Segments": [{"Status": 0} for _ in range(8)]} for _ in range(3)

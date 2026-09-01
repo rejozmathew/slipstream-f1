@@ -692,14 +692,17 @@ class F1LiveAdapter:
             )
         phase: str | None = None
         for item in candidates:
+            qualifying_part = item.get("QualifyingPart")
             raw_value = str(
-                item.get("Value") or item.get("QualifyingPart") or ""
+                item.get("Value") or qualifying_part or ""
             ).upper()
             if raw_value in {"Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"}:
                 phase = raw_value
-            elif raw_value in {"1", "2", "3"} and str(
-                item.get("Type") or ""
-            ).lower() in {"qualifyingpart", "qualifying_part"}:
+            elif raw_value in {"1", "2", "3"} and (
+                qualifying_part is not None
+                or str(item.get("Type") or "").lower()
+                in {"qualifyingpart", "qualifying_part"}
+            ):
                 session_info = str(self.streams.get("SessionInfo", {})).upper()
                 phase = f"{'SQ' if 'SPRINT' in session_info else 'Q'}{raw_value}"
         if phase is not None:

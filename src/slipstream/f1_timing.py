@@ -79,6 +79,10 @@ def normalize_f1_timing(
             "qualifying_eliminated": (
                 _truthy(item.get("KnockedOut")) if "KnockedOut" in item else None
             ),
+            "qualifying_results": _qualifying_results(item.get("BestLapTimes")),
+            "qualifying_phase_reached": _qualifying_phase_reached(
+                item.get("BestLapTimes"), qualifying_phase
+            ),
             "sector_1": _number(_value(sectors[0])) if len(sectors) > 0 else None,
             "sector_2": _number(_value(sectors[1])) if len(sectors) > 1 else None,
             "sector_3": _number(_value(sectors[2])) if len(sectors) > 2 else None,
@@ -295,6 +299,31 @@ def _duration_seconds(value: object) -> float | None:
         return int(minutes) * 60 + float(seconds)
     except (TypeError, ValueError):
         return None
+
+
+def _qualifying_results(
+    value: object,
+) -> tuple[float | None, float | None, float | None] | None:
+    entries = _ordered_values(value)[:3]
+    results = tuple(
+        _duration_seconds(_value(entries[index])) if index < len(entries) else None
+        for index in range(3)
+    )
+    return results if any(result is not None for result in results) else None
+
+
+def _qualifying_phase_reached(value: object, current_phase: str) -> str | None:
+    results = _qualifying_results(value)
+    if results is not None:
+        prefix = "SQ" if str(current_phase).upper().startswith("SQ") else "Q"
+        reached = max(
+            index
+            for index, result in enumerate(results, start=1)
+            if result is not None
+        )
+        return f"{prefix}{reached}"
+    phase = str(current_phase or "UNKNOWN").upper()
+    return phase if phase in {"Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"} else None
 
 
 def _lap_started_at(occurred_at: str, duration: float | None) -> str:

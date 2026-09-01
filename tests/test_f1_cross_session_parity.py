@@ -134,7 +134,7 @@ def _provider_rows(name: str, session_type: str) -> list[tuple[str, dict, str]]:
             (
                 (
                     "SessionData",
-                    {"Series": {"0": {"Type": "QualifyingPart", "Value": phase}}},
+                    {"Series": {str(index): {"QualifyingPart": int(phase)}}},
                     f"2026-08-23T13:0{6 + index}:10Z",
                 )
                 for index, phase in enumerate(("1", "2", "3"))
