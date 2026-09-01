@@ -531,6 +531,325 @@ def test_two_live_viewers_own_independent_cursor_safe_delays(
     assert latest_again["seq"] == latest["seq"]
 
 
+def test_live_delay_0_30_120_keeps_state_evidence_map_and_playhead_coherent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    catalog = {
+        "format": CATALOG_FORMAT,
+        "schema_version": 1,
+        "source": "openf1",
+        "updated_at": "2026-08-23T12:00:00Z",
+        "years": [2026],
+        "meetings": {
+            "1292": {
+                "meeting_key": 1292,
+                "meeting_name": "Dutch Grand Prix",
+                "circuit": {
+                    "key": "55",
+                    "name": "Zandvoort",
+                    "year": 2026,
+                    "rotation": 0,
+                    "path": [[0, 0], [10, 0], [5, 10]],
+                    "source": "catalog-cache",
+                    "availability": {"path": "available"},
+                },
+            }
+        },
+        "sessions": [
+            {
+                "session_key": 99001,
+                "meeting_key": 1292,
+                "session_name": "Race",
+                "session_type": "Race",
+                "date_start": "2026-08-23T12:00:00Z",
+                "date_end": "2026-08-23T13:00:00Z",
+                "gmt_offset": "02:00:00",
+                "year": 2026,
+            },
+            {
+                "session_key": 99002,
+                "meeting_key": 1292,
+                "session_name": "Practice 1",
+                "session_type": "Practice",
+                "date_start": "2026-08-22T12:00:00Z",
+                "date_end": "2026-08-22T13:00:00Z",
+                "gmt_offset": "02:00:00",
+                "year": 2026,
+            },
+        ],
+    }
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+    (tmp_path / "f1-static-99002.json").write_text(
+        json.dumps(
+            [
+                {
+                    "kind": "session",
+                    "occurred_at": "2026-08-23T12:00:00Z",
+                    "source": "f1-static-public",
+                    "payload": {"key": "99002", "session_kind": "practice_1"},
+                },
+                {
+                    "kind": "timing",
+                    "occurred_at": "2026-08-23T12:03:50Z",
+                    "source": "f1-static-public",
+                    "payload": {"number": "99", "lap": 99, "position": 1},
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def row(at: str, stream: str, payload: dict) -> dict[str, object]:
+        return {
+            "received_at": at,
+            "stream": stream,
+            "source_timestamp": at,
+            "initial": False,
+            "payload": payload,
+        }
+
+    rows = [
+        row(
+            "2026-08-23T12:00:00Z",
+            "SessionInfo",
+            {"Key": 99001, "Name": "Race", "Type": "Race"},
+        ),
+        row("2026-08-23T12:00:01Z", "SessionStatus", {"Status": "Started"}),
+        row(
+            "2026-08-23T12:00:05Z",
+            "DriverList",
+            {
+                "1": {"RacingNumber": "1", "Tla": "NOR", "FullName": "Norris"},
+                "2": {"RacingNumber": "2", "Tla": "PIA", "FullName": "Piastri"},
+            },
+        ),
+        row(
+            "2026-08-23T12:00:10Z",
+            "TimingAppData",
+            {
+                "Lines": {
+                    "1": {"Stints": {"0": {"Compound": "MEDIUM", "TotalLaps": 1}}},
+                    "2": {"Stints": {"0": {"Compound": "HARD", "TotalLaps": 1}}},
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:00:20Z",
+            "TimingData",
+            {
+                "Lines": {
+                    "1": {
+                        "RacingNumber": "1",
+                        "Position": 1,
+                        "NumberOfLaps": 1,
+                        "NumberOfPitStops": 0,
+                        "GapToLeader": "",
+                        "Stopped": False,
+                        "InPit": False,
+                    },
+                    "2": {
+                        "RacingNumber": "2",
+                        "Position": 2,
+                        "NumberOfLaps": 1,
+                        "NumberOfPitStops": 0,
+                        "GapToLeader": "+1.200",
+                        "Stopped": False,
+                        "InPit": False,
+                    },
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:01:00Z",
+            "TimingData",
+            {
+                "Lines": {
+                    "1": {
+                        "NumberOfLaps": 2,
+                        "LastLapTime": {"Value": "1:20.000"},
+                        "GapToLeader": "",
+                    },
+                    "2": {
+                        "NumberOfLaps": 2,
+                        "LastLapTime": {"Value": "1:20.500"},
+                        "GapToLeader": "+1.700",
+                    },
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:01:50Z",
+            "TimingData",
+            {"Lines": {"1": {"Stopped": True, "Retired": False}}},
+        ),
+        row(
+            "2026-08-23T12:02:20Z",
+            "TimingData",
+            {
+                "Lines": {
+                    "1": {
+                        "Stopped": False,
+                        "Retired": False,
+                        "NumberOfLaps": 3,
+                        "LastLapTime": {"Value": "1:21.000"},
+                    }
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:02:30Z",
+            "SessionData",
+            {
+                "StatusSeries": {
+                    "1": {
+                        "Utc": "2026-08-23T12:02:30Z",
+                        "SessionStatus": "Aborted",
+                        "TrackStatus": "Red",
+                    }
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:02:50Z",
+            "SessionData",
+            {
+                "StatusSeries": {
+                    "2": {
+                        "Utc": "2026-08-23T12:02:50Z",
+                        "SessionStatus": "Started",
+                        "TrackStatus": "AllClear",
+                    }
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:03:00Z",
+            "TimingData",
+            {
+                "Lines": {
+                    "1": {
+                        "NumberOfLaps": 3,
+                        "NumberOfPitStops": 1,
+                        "InPit": True,
+                    }
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:03:01Z",
+            "PitLaneTimeCollection",
+            {
+                "PitTimes": {
+                    "1": {"RacingNumber": "1", "Duration": "18.4", "Lap": 4}
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:03:15Z",
+            "TimingAppData",
+            {"Lines": {"1": {"Stints": {"1": {"Compound": "HARD"}}}}},
+        ),
+        row(
+            "2026-08-23T12:03:30Z",
+            "TimingData",
+            {
+                "Lines": {
+                    "1": {
+                        "NumberOfLaps": 4,
+                        "LastLapTime": {"Value": "1:24.000"},
+                        "InPit": False,
+                        "GapToLeader": "",
+                    }
+                }
+            },
+        ),
+        row(
+            "2026-08-23T12:04:00Z",
+            "TimingData",
+            {
+                "Lines": {
+                    "1": {
+                        "NumberOfLaps": 5,
+                        "LastLapTime": {"Value": "1:19.500"},
+                    },
+                    "2": {
+                        "NumberOfLaps": 5,
+                        "LastLapTime": {"Value": "1:20.100"},
+                        "GapToLeader": "+2.300",
+                    },
+                }
+            },
+        ),
+    ]
+    live = PublicLiveSession()
+    asyncio.run(live.apply_rows("99001", rows))
+    now = datetime(2026, 8, 23, 12, 5, tzinfo=UTC)
+
+    with (
+        TestClient(
+            create_app(
+                tmp_path,
+                now=lambda: now,
+                public_live=True,
+                live_session=live,
+                prepare_weekend_context=lambda **_: {},
+            )
+        ) as client,
+        client.websocket_connect(
+            "/api/v1/stream?session_key=99001&mode=live"
+        ) as viewer,
+    ):
+        head = viewer.receive_json()
+        viewer.send_json({"type": "delay", "seconds": 120})
+        delayed_120 = viewer.receive_json()
+        viewer.send_json({"type": "delay", "seconds": 30})
+        delayed_30 = viewer.receive_json()
+        viewer.send_json({"type": "reset"})
+        reset = viewer.receive_json()
+
+    def map_population(envelope: dict) -> int:
+        return sum(
+            driver["source_condition"] == "RUNNING"
+            and driver["activity"] == "ON_TRACK"
+            for driver in envelope["data"]["drivers"].values()
+        )
+
+    assert head["data"]["drivers"]["1"]["lap"] == 5
+    assert head["analytics"]["sequence"] == head["seq"]
+    assert head["sessionTime"] == "2026-08-23T12:04:00Z"
+    assert "99" not in head["data"]["drivers"]
+
+    stopped = delayed_120["data"]["drivers"]["1"]
+    assert delayed_120["sessionTime"] == "2026-08-23T12:02:00+00:00"
+    assert stopped["lap"] == 2
+    assert stopped["source_condition"] == "STOPPED"
+    assert stopped["compound"] == "MEDIUM"
+    assert delayed_120["analytics"]["drivers"]["1"]["pitEvents"] == []
+    assert delayed_120["analytics"]["sequence"] == delayed_120["seq"]
+    assert delayed_120["live"]["delaySeconds"] == 120
+    assert map_population(delayed_120) == 1
+
+    after_restart = delayed_30["data"]["drivers"]["1"]
+    assert delayed_30["sessionTime"] == "2026-08-23T12:03:30+00:00"
+    assert after_restart["lap"] == 4
+    assert after_restart["source_condition"] == "RUNNING"
+    assert after_restart["compound"] == "HARD"
+    assert delayed_30["data"]["session"]["status"] == "RUNNING"
+    assert delayed_30["data"]["session"]["display_status"] == "GREEN"
+    pit = delayed_30["analytics"]["drivers"]["1"]["pitEvents"][0]
+    assert pit["pitLaneDuration"] == 18.4
+    assert pit["stopDuration"] is None
+    assert delayed_30["analytics"]["sequence"] == delayed_30["seq"]
+    assert delayed_30["live"]["delaySeconds"] == 30
+    assert map_population(delayed_30) == 2
+
+    assert reset["seq"] == head["seq"]
+    assert reset["sessionTime"] == head["sessionTime"]
+    assert reset["data"] == head["data"]
+    assert reset["live"]["delaySeconds"] == 0
+
+
 def test_live_product_phase_history_separates_transport_from_completion() -> None:
     async def scenario() -> tuple[str, ...]:
         async def rows():

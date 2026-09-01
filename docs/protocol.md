@@ -190,6 +190,8 @@ An observation records lap number and start time, duration and sectors when supp
 
 Pit observations may additionally carry `pit_occurred_at`, `previous_compound`, `new_compound`, `stop_duration`, and `pit_lane_duration`. These remain optional and source-capability dependent.
 
+Official `PitLaneTimeCollection.Duration` is admitted as `pit_lane_duration` only when it is positive and no greater than 300 seconds. Values outside that bounded transit domain remain unavailable. This field never populates `stop_duration`, which is reserved for separately defensible stationary/pit-box evidence.
+
 Whole-track contamination is derived from timestamped intervals opened only by genuine track-scoped yellow/red or explicit SC/VSC deployment evidence and closed by a whole-track clear/green transition. Sector- and driver-scoped flags do not neutralize the whole lap. An unclosed interval remains unknown where overlap cannot be proven. Future analytics may consume this evidence, but calculated pace or strategy does not become part of canonical `RaceState`.
 
 ## Circuit, position, and conditions

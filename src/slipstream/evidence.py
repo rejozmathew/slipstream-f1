@@ -311,7 +311,21 @@ class SessionEvidence:
             and (event_limit is None or item.sequence <= event_limit)
             and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
         )
-        return tuple(sorted((*legacy, *direct), key=lambda item: item.sequence))
+        collapsed: list[PitEvent] = []
+        for item in sorted((*legacy, *direct), key=lambda candidate: candidate.sequence):
+            match = next(
+                (
+                    index
+                    for index, current in enumerate(collapsed)
+                    if _same_pit_event(current, item)
+                ),
+                None,
+            )
+            if match is None:
+                collapsed.append(item)
+            else:
+                collapsed[match] = _merge_pit_event(collapsed[match], item)
+        return tuple(collapsed)
 
     def completed_gap_history(
         self,
@@ -484,6 +498,38 @@ def _direct_pit_event(
             if payload.get("ordinal") is not None
             else None
         ),
+    )
+
+
+def _same_pit_event(left: PitEvent, right: PitEvent) -> bool:
+    if left.driver_number != right.driver_number:
+        return False
+    if left.ordinal is not None and right.ordinal is not None:
+        return left.ordinal == right.ordinal
+    return left.lap == right.lap
+
+
+def _merge_pit_event(existing: PitEvent, update: PitEvent) -> PitEvent:
+    """Combine source rows for one stop without moving its first factual cursor."""
+
+    return PitEvent(
+        sequence=existing.sequence,
+        occurred_at=existing.occurred_at,
+        driver_number=existing.driver_number,
+        lap=existing.lap,
+        previous_compound=update.previous_compound or existing.previous_compound,
+        new_compound=update.new_compound or existing.new_compound,
+        stop_duration=(
+            update.stop_duration
+            if update.stop_duration is not None
+            else existing.stop_duration
+        ),
+        pit_lane_duration=(
+            update.pit_lane_duration
+            if update.pit_lane_duration is not None
+            else existing.pit_lane_duration
+        ),
+        ordinal=update.ordinal if update.ordinal is not None else existing.ordinal,
     )
 
 

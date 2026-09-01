@@ -46,6 +46,7 @@ PUBLIC_TOPICS = (
     "SessionStatus",
     "TimingAppData",
     "TimingData",
+    "PitLaneTimeCollection",
     "TopThree",
     "TrackStatus",
     "WeatherData",
@@ -77,6 +78,14 @@ def utc_now() -> str:
 def canonical_utc(value: str) -> str:
     """Render a provider UTC timestamp in canonical offset-aware form."""
     return parse_timestamp(value).isoformat().replace("+00:00", "Z")
+
+
+def _pit_lane_duration(value: object) -> float | None:
+    try:
+        duration = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return duration if 0 < duration <= 300 else None
 
 
 def recording_header(*, captured_at: str | None = None) -> dict[str, Any]:
@@ -469,6 +478,7 @@ class F1LiveAdapter:
         "DriverList",
         "TimingAppData",
         "TimingData",
+        "PitLaneTimeCollection",
         "LapCount",
         "TrackStatus",
         "RaceControlMessages",
@@ -555,6 +565,8 @@ class F1LiveAdapter:
             return self._driver_events(merged, occurred_at)
         if stream == "TimingData":
             return self._timing_events(merged, patch, occurred_at)
+        if stream == "PitLaneTimeCollection":
+            return self._pit_lane_time_events(patch, occurred_at)
         if stream == "TimingAppData":
             return self._stint_events(merged, occurred_at)
         if stream == "LapCount":
@@ -867,6 +879,49 @@ class F1LiveAdapter:
             lap_annotations=self._lap_annotations,
             neutralized=self._lap_neutralized(),
         )
+
+    def _pit_lane_time_events(
+        self, patch: Any, occurred_at: str
+    ) -> list[NormalizedEvent]:
+        """Publish only factual, bounded official pit-lane durations.
+
+        The provider collection is sparse and removes a car after the row has
+        served its purpose. Deletion markers carry no new duration fact. Very
+        large values can span a suspension and no longer describe one pit-lane
+        transit, so they remain unavailable rather than being clamped.
+        """
+
+        pit_times = patch.get("PitTimes") if isinstance(patch, dict) else None
+        if not isinstance(pit_times, dict):
+            return []
+        events: list[NormalizedEvent] = []
+        for raw_number, item in pit_times.items():
+            if raw_number == "_deleted" or not isinstance(item, dict):
+                continue
+            number = str(item.get("RacingNumber") or raw_number)
+            lap = _number(item.get("Lap"), integer=True)
+            duration = _pit_lane_duration(item.get("Duration"))
+            if lap is None or duration is None:
+                continue
+            ordinal = self._pit_counts.get(number)
+            events.append(
+                NormalizedEvent(
+                    "timing",
+                    occurred_at,
+                    self.source,
+                    {
+                        "number": number,
+                        "pit_observation": {
+                            "lap": lap,
+                            "pit_occurred_at": occurred_at,
+                            "pit_lane_duration": duration,
+                            **({"ordinal": ordinal} if ordinal else {}),
+                        },
+                    },
+                    received_at=occurred_at,
+                )
+            )
+        return events
 
     def _stint_events(
         self, payload: dict[str, Any], occurred_at: str

@@ -223,6 +223,101 @@ def test_official_timing_app_data_emits_three_cursor_safe_hamilton_stops() -> No
     )
 
 
+def test_official_pit_lane_collection_enriches_one_stop_at_its_own_cursor() -> None:
+    adapter = F1LiveAdapter("11353", source="f1-static-public")
+    events: list[NormalizedEvent] = []
+
+    def ingest(stream: str, payload: dict, at: str) -> tuple[NormalizedEvent, ...]:
+        emitted = adapter.ingest(
+            {"stream": stream, "payload": payload, "source_timestamp": at}
+        )
+        events.extend(emitted)
+        return emitted
+
+    ingest("SessionInfo", {"Key": 11353}, "2026-08-23T13:00:00Z")
+    ingest(
+        "TimingAppData",
+        {
+            "Lines": {
+                "41": {
+                    "Stints": {"0": {"Compound": "SOFT", "TotalLaps": 4}}
+                }
+            }
+        },
+        "2026-08-23T13:30:00Z",
+    )
+    ingest(
+        "TimingData",
+        {
+            "Lines": {
+                "41": {
+                    "RacingNumber": "41",
+                    "NumberOfLaps": 4,
+                    "NumberOfPitStops": 0,
+                    "InPit": False,
+                }
+            }
+        },
+        "2026-08-23T13:40:00Z",
+    )
+    ingest(
+        "TimingData",
+        {
+            "Lines": {
+                "41": {
+                    "NumberOfLaps": 4,
+                    "NumberOfPitStops": 1,
+                    "InPit": True,
+                }
+            }
+        },
+        "2026-08-23T13:41:08.023Z",
+    )
+    lane_events = ingest(
+        "PitLaneTimeCollection",
+        {
+            "PitTimes": {
+                "41": {"RacingNumber": "41", "Duration": "12.3", "Lap": "5"}
+            }
+        },
+        "2026-08-23T13:41:08.023Z",
+    )
+    lane_sequence = len(events)
+
+    assert lane_events[0].payload["pit_observation"]["pit_lane_duration"] == 12.3
+    evidence = SessionEvidence.from_events(tuple(events))
+    assert evidence.pit_events_for_driver("41", event_limit=lane_sequence - 1) == ()
+    at_lane_cursor = evidence.pit_events_for_driver("41", event_limit=lane_sequence)
+    assert len(at_lane_cursor) == 1
+    assert at_lane_cursor[0].pit_lane_duration == 12.3
+    assert at_lane_cursor[0].stop_duration is None
+
+    ingest(
+        "TimingAppData",
+        {"Lines": {"41": {"Stints": {"1": {"Compound": "MEDIUM"}}}}},
+        "2026-08-23T13:41:34.700Z",
+    )
+    complete = SessionEvidence.from_events(tuple(events)).pit_events_for_driver("41")
+    assert len(complete) == 1
+    assert (complete[0].previous_compound, complete[0].new_compound) == (
+        "SOFT",
+        "MEDIUM",
+    )
+    assert complete[0].pit_lane_duration == 12.3
+    assert complete[0].stop_duration is None
+
+    rejected = ingest(
+        "PitLaneTimeCollection",
+        {
+            "PitTimes": {
+                "41": {"RacingNumber": "41", "Duration": "1578.2", "Lap": "6"}
+            }
+        },
+        "2026-08-23T13:42:00Z",
+    )
+    assert rejected == ()
+
+
 def test_official_completed_lap_quality_uses_stint_and_track_evidence() -> None:
     adapter = F1LiveAdapter("11353", source="f1-static-public")
     events: list[NormalizedEvent] = []
@@ -985,6 +1080,10 @@ def test_official_archive_uses_index_path_and_low_volume_streams() -> None:
     assert all(request.get_header("User-agent") == "BestHTTP" for request in requests)
     assert all(
         request.get_header("Accept-encoding") == "identity" for request in requests
+    )
+    assert any(
+        request.full_url.endswith("/PitLaneTimeCollection.jsonStream")
+        for request in requests
     )
 
 

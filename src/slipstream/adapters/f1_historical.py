@@ -24,6 +24,7 @@ LOW_VOLUME_TOPICS = (
     "SessionInfo",
     "DriverList",
     "TimingData",
+    "PitLaneTimeCollection",
     "TimingAppData",
     "LapCount",
     "SessionStatus",
