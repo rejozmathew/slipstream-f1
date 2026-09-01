@@ -176,6 +176,31 @@ def test_observed_sequences_exclude_stopped_and_retired_drivers() -> None:
     ]
 
 
+def test_observed_sequences_are_empty_for_a_settled_final_field() -> None:
+    state = _state()
+    state = replace(
+        state,
+        drivers={
+            number: replace(
+                driver,
+                classification="FINISHED" if number == "1" else "DNF",
+                status="FINISHED" if number == "1" else "DNF",
+            )
+            for number, driver in state.drivers.items()
+        },
+    )
+    evidence = {
+        "1": (_lap(1, 1, compound="HARD"), _lap(20, 1, compound="SOFT")),
+        "2": (_lap(1, 1, compound="MEDIUM"),),
+    }
+
+    result = field_distributions(state, evidence)
+
+    assert result["runningDriverCount"] == 0
+    assert result["currentTyreDistribution"] == {}
+    assert result["observedSequences"] == []
+
+
 def test_race_read_is_structured_and_uses_current_race_pace_only() -> None:
     state = _state()
     evidence = _finish_evidence()
