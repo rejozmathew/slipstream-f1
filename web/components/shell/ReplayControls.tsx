@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { formatDuration } from "../../domain/format";
-import { reconciledPendingPosition, replayDisplayPosition, sessionClockLabel } from "../../domain/replayControls.mjs";
+import { reconciledPendingPosition, replayDisplayPosition, replayKeyboardPosition, sessionClockLabel } from "../../domain/replayControls.mjs";
 import type { ReplayCommand, ReplayMetadata } from "../../domain/protocol";
 
 type ReplayControlsProps = {
@@ -12,8 +12,6 @@ type ReplayControlsProps = {
   commandAvailable: boolean;
   onCommand: (command: ReplayCommand) => boolean;
 };
-
-const SCRUB_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 
 export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, commandAvailable, onCommand }: ReplayControlsProps) {
   const [speed, setSpeed] = useState(10);
@@ -66,14 +64,15 @@ export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, comma
           value={displayedSeconds}
           disabled={!enabled || !metadata?.startTime}
           onPointerDown={() => setScrubSeconds(displayedSeconds)}
-          onChange={(event) => setScrubSeconds(Number(event.target.value))}
+          onInput={(event) => setScrubSeconds(Number(event.currentTarget.value))}
           onPointerUp={(event) => commitSeek(Number(event.currentTarget.value))}
           onPointerCancel={() => setScrubSeconds(null)}
           onKeyDown={(event) => {
-            if (SCRUB_KEYS.has(event.key) && scrubSeconds == null) setScrubSeconds(displayedSeconds);
-          }}
-          onKeyUp={(event) => {
-            if (SCRUB_KEYS.has(event.key) && scrubSeconds != null) commitSeek(Number(event.currentTarget.value));
+            const next = replayKeyboardPosition(event.key, displayedSeconds, duration);
+            if (next != null) {
+              event.preventDefault();
+              commitSeek(next);
+            }
           }}
           onBlur={(event) => {
             if (scrubSeconds != null) commitSeek(Number(event.currentTarget.value));

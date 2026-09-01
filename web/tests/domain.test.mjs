@@ -14,6 +14,7 @@ import {
 import {
   reconciledPendingPosition,
   replayDisplayPosition,
+  replayKeyboardPosition,
   sessionClockLabel,
 } from "../domain/replayControls.mjs";
 import { preferredWeekendSession } from "../domain/sessionSelection.mjs";
@@ -140,4 +141,9 @@ test("local scrub preview owns the thumb until the committed server position arr
   assert.equal(reconciledPendingPosition(10, 45), 45);
   assert.equal(reconciledPendingPosition(45, 45), null);
   assert.equal(sessionClockLabel("2026-08-23T13:00:00Z", 3600, "02:00:00"), "16:00:00");
+  assert.equal(replayKeyboardPosition("End", 0, 8928), 8928);
+  assert.equal(replayKeyboardPosition("Home", 4200, 8928), 0);
+  assert.equal(replayKeyboardPosition("PageUp", 0, 8928), 893);
+  assert.equal(replayKeyboardPosition("ArrowLeft", 0, 8928), 0);
+  assert.equal(replayKeyboardPosition("Enter", 10, 8928), null);
 });

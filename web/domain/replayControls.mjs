@@ -7,6 +7,21 @@ export function reconciledPendingPosition(serverElapsed, pendingSeconds, toleran
   return Math.abs(serverElapsed - pendingSeconds) <= tolerance ? null : pendingSeconds;
 }
 
+export function replayKeyboardPosition(key, current, duration) {
+  const page = Math.max(1, Math.round(duration / 10));
+  const target = {
+    ArrowLeft: current - 1,
+    ArrowDown: current - 1,
+    ArrowRight: current + 1,
+    ArrowUp: current + 1,
+    PageDown: current - page,
+    PageUp: current + page,
+    Home: 0,
+    End: duration,
+  }[key];
+  return target == null ? null : Math.min(Math.max(target, 0), duration);
+}
+
 export function sessionClockLabel(startTime, elapsedSeconds, gmtOffset) {
   if (!startTime) return "—";
   const match = String(gmtOffset ?? "").match(/^([+-]?)(\d{2}):(\d{2})/);
