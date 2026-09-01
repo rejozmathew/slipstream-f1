@@ -16,6 +16,7 @@ from slipstream.adapters.f1_historical import (
     write_canonical_recording,
 )
 from slipstream.events import NormalizedEvent
+from slipstream.evidence import SessionEvidence
 from slipstream.f1_timing import (
     finalize_f1_classifications,
     merge_f1_provider_value,
@@ -105,6 +106,190 @@ def test_live_and_historical_share_identical_timing_payloads() -> None:
 
     assert emitted[0].payload == emitted[1].payload
     assert emitted[0].payload["source_condition"] == "STOPPED"
+
+
+def test_official_timing_app_data_emits_three_cursor_safe_hamilton_stops() -> None:
+    adapter = F1LiveAdapter("11353", source="f1-static-public")
+    events: list[NormalizedEvent] = []
+
+    def ingest(stream: str, payload: dict, at: str) -> None:
+        events.extend(
+            adapter.ingest(
+                {
+                    "stream": stream,
+                    "payload": payload,
+                    "source_timestamp": at,
+                }
+            )
+        )
+
+    ingest("SessionInfo", {"Key": 11353}, "2026-08-23T13:00:00Z")
+    ingest(
+        "TimingAppData",
+        {
+            "Lines": {
+                "44": {
+                    "RacingNumber": "44",
+                    "Stints": {
+                        "0": {
+                            "Compound": "SOFT",
+                            "New": "true",
+                            "TotalLaps": 0,
+                            "StartLaps": 0,
+                        }
+                    },
+                }
+            }
+        },
+        "2026-08-23T13:48:29.994Z",
+    )
+    ingest(
+        "TimingData",
+        {
+            "Lines": {
+                "44": {
+                    "RacingNumber": "44",
+                    "NumberOfLaps": 1,
+                    "NumberOfPitStops": 0,
+                    "InPit": False,
+                }
+            }
+        },
+        "2026-08-23T13:59:00Z",
+    )
+
+    observations = (
+        (1, 2, "SOFT", "2026-08-23T14:00:25.507Z"),
+        (2, 25, "HARD", "2026-08-23T15:00:16.710Z"),
+        (3, 55, "SOFT", "2026-08-23T15:39:08.675Z"),
+    )
+    for ordinal, lap, new_compound, pit_at in observations:
+        ingest(
+            "TimingData",
+            {
+                "Lines": {
+                    "44": {
+                        "NumberOfLaps": lap - 1,
+                        "NumberOfPitStops": ordinal,
+                        "InPit": True,
+                    }
+                }
+            },
+            pit_at,
+        )
+        reveal_at = {
+            1: "2026-08-23T14:26:45.248Z",
+            2: "2026-08-23T15:00:47.107Z",
+            3: "2026-08-23T15:39:42.431Z",
+        }[ordinal]
+        ingest(
+            "TimingAppData",
+            {
+                "Lines": {
+                    "44": {
+                        "Stints": {
+                            str(ordinal): {
+                                "Compound": new_compound,
+                                "New": "false" if ordinal == 1 else "true",
+                                "TotalLaps": 3 if ordinal == 1 else 0,
+                                "StartLaps": 3 if ordinal == 1 else 0,
+                            }
+                        }
+                    }
+                }
+            },
+            reveal_at,
+        )
+    evidence = SessionEvidence.from_events(tuple(events))
+    pits = evidence.pit_events_for_driver("44")
+    assert [(pit.ordinal, pit.lap) for pit in pits] == [(1, 2), (2, 25), (3, 55)]
+    assert [(pit.previous_compound, pit.new_compound) for pit in pits] == [
+        ("SOFT", "SOFT"),
+        ("SOFT", "HARD"),
+        ("HARD", "SOFT"),
+    ]
+    assert [pit.occurred_at for pit in pits] == [item[3] for item in observations]
+    second_reveal = next(
+        index
+        for index, event in enumerate(events, start=1)
+        if event.payload.get("pit_observation", {}).get("ordinal") == 2
+    )
+    assert evidence.pit_events_for_driver("44", event_limit=second_reveal - 1) == (
+        pits[0],
+    )
+    assert evidence.pit_events_for_driver("44", event_limit=second_reveal) == (
+        pits[0],
+        pits[1],
+    )
+
+
+def test_official_completed_lap_quality_uses_stint_and_track_evidence() -> None:
+    adapter = F1LiveAdapter("11353", source="f1-static-public")
+    events: list[NormalizedEvent] = []
+
+    def ingest(stream: str, payload: dict, at: str) -> None:
+        events.extend(
+            adapter.ingest(
+                {
+                    "stream": stream,
+                    "payload": payload,
+                    "source_timestamp": at,
+                }
+            )
+        )
+
+    ingest("SessionInfo", {"Key": 11353}, "2026-08-23T13:00:00Z")
+    ingest("SessionStatus", {"Status": "Started"}, "2026-08-23T13:00:01Z")
+    ingest("TrackStatus", {"Status": "1"}, "2026-08-23T13:00:02Z")
+    ingest(
+        "TimingAppData",
+        {
+            "Lines": {
+                "44": {
+                    "Stints": {
+                        "0": {
+                            "Compound": "SOFT",
+                            "New": "true",
+                            "TotalLaps": 1,
+                            "StartLaps": 0,
+                        }
+                    }
+                }
+            }
+        },
+        "2026-08-23T13:00:03Z",
+    )
+    ingest(
+        "TimingData",
+        {
+            "Lines": {
+                "44": {
+                    "NumberOfLaps": 1,
+                    "LastLapTime": {"Value": "1:20.000"},
+                }
+            }
+        },
+        "2026-08-23T13:02:00Z",
+    )
+    ingest("TrackStatus", {"Status": "2"}, "2026-08-23T13:02:01Z")
+    ingest(
+        "TimingData",
+        {
+            "Lines": {
+                "44": {
+                    "NumberOfLaps": 2,
+                    "LastLapTime": {"Value": "1:22.000"},
+                }
+            }
+        },
+        "2026-08-23T13:03:22Z",
+    )
+
+    laps = SessionEvidence.from_events(tuple(events)).laps_for_driver("44")
+    assert laps[0].started_at == "2026-08-23T13:00:40Z"
+    assert (laps[0].stint_number, laps[0].quality) == (1, "representative")
+    assert laps[1].quality == "contaminated"
+    assert laps[1].contamination_reasons == ("neutralized_track",)
 
 
 def test_official_minisectors_supply_timing_estimate_without_xy() -> None:

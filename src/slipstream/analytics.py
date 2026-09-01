@@ -1523,6 +1523,7 @@ def _pit_event_payload(event: PitEvent) -> dict[str, Any]:
         "newCompound": payload["new_compound"],
         "stopDuration": payload["stop_duration"],
         "pitLaneDuration": payload["pit_lane_duration"],
+        "ordinal": payload["ordinal"],
     }
 
 

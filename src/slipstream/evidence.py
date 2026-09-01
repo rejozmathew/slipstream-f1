@@ -68,6 +68,7 @@ class PitEvent:
     new_compound: str | None = None
     stop_duration: float | None = None
     pit_lane_duration: float | None = None
+    ordinal: int | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ class SessionEvidence:
 
     lap_observations: tuple[LapEvidence, ...] = ()
     completed_gaps: tuple[CompletedGapEvidence, ...] = ()
+    pit_events: tuple[PitEvent, ...] = ()
 
     @classmethod
     def from_events(
@@ -96,11 +98,26 @@ class SessionEvidence:
         cutoff_dt = parse_timestamp(cutoff) if cutoff is not None else None
         observations: list[LapEvidence] = []
         completed_gaps: list[CompletedGapEvidence] = []
+        pit_events: list[PitEvent] = []
         state = RaceState()
         for sequence, event in enumerate(events, start=1):
             state = state.apply(event)
             payload = event.payload.get("lap_observation")
+            pit_payload = event.payload.get("pit_observation")
             driver_number = event.payload.get("number")
+            if (
+                event.kind == "timing"
+                and isinstance(pit_payload, dict)
+                and driver_number is not None
+            ):
+                pit_events.append(
+                    _direct_pit_event(
+                        pit_payload,
+                        sequence=sequence,
+                        event=event,
+                        driver_number=str(driver_number),
+                    )
+                )
             if event.kind != "timing" or not isinstance(payload, dict):
                 continue
             if driver_number is None:
@@ -153,7 +170,7 @@ class SessionEvidence:
                         gap_seconds=gap,
                     )
                 )
-        return cls(tuple(observations), tuple(completed_gaps))
+        return cls(tuple(observations), tuple(completed_gaps), tuple(pit_events))
 
     def append(
         self,
@@ -166,13 +183,34 @@ class SessionEvidence:
         """Append evidence for one event using its canonical post-event state."""
 
         payload = event.payload.get("lap_observation")
+        pit_payload = event.payload.get("pit_observation")
         driver_number = event.payload.get("number")
+        pit_events = self.pit_events
+        if (
+            event.kind == "timing"
+            and isinstance(pit_payload, dict)
+            and driver_number is not None
+        ):
+            pit_events += (
+                _direct_pit_event(
+                    pit_payload,
+                    sequence=sequence,
+                    event=event,
+                    driver_number=str(driver_number),
+                ),
+            )
         if (
             event.kind != "timing"
             or not isinstance(payload, dict)
             or driver_number is None
         ):
-            return self
+            if pit_events == self.pit_events:
+                return self
+            return SessionEvidence(
+                self.lap_observations,
+                self.completed_gaps,
+                pit_events,
+            )
         values = dict(payload)
         values["contamination_reasons"] = tuple(values.get("contamination_reasons", ()))
         observation = LapObservation(**values)
@@ -217,7 +255,7 @@ class SessionEvidence:
                         gap_seconds=gap,
                     ),
                 )
-        return SessionEvidence(self.lap_observations + (lap,), gaps)
+        return SessionEvidence(self.lap_observations + (lap,), gaps, pit_events)
 
     def laps_for_driver(
         self,
@@ -249,7 +287,7 @@ class SessionEvidence:
         if at is not None and event_limit is not None:
             raise ValueError("evidence accepts either at or event_limit, not both")
         cutoff = parse_timestamp(at) if at is not None else None
-        return tuple(
+        legacy = tuple(
             PitEvent(
                 sequence=item.sequence,
                 occurred_at=(item.observation.pit_occurred_at or item.occurred_at),
@@ -266,6 +304,14 @@ class SessionEvidence:
             and (event_limit is None or item.sequence <= event_limit)
             and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
         )
+        direct = tuple(
+            item
+            for item in self.pit_events
+            if item.driver_number == str(driver_number)
+            and (event_limit is None or item.sequence <= event_limit)
+            and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
+        )
+        return tuple(sorted((*legacy, *direct), key=lambda item: item.sequence))
 
     def completed_gap_history(
         self,
@@ -337,13 +383,21 @@ class SessionEvidence:
         if at is not None and event_limit is not None:
             raise ValueError("evidence accepts either at or event_limit, not both")
         cutoff = parse_timestamp(at) if at is not None else None
-        return tuple(
+        lap_durations = tuple(
             item.observation.pit_lane_duration
             for item in self.lap_observations
             if item.observation.pit_lane_duration is not None
             and (event_limit is None or item.sequence <= event_limit)
             and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
         )
+        direct_durations = tuple(
+            item.pit_lane_duration
+            for item in self.pit_events
+            if item.pit_lane_duration is not None
+            and (event_limit is None or item.sequence <= event_limit)
+            and (cutoff is None or parse_timestamp(item.occurred_at) <= cutoff)
+        )
+        return (*lap_durations, *direct_durations)
 
     def stint_lengths(
         self,
@@ -407,3 +461,35 @@ def _numeric_interval(value: str | None) -> float | None:
         return float(value.lstrip("+"))
     except ValueError:
         return None
+
+
+def _direct_pit_event(
+    payload: dict[str, object],
+    *,
+    sequence: int,
+    event: NormalizedEvent,
+    driver_number: str,
+) -> PitEvent:
+    return PitEvent(
+        sequence=sequence,
+        occurred_at=str(payload.get("pit_occurred_at") or event.occurred_at),
+        driver_number=driver_number,
+        lap=int(payload["lap"]),
+        previous_compound=_optional_string(payload.get("previous_compound")),
+        new_compound=_optional_string(payload.get("new_compound")),
+        stop_duration=_optional_float(payload.get("stop_duration")),
+        pit_lane_duration=_optional_float(payload.get("pit_lane_duration")),
+        ordinal=(
+            int(payload["ordinal"])
+            if payload.get("ordinal") is not None
+            else None
+        ),
+    )
+
+
+def _optional_string(value: object) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _optional_float(value: object) -> float | None:
+    return float(value) if value is not None else None

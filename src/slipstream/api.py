@@ -582,6 +582,7 @@ def create_app(
                     "newCompound": item.new_compound,
                     "stopDuration": item.stop_duration,
                     "pitLaneDuration": item.pit_lane_duration,
+                    "ordinal": item.ordinal,
                 }
                 for item in selected.evidence.pit_events_for_driver(str(driver_number))
             ],

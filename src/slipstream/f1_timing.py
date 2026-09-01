@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import timedelta
 from typing import Any
 
-from .events import NormalizedEvent
+from .events import NormalizedEvent, parse_timestamp
 
 
 def merge_f1_provider_value(current: Any, patch: Any) -> Any:
@@ -36,6 +38,8 @@ def normalize_f1_timing(
     source: str,
     timing_app_data: dict[str, Any] | None = None,
     qualifying_phase: str = "UNKNOWN",
+    lap_annotations: Mapping[str, Mapping[int, Mapping[str, Any]]] | None = None,
+    neutralized: bool | None = None,
 ) -> list[NormalizedEvent]:
     """Normalize merged F1 TimingData while respecting sparse patch intent."""
 
@@ -91,22 +95,53 @@ def normalize_f1_timing(
             app_line = (
                 app_lines.get(raw_number, {}) if isinstance(app_lines, dict) else {}
             )
-            stints = (
-                _ordered_values(app_line.get("Stints"))
+            indexed_stints = (
+                [
+                    item
+                    for item in _indexed_values(app_line.get("Stints"))
+                    if isinstance(item[1], dict)
+                ]
                 if isinstance(app_line, dict)
                 else []
             )
-            stint = stints[-1] if stints and isinstance(stints[-1], dict) else {}
+            stint_index, stint = max(
+                indexed_stints,
+                default=(-1, {}),
+                key=lambda item: item[0],
+            )
             new_value = stint.get("New")
+            duration = _duration_seconds(last_lap_value)
+            lap_number = int(updates["lap"])
+            annotation = dict(
+                (lap_annotations or {}).get(number, {}).get(lap_number, {})
+            )
+            contamination_reasons: list[str] = []
+            if annotation.get("pit_in") is True:
+                contamination_reasons.append("pit_in")
+            if annotation.get("pit_out") is True:
+                contamination_reasons.append("pit_out")
+            if neutralized is True:
+                contamination_reasons.append("neutralized_track")
+            elif neutralized is None:
+                contamination_reasons.append("neutralization_end_unknown")
+            if duration is None:
+                contamination_reasons.append("missing_duration")
+            quality = (
+                "unknown"
+                if duration is None or neutralized is None
+                else "contaminated"
+                if contamination_reasons
+                else "representative"
+            )
             updates["lap_observation"] = {
-                "lap": int(updates["lap"]),
-                "started_at": occurred_at,
-                "duration": _duration_seconds(last_lap_value),
+                "lap": lap_number,
+                "started_at": _lap_started_at(occurred_at, duration),
+                "duration": duration,
                 "sector_1": updates.get("sector_1"),
                 "sector_2": updates.get("sector_2"),
                 "sector_3": updates.get("sector_3"),
                 "compound": stint.get("Compound"),
-                "stint_number": None,
+                "stint_number": stint_index + 1 if stint_index >= 0 else None,
                 "tyre_age": _number(stint.get("TotalLaps"), integer=True),
                 "qualifying_phase": qualifying_phase,
                 "tyre_usage": (
@@ -117,8 +152,10 @@ def normalize_f1_timing(
                     else "UNKNOWN"
                 ),
                 "lap_validity": "UNKNOWN",
-                "quality": "unknown",
-                "contamination_reasons": [],
+                "pit_in": annotation.get("pit_in"),
+                "pit_out": annotation.get("pit_out"),
+                "quality": quality,
+                "contamination_reasons": contamination_reasons,
             }
 
         retired = _truthy(item.get("Retired")) if "Retired" in item else None
@@ -129,9 +166,19 @@ def normalize_f1_timing(
         if stopped is not None:
             updates["source_stopped"] = stopped
         if retired is True:
-            updates.update(source_condition="RETIRED_INDICATED", activity="UNKNOWN")
+            updates.update(
+                source_condition="RETIRED_INDICATED",
+                activity="UNKNOWN",
+                track_position=None,
+                availability={"track_position": "unavailable"},
+            )
         elif stopped is True:
-            updates.update(source_condition="STOPPED", activity="UNKNOWN")
+            updates.update(
+                source_condition="STOPPED",
+                activity="UNKNOWN",
+                track_position=None,
+                availability={"track_position": "unavailable"},
+            )
         elif in_pit is True:
             updates.update(source_condition="IN_PIT", activity="IN_PIT")
         elif (
@@ -144,7 +191,11 @@ def normalize_f1_timing(
         ):
             updates.update(source_condition="RUNNING", activity="ON_TRACK")
 
-        updates = {key: value for key, value in updates.items() if value is not None}
+        updates = {
+            key: value
+            for key, value in updates.items()
+            if value is not None or key == "track_position"
+        }
         events.append(
             NormalizedEvent(
                 "timing",
@@ -244,6 +295,13 @@ def _duration_seconds(value: object) -> float | None:
         return int(minutes) * 60 + float(seconds)
     except (TypeError, ValueError):
         return None
+
+
+def _lap_started_at(occurred_at: str, duration: float | None) -> str:
+    if duration is None:
+        return occurred_at
+    started = parse_timestamp(occurred_at) - timedelta(seconds=duration)
+    return started.isoformat().replace("+00:00", "Z")
 
 
 def _timing_track_position(

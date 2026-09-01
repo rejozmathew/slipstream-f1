@@ -212,6 +212,7 @@ export type PitEvent = {
   newCompound: string | null;
   stopDuration: number | null;
   pitLaneDuration: number | null;
+  ordinal: number | null;
 };
 
 export type SessionKind = "practice_1" | "practice_2" | "practice_3" | "qualifying" | "sprint_qualifying" | "sprint" | "race" | "unknown";

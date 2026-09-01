@@ -201,6 +201,7 @@ class RaceState:
             # Completed-lap evidence is retained by SessionEvidence, not repeated in
             # every high-frequency RaceState snapshot.
             updates.pop("lap_observation", None)
+            updates.pop("pit_observation", None)
             if "status" in updates:
                 from .lifecycle import transition_driver_status
 

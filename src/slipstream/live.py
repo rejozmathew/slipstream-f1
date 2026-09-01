@@ -486,6 +486,11 @@ class F1LiveAdapter:
         self._seen_race_control: set[str] = set()
         self._seen_status_series: set[str] = set()
         self._qualifying_phase = "UNKNOWN"
+        self._pit_counts: dict[str, int] = {}
+        self._in_pit: dict[str, bool] = {}
+        self._pending_pits: dict[str, dict[str, Any]] = {}
+        self._emitted_pits: set[tuple[str, int]] = set()
+        self._lap_annotations: dict[str, dict[int, dict[str, bool]]] = {}
 
     def ingest(self, row: dict[str, Any]) -> tuple[NormalizedEvent, ...]:
         stream = str(row.get("stream") or "")
@@ -802,6 +807,53 @@ class F1LiveAdapter:
     def _timing_events(
         self, merged: dict[str, Any], patch: Any, occurred_at: str
     ) -> list[NormalizedEvent]:
+        merged_lines = (
+            merged.get("Lines") if isinstance(merged.get("Lines"), dict) else {}
+        )
+        patch_lines = (
+            patch.get("Lines") if isinstance(patch, dict) else None
+        )
+        if isinstance(patch_lines, dict):
+            for raw_number, line_patch in patch_lines.items():
+                if not isinstance(line_patch, dict):
+                    continue
+                number = str(line_patch.get("RacingNumber") or raw_number)
+                merged_line = merged_lines.get(raw_number, {})
+                if not isinstance(merged_line, dict):
+                    merged_line = {}
+                completed_laps = int(
+                    _number(merged_line.get("NumberOfLaps"), integer=True) or 0
+                )
+                current_count = int(
+                    _number(merged_line.get("NumberOfPitStops"), integer=True) or 0
+                )
+                previous_count = self._pit_counts.get(number)
+                if previous_count is None:
+                    self._pit_counts[number] = current_count
+                elif current_count > previous_count:
+                    previous_compound = self._current_compound(number)
+                    for ordinal in range(previous_count + 1, current_count + 1):
+                        pit_lap = completed_laps + 1
+                        self._pending_pits[number] = {
+                            "ordinal": ordinal,
+                            "lap": pit_lap,
+                            "pit_occurred_at": occurred_at,
+                            "previous_compound": previous_compound,
+                        }
+                        self._annotate_lap(number, pit_lap, "pit_in")
+                    self._pit_counts[number] = current_count
+
+                prior_in_pit = self._in_pit.get(number)
+                current_in_pit = (
+                    _truthy(merged_line.get("InPit"))
+                    if "InPit" in merged_line
+                    else prior_in_pit
+                )
+                if prior_in_pit is True and current_in_pit is False:
+                    self._annotate_lap(number, completed_laps + 1, "pit_out")
+                if current_in_pit is not None:
+                    self._in_pit[number] = current_in_pit
+
         return normalize_f1_timing(
             merged,
             patch,
@@ -809,6 +861,8 @@ class F1LiveAdapter:
             source=self.source,
             timing_app_data=self.streams.get("TimingAppData"),
             qualifying_phase=self._qualifying_phase,
+            lap_annotations=self._lap_annotations,
+            neutralized=self._lap_neutralized(),
         )
 
     def _stint_events(
@@ -819,11 +873,13 @@ class F1LiveAdapter:
         for raw_number, item in lines.items():
             if not isinstance(item, dict):
                 continue
+            number = str(item.get("RacingNumber") or raw_number)
             stints = _ordered_values(item.get("Stints"))
             if not stints or not isinstance(stints[-1], dict):
                 continue
             stint = stints[-1]
             total_laps = _number(stint.get("TotalLaps"), integer=True)
+            start_laps = _number(stint.get("StartLaps"), integer=True)
             new_value = stint.get("New")
             tyre_usage = (
                 "NEW"
@@ -838,16 +894,91 @@ class F1LiveAdapter:
                     occurred_at,
                     self.source,
                     {
-                        "number": str(item.get("RacingNumber") or raw_number),
+                        "number": number,
                         "compound": stint.get("Compound"),
                         "tyre_age": total_laps,
-                        "stint_laps": total_laps,
+                        "stint_laps": (
+                            max(int(total_laps) - int(start_laps or 0), 0)
+                            if total_laps is not None
+                            else None
+                        ),
                         "tyre_usage": tyre_usage,
                     },
                     received_at=occurred_at,
                 )
             )
+            pending = self._pending_pits.get(number)
+            if pending is None:
+                continue
+            ordinal = int(pending["ordinal"])
+            key = (number, ordinal)
+            new_stint = stints[ordinal] if ordinal < len(stints) else None
+            new_compound = (
+                str(new_stint.get("Compound") or "").upper()
+                if isinstance(new_stint, dict)
+                else ""
+            )
+            if not new_compound or new_compound == "UNKNOWN" or key in self._emitted_pits:
+                continue
+            events.append(
+                NormalizedEvent(
+                    "timing",
+                    occurred_at,
+                    self.source,
+                    {
+                        "number": number,
+                        "pit_observation": {
+                            **pending,
+                            "new_compound": new_compound,
+                        },
+                    },
+                    received_at=occurred_at,
+                )
+            )
+            self._emitted_pits.add(key)
+            self._pending_pits.pop(number, None)
         return events
+
+    def _current_compound(self, number: str) -> str | None:
+        payload = self.streams.get("TimingAppData")
+        lines = payload.get("Lines") if isinstance(payload, dict) else None
+        item = lines.get(number) if isinstance(lines, dict) else None
+        stints = _ordered_values(item.get("Stints")) if isinstance(item, dict) else []
+        if not stints or not isinstance(stints[-1], dict):
+            return None
+        compound = str(stints[-1].get("Compound") or "").upper()
+        return compound or None
+
+    def _annotate_lap(self, number: str, lap: int, field: str) -> None:
+        self._lap_annotations.setdefault(number, {}).setdefault(lap, {})[field] = True
+
+    def _lap_neutralized(self) -> bool | None:
+        session_status = _session_status(
+            self.streams.get("SessionStatus")
+            if isinstance(self.streams.get("SessionStatus"), dict)
+            else {}
+        )
+        track_updates = _track_status_updates(
+            self.streams.get("TrackStatus")
+            if isinstance(self.streams.get("TrackStatus"), dict)
+            else {}
+        )
+        if session_status == "SUSPENDED":
+            return True
+        if track_updates.get("marshal_status") in {"YELLOW", "RED"}:
+            return True
+        if track_updates.get("control_status") in {
+            "SAFETY_CAR",
+            "VSC",
+            "VSC_ENDING",
+        }:
+            return True
+        if session_status == "RUNNING" and (
+            track_updates.get("marshal_status") == "ALL_CLEAR"
+            or track_updates.get("control_status") == "NORMAL"
+        ):
+            return False
+        return None
 
     def _race_control_events(
         self, payload: dict[str, Any], occurred_at: str
