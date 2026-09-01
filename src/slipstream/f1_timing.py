@@ -79,6 +79,9 @@ def normalize_f1_timing(
             "sector_2": _number(_value(sectors[1])) if len(sectors) > 1 else None,
             "sector_3": _number(_value(sectors[2])) if len(sectors) > 2 else None,
         }
+        track_position = _timing_track_position(sectors, line_patch)
+        if track_position is not None:
+            updates["track_position"] = track_position
         last_lap_value = _value(item.get("LastLapTime"))
         if (
             last_lap_value
@@ -241,6 +244,61 @@ def _duration_seconds(value: object) -> float | None:
         return int(minutes) * 60 + float(seconds)
     except (TypeError, ValueError):
         return None
+
+
+def _timing_track_position(
+    merged_sectors: list[Any], line_patch: dict[str, Any]
+) -> float | None:
+    """Estimate lap fraction from official TimingData mini-sector progress.
+
+    TimingData marks completed/current mini-sectors in sparse patches. The
+    merged sector structure supplies the track-specific mini-sector count,
+    while a lap update is the authoritative start/finish-line position.
+    Reset-only segment patches carry no new position evidence.
+    """
+
+    if "NumberOfLaps" in line_patch:
+        return 0.0
+
+    patch_sectors = line_patch.get("Sectors")
+    if not isinstance(patch_sectors, (dict, list)):
+        return None
+    sector_sizes = [
+        len(_ordered_values(sector.get("Segments")))
+        for sector in merged_sectors
+        if isinstance(sector, dict)
+    ]
+    total_segments = sum(sector_sizes)
+    if total_segments <= 0:
+        return None
+
+    latest: int | None = None
+    for sector_index, sector_patch in _indexed_values(patch_sectors):
+        if sector_index >= len(sector_sizes) or not isinstance(sector_patch, dict):
+            continue
+        sector_size = sector_sizes[sector_index]
+        for segment_index, segment in _indexed_values(
+            sector_patch.get("Segments")
+        ):
+            if (
+                segment_index < sector_size
+                and isinstance(segment, dict)
+                and _number(segment.get("Status"), integer=True) not in {None, 0}
+            ):
+                latest = sum(sector_sizes[:sector_index]) + segment_index + 1
+    return latest / total_segments if latest is not None else None
+
+
+def _indexed_values(value: object) -> list[tuple[int, Any]]:
+    if isinstance(value, list):
+        return list(enumerate(value))
+    if not isinstance(value, dict):
+        return []
+    return [
+        (int(key), item)
+        for key, item in value.items()
+        if str(key).isdigit()
+    ]
 
 
 def _sort_key(value: object) -> tuple[int, object]:

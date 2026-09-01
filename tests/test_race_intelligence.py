@@ -150,6 +150,32 @@ def test_starting_and_current_tyre_populations_are_distinct() -> None:
     assert result["currentTyrePopulation"]["running"] == 2
 
 
+def test_observed_sequences_exclude_stopped_and_retired_drivers() -> None:
+    state = _state()
+    state = replace(
+        state,
+        drivers={
+            **state.drivers,
+            "3": DriverState(number="3", compound="SOFT", status="STOPPED"),
+            "4": DriverState(number="4", compound="HARD", status="RETIRED"),
+        },
+    )
+    evidence = {
+        "1": (_lap(1, 1, compound="HARD"), _lap(20, 1, compound="SOFT")),
+        "2": (_lap(1, 1, compound="MEDIUM"),),
+        "3": (_lap(1, 1, compound="SOFT"),),
+        "4": (_lap(1, 1, compound="HARD"),),
+    }
+
+    result = field_distributions(state, evidence)
+
+    assert result["startingTyrePopulation"] == {"known": 4, "participants": 4}
+    assert result["observedSequences"] == [
+        {"sequence": "HARD → SOFT", "drivers": 1},
+        {"sequence": "MEDIUM", "drivers": 1},
+    ]
+
+
 def test_race_read_is_structured_and_uses_current_race_pace_only() -> None:
     state = _state()
     evidence = _finish_evidence()

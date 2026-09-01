@@ -151,10 +151,11 @@ def field_distributions(
 ) -> dict[str, Any]:
     population = _race_population(state)
     current_field = [*population["running"], *population["inPit"]]
+    current_field_numbers = set(current_field)
     starting: Counter[str] = Counter()
     starting_known = 0
     sequences: Counter[str] = Counter()
-    for observations in evidence_by_driver.values():
+    for number, observations in evidence_by_driver.items():
         compounds = [item.compound.upper() for item in observations if item.compound]
         if not compounds:
             continue
@@ -169,12 +170,13 @@ def field_distributions(
         if first:
             starting[first] += 1
             starting_known += 1
-        ordered: list[str] = []
-        for compound in compounds:
-            if not ordered or ordered[-1] != compound:
-                ordered.append(compound)
-        if ordered:
-            sequences[" → ".join(ordered)] += 1
+        if str(number) in current_field_numbers:
+            ordered: list[str] = []
+            for compound in compounds:
+                if not ordered or ordered[-1] != compound:
+                    ordered.append(compound)
+            if ordered:
+                sequences[" → ".join(ordered)] += 1
 
     current = Counter(
         state.drivers[number].compound.upper()
@@ -204,6 +206,7 @@ def field_distributions(
         "evidenceBasis": [
             "starting tyres use first-stint/race-start evidence, including later terminal starters",
             f"current tyres and completed stops use {len(current_field)} factually running or in-pit drivers at this cursor",
+            "observed sequences use only the factual running or in-pit population at this cursor",
         ],
     }
 

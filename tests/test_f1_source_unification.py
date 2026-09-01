@@ -107,6 +107,45 @@ def test_live_and_historical_share_identical_timing_payloads() -> None:
     assert emitted[0].payload["source_condition"] == "STOPPED"
 
 
+def test_official_minisectors_supply_timing_estimate_without_xy() -> None:
+    sectors = [
+        {"Segments": [{"Status": 0} for _ in range(8)]} for _ in range(3)
+    ]
+    merged = {"Lines": {"1": {"RacingNumber": "1", "Sectors": sectors}}}
+    patch = {
+        "Lines": {"1": {"Sectors": {"1": {"Segments": {"3": {"Status": 2049}}}}}}
+    }
+    events = normalize_f1_timing(
+        merged,
+        patch,
+        "2026-08-23T13:04:00Z",
+        source="f1-static-public",
+    )
+
+    assert events[0].payload["track_position"] == pytest.approx(12 / 24)
+    assert "x" not in events[0].payload
+    assert "y" not in events[0].payload
+
+    reset_patch = {
+        "Lines": {"1": {"Sectors": {"1": {"Segments": {"3": {"Status": 0}}}}}}
+    }
+    reset = normalize_f1_timing(
+        merged,
+        reset_patch,
+        "2026-08-23T13:04:01Z",
+        source="f1-static-public",
+    )
+    assert "track_position" not in reset[0].payload
+
+    lap = normalize_f1_timing(
+        merged,
+        {"Lines": {"1": {"NumberOfLaps": 2}}},
+        "2026-08-23T13:04:02Z",
+        source="f1-static-public",
+    )
+    assert lap[0].payload["track_position"] == 0.0
+
+
 def test_bot_transient_retired_and_stopped_retract_without_terminal_poison() -> None:
     state = RaceState()
     state = _apply(
@@ -439,6 +478,7 @@ def _valid_official_events() -> tuple[NormalizedEvent, ...]:
                     "number": str(position),
                     "position": position,
                     "lap": 1,
+                    **({"track_position": 0.25} if position == 1 else {}),
                 },
             )
         )
@@ -483,6 +523,11 @@ def test_official_success_is_one_whole_source_and_never_calls_openf1(
     assert {item["source"] for item in json.loads(path.read_text())} == {
         "f1-static-public"
     }
+    manifest = json.loads(
+        (tmp_path / ".slipstream" / "sources" / "11353.json").read_text()
+    )
+    assert manifest["capabilities"]["positions"] is True
+    assert manifest["capabilities"]["location_xy"] is False
 
 
 def test_openf1_fallback_is_whole_session_without_official_event_mixing(
@@ -925,6 +970,9 @@ def test_authentic_dutch_11353_provider_rows_replay_end_to_end(tmp_path: Path) -
     assert classifications.count("DNF") == 6
     assert final.session.status == "FINISHED"
     assert final.session.lap == final.session.total_laps == 72
+    assert resource.descriptor.position_mode == "timing_estimate"
+    assert any(driver.track_position is not None for driver in final.drivers.values())
+    assert all(driver.x is None and driver.y is None for driver in final.drivers.values())
     assert controller.events[-1].occurred_at == "2026-08-23T15:28:47.876000Z"
 
 

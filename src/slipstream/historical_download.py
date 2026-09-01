@@ -53,6 +53,11 @@ class HistoricalSessionDownloader:
             )
             state = replay(list(events))
             _validate_official_recording(descriptor, events, state)
+            has_track_positions = any(
+                event.kind == "timing"
+                and event.payload.get("track_position") is not None
+                for event in events
+            )
             path = data_root / f"f1-static-{key}.json"
             write_canonical_recording(path, events)
             provenance.update(
@@ -60,7 +65,7 @@ class HistoricalSessionDownloader:
                 capabilities={
                     "historical_replay": True,
                     "live_timing": False,
-                    "positions": False,
+                    "positions": has_track_positions,
                     "intervals": True,
                     "sector_timing": True,
                     "location_xy": False,
