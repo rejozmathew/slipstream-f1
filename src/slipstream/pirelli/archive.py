@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -547,6 +548,25 @@ def list_normalized_releases(
             releases.append(_release_from_payload(raw))
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
+    # Normalized outputs remain immutable on disk, but one exact source artifact
+    # can be reprocessed by a newer deterministic normalizer. Consumers must not
+    # treat those derivations as separate releases or select an older output by
+    # filename/hash ordering.
+    current: dict[tuple[str, str], PirelliRelease] = {}
+    for release in releases:
+        key = (release.release_id, release.content_hash)
+        selected = current.get(key)
+        if selected is None or _normalizer_order(
+            release.normalizer_version
+        ) > _normalizer_order(selected.normalizer_version):
+            current[key] = release
     return tuple(
-        sorted(releases, key=lambda r: (r.published_at or r.retrieved_at, r.release_id))
+        sorted(
+            current.values(),
+            key=lambda r: (r.published_at or r.retrieved_at, r.release_id),
+        )
     )
+
+
+def _normalizer_order(value: str) -> tuple[tuple[int, ...], str]:
+    return tuple(int(part) for part in re.findall(r"\d+", value)), value

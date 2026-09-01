@@ -1,7 +1,11 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from slipstream.pirelli.archive import PirelliArchive, save_normalized_release
+from slipstream.pirelli.archive import (
+    PirelliArchive,
+    list_normalized_releases,
+    save_normalized_release,
+)
 from slipstream.pirelli.contracts import (
     Compound,
     EvidenceKind,
@@ -171,6 +175,34 @@ def test_source_version_timestamp_can_prove_late_archive_existed_at_cutoff(tmp_p
     assert result.status == "PRESENT"
     assert result.model_admissible is True
     assert result.evidence_tier == "STRICT_MODEL"
+
+
+def test_newer_normalizer_supersedes_same_immutable_source_version(tmp_path):
+    archive = PirelliArchive(tmp_path)
+    saved = _save_release(
+        archive,
+        meeting="hungary",
+        release=replace(
+            _release(
+                meeting="hungary", retrieved=datetime(2026, 7, 25, tzinfo=UTC)
+            ),
+            normalizer_version="slipstream-pirelli-v5-adapted.1",
+        ),
+    )
+    newer = replace(
+        saved,
+        normalizer_version="slipstream-pirelli-v5-adapted.2",
+        strategies=(
+            replace(saved.strategies[0], pit_windows=(PitWindow(27, 33),)),
+        ),
+    )
+    save_normalized_release(archive, meeting_key="hungary", release=newer)
+
+    releases = list_normalized_releases(archive, "hungary")
+
+    assert len(releases) == 1
+    assert releases[0].normalizer_version == "slipstream-pirelli-v5-adapted.2"
+    assert releases[0].strategies[0].pit_windows == (PitWindow(27, 33),)
 
 
 def test_three_leg_strategy_is_not_truncated_into_false_two_leg_fact():
