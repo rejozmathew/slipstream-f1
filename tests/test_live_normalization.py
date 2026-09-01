@@ -82,7 +82,8 @@ def test_real_public_fixture_normalizes_into_canonical_race_state() -> None:
     assert driver.last_lap == "1:11.794"
     assert driver.best_lap == "1:11.794"
     assert driver.status == "STOPPED"
-    assert driver.x is None and driver.y is None and driver.track_position is None
+    assert driver.x is None and driver.y is None
+    assert driver.track_position == 0.0
 
     assert state.weather.air_temperature == 18.9
     assert state.weather.track_temperature == 30.1
