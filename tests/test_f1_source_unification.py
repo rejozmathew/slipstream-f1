@@ -10,6 +10,7 @@ import pytest
 from slipstream.adapters.f1_historical import (
     STATIC_ROOT,
     F1HistoricalClient,
+    F1HistoricalError,
     parse_json_stream,
 )
 from slipstream.events import NormalizedEvent
@@ -401,9 +402,15 @@ def _session_event(source: str) -> NormalizedEvent:
         {
             "key": "11353",
             "name": "Race",
+            "meeting_name": "Dutch Grand Prix",
             "session_type": "Race",
+            "session_kind": "race",
+            "layout_family": "race",
             "started_at": "2026-08-23T00:00:00Z",
             "ended_at": "2026-08-23T03:10:00Z",
+            "lap": 1,
+            "total_laps": 2,
+            "status": "RUNNING",
         },
     )
 
@@ -417,16 +424,49 @@ def _timing_event(source: str) -> NormalizedEvent:
     )
 
 
+def _valid_official_events() -> tuple[NormalizedEvent, ...]:
+    events = [_session_event("f1-static-public")]
+    for position in range(1, 11):
+        events.append(
+            NormalizedEvent(
+                "timing",
+                "2026-08-23T00:01:00Z",
+                "f1-static-public",
+                {
+                    "number": str(position),
+                    "position": position,
+                    "lap": 1,
+                },
+            )
+        )
+    events.append(
+        NormalizedEvent(
+            "session",
+            "2026-08-23T00:02:00Z",
+            "f1-static-public",
+            {"lap": 2, "status": "FINISHED"},
+        )
+    )
+    for position in range(1, 11):
+        events.append(
+            NormalizedEvent(
+                "timing",
+                "2026-08-23T00:02:00Z",
+                "f1-static-public",
+                {"number": str(position), "classification": "FINISHED"},
+            )
+        )
+    return tuple(events)
+
+
 def test_official_success_is_one_whole_source_and_never_calls_openf1(
     tmp_path: Path,
 ) -> None:
     class Official:
-        def capture_events(self, key, *, year):
+        def capture_events(self, key, *, year, session_identity):
             assert (str(key), year) == ("11353", 2026)
-            return (
-                _session_event("f1-static-public"),
-                _timing_event("f1-static-public"),
-            )
+            assert session_identity["layout_family"] == "race"
+            return _valid_official_events()
 
     class Fallback:
         def capture_session(self, _key):
@@ -446,7 +486,8 @@ def test_openf1_fallback_is_whole_session_without_official_event_mixing(
     tmp_path: Path,
 ) -> None:
     class Official:
-        def capture_events(self, _key, *, year):
+        def capture_events(self, _key, *, year, session_identity):
+            assert session_identity["session_kind"] == "race"
             raise RuntimeError(f"unsupported {year}")
 
     fallback_recording = json.loads(
@@ -471,8 +512,9 @@ def test_openf1_fallback_is_whole_session_without_official_event_mixing(
 
 def test_unusable_official_output_falls_back_as_one_whole_source(tmp_path: Path) -> None:
     class Official:
-        def capture_events(self, _key, *, year):
+        def capture_events(self, _key, *, year, session_identity):
             assert year == 2026
+            assert session_identity["meeting_name"] == "Dutch Grand Prix"
             return (_session_event("f1-static-public"),)
 
     fallback_recording = json.loads(
@@ -551,7 +593,9 @@ def test_official_archive_uses_index_path_and_low_volume_streams() -> None:
                 "Key": 11353,
                 "Name": "Race",
                 "Type": "Race",
-                "StartDate": "2026-08-23T00:00:00Z",
+                "StartDate": "2026-08-23T15:00:00",
+                "EndDate": "2026-08-23T17:00:00",
+                "GmtOffset": "02:00:00",
             }
         ),
         f"{STATIC_ROOT}/{session_path}/DriverList.json": json.dumps(
@@ -561,7 +605,14 @@ def test_official_archive_uses_index_path_and_low_volume_streams() -> None:
             '01:14:29.632{"Lines":{"3":{"RacingNumber":"3","Stopped":true,"Retired":false,"Position":"20"}}}'
         ),
         f"{STATIC_ROOT}/{session_path}/SessionStatus.jsonStream": (
-            '00:00:01.000{"Status":"Started"}\n03:10:00.000{"Status":"Finished"}'
+            '00:56:45.791{"Status":"Started"}\n'
+            '03:01:30.890{"Status":"Finished"}'
+        ),
+        f"{STATIC_ROOT}/{session_path}/ExtrapolatedClock.jsonStream": (
+            '00:00:02.232{"Utc":"2026-08-23T12:06:45.008Z",'
+            '"Remaining":"00:00:00","Extrapolating":false}\n'
+            '00:56:46.230{"Utc":"2026-08-23T13:03:29.006Z",'
+            '"Remaining":"01:59:59","Extrapolating":true}'
         ),
     }
     requests = []
@@ -590,7 +641,7 @@ def test_official_archive_uses_index_path_and_low_volume_streams() -> None:
     driver_events = [event for event in events if event.payload.get("number") == "3"]
 
     assert any(
-        event.occurred_at == "2026-08-23T01:14:29.632000Z"
+        event.occurred_at == "2026-08-23T13:21:12.408000Z"
         and event.payload.get("source_condition") == "STOPPED"
         for event in driver_events
     )
@@ -613,7 +664,9 @@ def test_official_full_session_info_seeds_sparse_stream_and_dynamic_full_is_fina
                 "Key": 11353,
                 "Name": "Race",
                 "Type": "Race",
-                "StartDate": "2026-08-23T00:00:00Z",
+                "StartDate": "2026-08-23T15:00:00",
+                "EndDate": "2026-08-23T17:00:00",
+                "GmtOffset": "02:00:00",
             }
         ),
         f"{STATIC_ROOT}/{session_path}/SessionInfo.jsonStream": (
@@ -632,8 +685,16 @@ def test_official_full_session_info_seeds_sparse_stream_and_dynamic_full_is_fina
             }
         ),
         f"{STATIC_ROOT}/{session_path}/SessionStatus.jsonStream": (
-            '00:00:01.000{"Status":"Started"}\n'
-            '03:10:00.000{"Status":"Finished"}'
+            '00:56:45.791{"Status":"Started"}\n'
+            '03:01:30.890{"Status":"Finished"}'
+        ),
+        f"{STATIC_ROOT}/{session_path}/SessionData.jsonStream": (
+            '00:56:45.791{"StatusSeries":{"4":'
+            '{"Utc":"2026-08-23T13:03:28.567Z",'
+            '"SessionStatus":"Started"}}}\n'
+            '03:01:30.890{"StatusSeries":{"29":'
+            '{"Utc":"2026-08-23T15:08:13.666Z",'
+            '"SessionStatus":"Finished"}}}'
         ),
     }
 
@@ -659,8 +720,67 @@ def test_official_full_session_info_seeds_sparse_stream_and_dynamic_full_is_fina
     events = F1HistoricalClient(opener=opener).capture_events("11353", year=2026)
     timing = [event for event in events if event.kind == "timing"]
     assert timing
-    assert min(event.occurred_at for event in timing) == "2026-08-23T03:10:00Z"
+    assert min(event.occurred_at for event in timing) == (
+        "2026-08-23T15:08:13.666000Z"
+    )
     assert timing[-1].payload["classification"] == "DNF"
+
+
+def test_official_archive_fails_closed_without_absolute_clock_anchor() -> None:
+    session_path = "2026/Dutch/Race"
+    responses = {
+        f"{STATIC_ROOT}/2026/Index.json": json.dumps(
+            {"Sessions": [{"Key": 11353, "Path": session_path}]}
+        ),
+        f"{STATIC_ROOT}/{session_path}/SessionInfo.json": json.dumps(
+            {
+                "Key": 11353,
+                "Name": "Race",
+                "Type": "Race",
+                "StartDate": "2026-08-23T15:00:00",
+                "GmtOffset": "02:00:00",
+            }
+        ),
+        f"{STATIC_ROOT}/{session_path}/TimingData.jsonStream": (
+            '01:14:29.632{"Lines":{"3":{"Stopped":true}}}'
+        ),
+    }
+
+    class Response:
+        def __init__(self, body: str) -> None:
+            self.body = body.encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return self.body
+
+    def opener(request, timeout):
+        if request.full_url not in responses:
+            raise HTTPError(request.full_url, 404, "missing", {}, None)
+        return Response(responses[request.full_url])
+
+    with pytest.raises(F1HistoricalError, match="no reliable"):
+        F1HistoricalClient(opener=opener).capture_events("11353", year=2026)
+
+
+def test_sparse_session_info_never_overwrites_known_identity_with_placeholder() -> None:
+    adapter = F1LiveAdapter("11353", source="f1-static-public")
+    events = adapter.ingest(
+        {
+            "stream": "SessionInfo",
+            "payload": {"Key": 11353},
+            "source_timestamp": "2026-08-23T12:06:42.776Z",
+        }
+    )
+
+    assert events[0].payload == {"key": "11353"}
+    assert "name" not in events[0].payload
+    assert "layout_family" not in events[0].payload
 
 
 def test_official_index_composes_year_meeting_and_relative_session_paths() -> None:

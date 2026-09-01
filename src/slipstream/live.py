@@ -719,28 +719,39 @@ class F1LiveAdapter:
         circuit = (
             meeting.get("Circuit") if isinstance(meeting.get("Circuit"), dict) else {}
         )
-        session_name = str(payload.get("Name") or "Session")
-        session_type = str(payload.get("Type") or "Session")
-        classification = classify_session(session_type, session_name)
+        session_name = payload.get("Name")
+        session_type = payload.get("Type")
+        classification = classify_session(
+            str(session_type or ""), str(session_name or "")
+        )
+        updates: dict[str, Any] = {"key": self.target_session_key}
+        optional = {
+            "name": session_name,
+            "meeting_name": meeting.get("Name"),
+            "session_type": session_type,
+            "circuit": circuit.get("ShortName"),
+            "location": meeting.get("Location"),
+            "started_at": payload.get("StartDate"),
+            "ended_at": payload.get("EndDate"),
+            "gmt_offset": payload.get("GmtOffset"),
+        }
+        updates.update(
+            {key: value for key, value in optional.items() if value not in {None, ""}}
+        )
+        if session_name or session_type:
+            updates.update(
+                session_kind=classification.kind.value,
+                layout_family=classification.layout_family.value,
+            )
+        status = _session_status(payload)
+        if status != "UNKNOWN":
+            updates["status"] = status
         return [
             NormalizedEvent(
                 "session",
                 occurred_at,
                 self.source,
-                {
-                    "key": self.target_session_key,
-                    "name": session_name,
-                    "meeting_name": meeting.get("Name"),
-                    "session_type": session_type,
-                    "session_kind": classification.kind.value,
-                    "layout_family": classification.layout_family.value,
-                    "circuit": circuit.get("ShortName"),
-                    "location": meeting.get("Location"),
-                    "started_at": payload.get("StartDate"),
-                    "ended_at": payload.get("EndDate"),
-                    "gmt_offset": payload.get("GmtOffset"),
-                    "status": _session_status(payload),
-                },
+                updates,
                 received_at=occurred_at,
             )
         ]
