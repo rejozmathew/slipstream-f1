@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .events import parse_timestamp
 from .library import ReplayResource
 from .state import DriverState, RaceState
 
@@ -32,6 +33,7 @@ def build_qualifying_snapshot(
         return {
             "status": "NOT_APPLICABLE",
             "phase": "UNKNOWN",
+            "final": False,
             "sessionClock": None,
             "benchmark": None,
             "cutLine": _unknown_cut_line(),
@@ -46,6 +48,10 @@ def build_qualifying_snapshot(
     phase = normalized_phase if phase_from_state else (
         _phase_at_sequence(phase_boundaries, sequence) or "UNKNOWN"
     )
+    final = phase in {"Q3", "SQ3"} and state.session.status in {
+        "FINISHED",
+        "CANCELLED",
+    }
     ordered = sorted(state.drivers.values(), key=lambda item: item.position or 999)
     attempts_by_driver = {
         driver.number: _attempts(resource, driver.number, sequence, sprint=sprint)
@@ -124,6 +130,7 @@ def build_qualifying_snapshot(
     return {
         "status": "AVAILABLE",
         "phase": phase,
+        "final": final,
         "phaseEvidence": (
             "normalized public SessionData"
             if phase_from_state
@@ -131,7 +138,7 @@ def build_qualifying_snapshot(
             if phase != "UNKNOWN"
             else "phase is not established by normalized source evidence"
         ),
-        "sessionClock": state.session.session_clock,
+        "sessionClock": _cursor_session_clock(resource, state, sequence),
         "sessionClockRunning": state.session.session_clock_running,
         "benchmark": (
             {
@@ -282,6 +289,40 @@ def _timestamp_seconds(value: str | None) -> float | None:
         return None
 
 
+def _cursor_session_clock(
+    resource: ReplayResource, state: RaceState, sequence: int
+) -> str | None:
+    clock = state.session.session_clock
+    if clock is None or not state.session.session_clock_running or sequence <= 0:
+        return clock
+    scoped_events = resource.events[:sequence]
+    observation = next(
+        (
+            event
+            for event in reversed(scoped_events)
+            if event.kind == "session"
+            and event.payload.get("session_clock") is not None
+        ),
+        None,
+    )
+    if observation is None or not scoped_events:
+        return clock
+    try:
+        hours, minutes, seconds = (float(part) for part in clock.split(":"))
+        observed_remaining = hours * 3600 + minutes * 60 + seconds
+        elapsed = max(
+            0.0,
+            (
+                parse_timestamp(scoped_events[-1].occurred_at)
+                - parse_timestamp(observation.occurred_at)
+            ).total_seconds(),
+        )
+    except (TypeError, ValueError):
+        return clock
+    remaining = max(0, int(observed_remaining - elapsed))
+    return f"{remaining // 3600:02d}:{remaining % 3600 // 60:02d}:{remaining % 60:02d}"
+
+
 def _scope_best(
     driver: DriverState, attempts: list[dict[str, Any]], phase: str
 ) -> tuple[float, str] | None:
@@ -293,9 +334,21 @@ def _scope_best(
     ]
     results = driver.qualifying_results
     if results is not None:
-        index = {"Q1": 0, "SQ1": 0, "Q2": 1, "SQ2": 1, "Q3": 2, "SQ3": 2}.get(phase)
-        values = results if index is None else (results[index],)
-        candidates.extend(float(value) for value in values if value is not None)
+        index = {
+            "Q1": 0,
+            "SQ1": 0,
+            "Q2": 1,
+            "SQ2": 1,
+            "Q3": 2,
+            "SQ3": 2,
+        }.get(phase)
+        if index is not None:
+            value = results[index]
+            if value is None:
+                return None
+            seconds = float(value)
+            return seconds, _format_duration(seconds)
+        candidates.extend(float(value) for value in results if value is not None)
     if not candidates:
         return None
     seconds = min(candidates)

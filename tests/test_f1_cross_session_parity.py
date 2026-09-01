@@ -207,6 +207,7 @@ def test_live_and_static_transport_have_cross_session_product_parity(
     assert live[2]["track_clear"].session.status == "SUSPENDED"
     assert live[2]["track_clear"].session.display_status == "RED_FLAG"
     assert live[2]["restart"].session.status == "RUNNING"
+    assert live[2]["restart"].session.display_status == "GREEN"
     assert live[0].drivers["44"].source_retired is False
     if session_type == "Qualifying":
         assert live[0].session.qualifying_phase == "Q3"

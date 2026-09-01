@@ -157,7 +157,7 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
   const tone = statusTone(governingStatus);
   const qualifyingPhase = analytics?.qualifying.phase && analytics.qualifying.phase !== "UNKNOWN" ? analytics.qualifying.phase : null;
   const qualifyingClock = analytics?.qualifying.sessionClock ?? null;
-  const qualifyingFinal = layout === "qualifying" && drivers.some((driver) => driver.qualifying_results != null);
+  const qualifyingFinal = layout === "qualifying" && analytics?.qualifying.final === true;
   const pirelliPresent = analytics?.publishedStrategy?.baseline.status === "PRESENT";
   return <div className={`tv-mode-view${statusAlert ? " tv-status-alert" : ""}`} data-track-tone={tone}>
     <header className="tv-header"><div className="tv-brand"><i>SS</i><span><strong>SLIPSTREAM</strong><small>TV MODE · {sessionKind.replaceAll("_", " ").toUpperCase()}</small></span></div><div className="tv-session"><span>{state.session.meeting_name ?? "Session unavailable"}</span><strong>{qualifyingFinal ? "QUALIFYING FINAL" : state.session.name ?? layout.toUpperCase()}</strong></div><div className="tv-status">{layout === "qualifying" ? <>{qualifyingPhase && <span>{qualifyingPhase}</span>}{qualifyingClock && <b>{qualifyingClock}</b>}</> : <><span>LAP</span><b>{state.session.lap ?? "—"} / {state.session.total_laps ?? "—"}</b></>}{governingStatus && <strong>{governingStatus}</strong>}</div><button onClick={onExit}>EXIT TV</button></header>

@@ -504,6 +504,7 @@ export type QualifyingDriverIntelligence = {
 export type QualifyingIntelligence = {
   status: "AVAILABLE" | "NOT_APPLICABLE";
   phase: QualifyingPhase;
+  final: boolean;
   phaseEvidence?: string;
   sessionClock: string | null;
   sessionClockRunning?: boolean | null;

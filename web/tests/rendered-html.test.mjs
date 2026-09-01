@@ -228,6 +228,7 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(timingTower, /strategy: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "STINT", "PIT"\]/);
   assert.match(timingTower, /qualifyingSegments, "GAP", "TYRE", "AGE"/);
   assert.match(timingTower, /"Q STATUS"/);
+  assert.match(timingTower, /qualifying\.final === true/);
   assert.match(timingTower, /segmentResults/);
   assert.match(timingTower, /"PIRELLI FIT", "PUBLISHED WINDOW"/);
   assert.match(timingTower, /driver\.gap_to_leader/);
@@ -252,6 +253,7 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(driverFocus, /segmentResults/);
   assert.match(driverFocus, /formatLapTime/);
   assert.match(tvMode, /QUALIFYING FINAL/);
+  assert.match(tvMode, /qualifying\.final === true/);
   assert.doesNotMatch(tvMode, /DRIVER · NOT SELECTED/);
   assert.match(tvMode, /COMPLETED-LAP TREND/);
   assert.match(tvMode, /pitLaneDuration/);

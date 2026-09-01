@@ -131,7 +131,7 @@ const raceModeHeaders = {
 
 export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, sectorTimingAvailable = false, toolbar, onSelectDriver }: TimingTowerProps) {
   const showPublished = analytics?.publishedStrategy?.status === "PRESENT";
-  const qualifyingFinal = variant === "qualifying" && drivers.some((driver) => driver.qualifying_results != null);
+  const qualifyingFinal = variant === "qualifying" && analytics?.qualifying.final === true;
   const qualifyingSegments = analytics?.sessionKind === "sprint_qualifying" ? ["SQ1", "SQ2", "SQ3"] : ["Q1", "Q2", "Q3"];
   const headersForView = variant === "race"
     ? mode === "strategy" && showPublished

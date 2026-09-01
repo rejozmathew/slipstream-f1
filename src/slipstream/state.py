@@ -140,8 +140,11 @@ class RaceState:
                     updates.pop("control_status")
             if (
                 updates.get("status") == "RUNNING"
-                and self.session.status == "SUSPENDED"
+                and self.session.status in {"SUSPENDED", "FINISHED", "SCHEDULED"}
             ):
+                # An explicit session restart/resumption is authoritative. It
+                # may close a terminal segment or suspended interval; a
+                # marshal-only TRACK CLEAR event still cannot do so.
                 updates["control_status"] = "NORMAL"
             session = replace(self.session, **updates)
             if (

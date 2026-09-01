@@ -27,7 +27,7 @@ def _resource(tmp_path: Path):
                 "ended_at": "2026-07-25T15:00:00+00:00",
                 "qualifying_phase": "Q1",
                 "eligible_field_size": 22,
-                "session_clock": "00:05:42",
+                "session_clock": "00:15:42",
                 "session_clock_running": True,
                 "status": "RUNNING",
             },
@@ -106,6 +106,7 @@ def test_qualifying_contract_authors_phase_clock_cut_and_attempts(
     )
 
     assert snapshot["phase"] == "Q1"
+    assert snapshot["final"] is False
     assert snapshot["sessionClock"] == "00:05:42"
     assert snapshot["benchmark"]["driverNumber"] == "1"
     assert snapshot["cutLine"]["advancePosition"] == 16
@@ -264,7 +265,22 @@ def test_result_matrix_is_cursor_safe_and_uses_approved_final_statuses(
         replace(live_state, drivers=final_drivers),
         sequence=len(events),
     )
+    terminal = build_qualifying_snapshot(
+        resource,
+        replace(
+            live_state,
+            session=replace(
+                live_state.session,
+                qualifying_phase="Q3",
+                status="FINISHED",
+            ),
+            drivers=final_drivers,
+        ),
+        sequence=len(events),
+    )
 
+    assert final["final"] is False
+    assert terminal["final"] is True
     assert final["drivers"]["1"]["segmentResults"] == [72.695, 71.628, 71.163]
     assert final["drivers"]["1"]["qStatus"] == "Q3"
     assert final["drivers"]["2"]["segmentResults"] == [73.115, 72.616, None]
