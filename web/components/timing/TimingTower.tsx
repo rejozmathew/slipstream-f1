@@ -5,6 +5,7 @@ import { driverClassificationLabel, driverLifecycle, lifecycleClassName } from "
 import type { TowerView } from "../../domain/layout";
 import type { AnalyticsSnapshot, Driver, QualifyingIntelligence } from "../../domain/protocol";
 import { publishedWindowSummary } from "../analysis/PublishedStrategy";
+import { lapDeficitGap } from "../../domain/correctness.mjs";
 import { CompoundBadge } from "../shared/CompoundBadge";
 import { DataValue } from "../shared/DataValue";
 import { Panel } from "../shared/Panel";
@@ -30,36 +31,38 @@ function DriverIdentity({ driver }: { driver: Driver }) {
   </span>;
 }
 
-function LifecycleValue({ driver }: { driver: Driver }) {
+function LifecycleValue({ driver, leader }: { driver: Driver; leader?: Driver }) {
   const lifecycle = driverLifecycle(driver);
   const classification = driverClassificationLabel(driver);
   if (classification) return <span className="driver-lifecycle-label">{classification}</span>;
   if (lifecycle.retiredIndicated) return <span className="driver-lifecycle-label">RETIRED</span>;
   if (lifecycle.stopped) return <span className="driver-lifecycle-label">STOPPED</span>;
   if (lifecycle.inPit) return <span className="driver-lifecycle-label">IN PIT</span>;
+  const lapDeficit = lapDeficitGap(driver, leader);
+  if (lapDeficit) return <span>{lapDeficit}</span>;
   return <DataValue compact value={driver.position === 1 ? "LEADER" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} />;
 }
 
-function RaceCore({ driver }: { driver: Driver }) {
+function RaceCore({ driver, leader }: { driver: Driver; leader?: Driver }) {
   return <><strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
-    <LifecycleValue driver={driver} />
+    <LifecycleValue driver={driver} leader={leader} />
     <CompoundBadge compound={driver.compound} compact />
   </>;
 }
 
-function RaceRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
+function RaceRow({ driver, leader, onSelect }: { driver: Driver; leader?: Driver; onSelect?: (driverNumber: string) => void }) {
   const lifecycle = driverLifecycle(driver);
   return <button type="button" className={"timing-row timing-race " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
-    <RaceCore driver={driver} />
+    <RaceCore driver={driver} leader={leader} />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     {lifecycle.terminal ? <span>—</span> : <DataValue compact value={driver.last_lap ?? driver.best_lap} availability={driver.availability.last_lap} />}
     <span>{driver.pit_count}</span>
   </button>;
 }
 
-function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
+function RaceTimingRow({ driver, leader, onSelect }: { driver: Driver; leader?: Driver; onSelect?: (driverNumber: string) => void }) {
   return <button type="button" className={"timing-row timing-race-timing " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
-    <RaceCore driver={driver} />
+    <RaceCore driver={driver} leader={leader} />
     <DataValue compact value={formatSector(driver.sector_1)} availability={driver.availability.sector_1} />
     <DataValue compact value={formatSector(driver.sector_2)} availability={driver.availability.sector_2} />
     <DataValue compact value={formatSector(driver.sector_3)} availability={driver.availability.sector_3} />
@@ -68,12 +71,12 @@ function RaceTimingRow({ driver, onSelect }: { driver: Driver; onSelect?: (drive
   </button>;
 }
 
-function RaceStrategyRow({ driver, analytics, onSelect }: { driver: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+function RaceStrategyRow({ driver, leader, analytics, onSelect }: { driver: Driver; leader?: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
   const lifecycle = driverLifecycle(driver);
   const published = analytics?.publishedStrategy?.drivers[driver.number];
   const showPublished = analytics?.publishedStrategy?.status === "PRESENT";
   return <button type="button" className={`timing-row timing-race-strategy${showPublished ? " timing-race-strategy-published" : ""} ${lifecycleClassName(driver)}`} role="row" onClick={() => onSelect?.(driver.number)}>
-    <RaceCore driver={driver} />
+    <RaceCore driver={driver} leader={leader} />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
@@ -139,6 +142,7 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
       : headers.practice;
   const rowClass = variant === "race" && mode !== "standard" ? `race-${mode}` : variant;
   const qualifying = analytics?.qualifying;
+  const raceLeader = drivers.find((driver) => driver.position === 1);
   const qualifierTitle = qualifyingFinal ? "QUALIFYING FINAL" : qualifying?.phase && qualifying.phase !== "UNKNOWN" ? `QUALIFYING · ${qualifying.phase}` : "QUALIFYING";
   return <Panel eyebrow={variant === "race" ? "CLASSIFICATION" : variant === "qualifying" ? qualifierTitle : "RUN CLASSIFICATION"} title="Timing tower" action={<div className="panel-actions">{variant === "qualifying" && qualifying?.sessionClock && <strong className="qualifying-clock">{qualifying.sessionClock} REMAINING</strong>}<span className="panel-badge">{drivers.length} DRIVERS</span>{toolbar}</div>} className="timing-panel">
     {!replayAvailable && <div className="panel-empty">TIMING DATA NOT AVAILABLE FOR THIS SESSION</div>}
@@ -146,11 +150,11 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
     <div className={`timing-table timing-${rowClass}`} role="table">
       <div className={`timing-header timing-${rowClass}${variant === "qualifying" && qualifyingFinal ? " timing-qualifying-final" : ""}${variant === "qualifying" && sectorTimingAvailable ? " timing-qualifying-sectors" : ""}${variant === "race" && mode === "strategy" && showPublished ? " timing-race-strategy-published" : ""}`} role="row">{headersForView.map((header) => <span key={header}>{header}</span>)}</div>
       {drivers.map((driver) => variant === "race" && mode === "timing"
-        ? <RaceTimingRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
+        ? <RaceTimingRow driver={driver} leader={raceLeader} onSelect={onSelectDriver} key={driver.number} />
         : variant === "race" && mode === "strategy"
-          ? <RaceStrategyRow driver={driver} analytics={analytics} onSelect={onSelectDriver} key={driver.number} />
+          ? <RaceStrategyRow driver={driver} leader={raceLeader} analytics={analytics} onSelect={onSelectDriver} key={driver.number} />
           : variant === "race"
-            ? <RaceRow driver={driver} onSelect={onSelectDriver} key={driver.number} />
+            ? <RaceRow driver={driver} leader={raceLeader} onSelect={onSelectDriver} key={driver.number} />
             : variant === "qualifying"
                ? <QualifyingRow driver={driver} intelligence={qualifying} sectorTimingAvailable={sectorTimingAvailable} showQStatus={qualifyingFinal} onSelect={onSelectDriver} key={driver.number} />
               : <PracticeRow driver={driver} onSelect={onSelectDriver} key={driver.number} />)}

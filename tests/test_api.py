@@ -259,6 +259,67 @@ def test_historical_replay_uses_factual_terminal_and_can_rewind_after_finish(
     assert rewound["analytics"]["sequence"] == rewound["seq"]
 
 
+def test_race_replay_end_waits_for_complete_classification(tmp_path: Path) -> None:
+    recording = [
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-23T13:00:00Z",
+            "source": "fixture",
+            "payload": {
+                "key": "11353",
+                "name": "Race",
+                "session_type": "Race",
+                "started_at": "2026-08-23T13:00:00Z",
+                "ended_at": "2026-08-23T15:30:00Z",
+                "status": "RUNNING",
+                "eligible_field_size": 2,
+            },
+        },
+        *[
+            {
+                "kind": "driver",
+                "occurred_at": "2026-08-23T13:00:01Z",
+                "source": "fixture",
+                "payload": {"number": number, "status": "RUNNING"},
+            }
+            for number in ("1", "2")
+        ],
+        {
+            "kind": "session",
+            "occurred_at": "2026-08-23T15:08:13Z",
+            "source": "fixture",
+            "payload": {"status": "FINISHED", "control_status": "CHEQUERED"},
+        },
+        {
+            "kind": "timing",
+            "occurred_at": "2026-08-23T15:08:20Z",
+            "source": "fixture",
+            "payload": {"number": "1", "classification": "FINISHED"},
+        },
+        {
+            "kind": "timing",
+            "occurred_at": "2026-08-23T15:08:30Z",
+            "source": "fixture",
+            "payload": {"number": "2", "classification": "DNF"},
+        },
+        {
+            "kind": "race_control",
+            "occurred_at": "2026-08-23T15:20:00Z",
+            "source": "fixture",
+            "payload": {"category": "Other", "message": "POST SESSION ACCESS"},
+        },
+    ]
+    path = tmp_path / "settled-race.json"
+    path.write_text(json.dumps(recording), encoding="utf-8")
+
+    with TestClient(create_app(path)) as client:
+        replay = client.get("/api/v1/replay").json()
+        final = client.get("/api/v1/state").json()
+
+    assert replay["endTime"] == "2026-08-23T15:08:30Z"
+    assert {driver["classification"] for driver in final["data"]["drivers"].values()} == {"FINISHED", "DNF"}
+
+
 def test_catalog_session_can_be_downloaded_and_used_without_restart(
     tmp_path: Path,
 ) -> None:

@@ -785,7 +785,7 @@ def create_app(
 
 def _effective_end_time(selected: ReplayResource, now: datetime) -> str:
     if not selected.is_live:
-        terminal = _first_terminal_time(selected.events)
+        terminal = _settled_terminal_time(selected)
         return terminal or selected.descriptor.date_end
     scheduled_end = parse_timestamp(selected.descriptor.date_end)
     effective = min(now, scheduled_end)
@@ -809,6 +809,39 @@ def _first_terminal_time(events: tuple[NormalizedEvent, ...]) -> str | None:
         ):
             return event.occurred_at
     return None
+
+
+def _settled_terminal_time(selected: ReplayResource) -> str | None:
+    """Return a race end only after the expected classification has settled."""
+
+    first_terminal = _first_terminal_time(selected.events)
+    if first_terminal is None or selected.descriptor.session_kind != "race":
+        return first_terminal
+
+    participants: set[str] = set()
+    classified: set[str] = set()
+    eligible_field_size = 0
+    terminal_seen = False
+    for event in selected.events:
+        if event.kind == "session":
+            field_size = event.payload.get("eligible_field_size")
+            if isinstance(field_size, int):
+                eligible_field_size = max(eligible_field_size, field_size)
+            if event.occurred_at == first_terminal:
+                terminal_seen = True
+        elif event.kind in {"driver", "timing"}:
+            number = event.payload.get("number")
+            if number is not None:
+                participants.add(str(number))
+                if event.payload.get("classification") not in {None, ""}:
+                    classified.add(str(number))
+        expected = max(eligible_field_size, len(participants))
+        if terminal_seen and expected > 0 and len(classified) >= expected:
+            return event.occurred_at
+
+    # Legacy recordings without final classification retain their factual
+    # terminal boundary instead of exposing unrelated post-session packets.
+    return first_terminal
 
 
 async def _play(

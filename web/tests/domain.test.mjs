@@ -6,6 +6,8 @@ import {
   battleFactorPresentation,
   battleGapPresentation,
   gapChartModel,
+  isTrackMapActive,
+  lapDeficitGap,
   paceChartAvailability,
   trackCoverage,
 } from "../domain/correctness.mjs";
@@ -65,16 +67,40 @@ test("gap chart axes contain every plotted source value", () => {
 
 test("track coverage accounts for missing cars without inventing coordinates", () => {
   const coverage = trackCoverage([
-    { number: "1", code: "NOR", position: 1, track_position: 0.4 },
-    { number: "2", code: "VER", position: 2, track_position: null },
-    { number: "3", code: "PIA", position: null, track_position: null },
+    { number: "1", code: "NOR", position: 1, status: "RUNNING", source_condition: "RUNNING", track_position: 0.4 },
+    { number: "2", code: "VER", position: 2, status: "RUNNING", source_condition: "RUNNING", track_position: null },
+    { number: "3", code: "PIA", position: null, status: "RUNNING", source_condition: "RUNNING", track_position: null },
   ], "timing_estimate");
   assert.deepEqual(coverage, {
-    classified: 2,
+    eligible: 3,
     positioned: 1,
-    unpositioned: 1,
-    unpositionedLabels: ["VER"],
+    unpositioned: 2,
+    unpositionedLabels: ["VER", "PIA"],
+    inactiveLabels: [],
   });
+});
+
+test("track coverage is over active cars and reports factual out states", () => {
+  const active = { number: "1", code: "NOR", position: 1, status: "RUNNING", source_condition: "RUNNING", track_position: 0.4 };
+  const stopped = { number: "2", code: "VER", position: 2, status: "STOPPED", source_condition: "STOPPED", track_position: 0.5 };
+  const dnf = { number: "3", code: "PIA", position: 3, status: "DNF", classification: "DNF", track_position: 0.6 };
+  assert.equal(isTrackMapActive(active), true);
+  assert.equal(isTrackMapActive(stopped), false);
+  const coverage = trackCoverage([active, stopped, dnf], "timing_estimate");
+  assert.deepEqual(coverage, {
+    eligible: 1,
+    positioned: 1,
+    unpositioned: 0,
+    unpositionedLabels: [],
+    inactiveLabels: ["VER · STOPPED", "PIA · DNF"],
+  });
+});
+
+test("lap deficits are shown only when a usable seconds gap is absent", () => {
+  const leader = { number: "1", position: 1, lap: 45 };
+  assert.equal(lapDeficitGap({ position: 7, lap: 44, gap_to_leader: null, availability: {} }, leader), "+1 LAP");
+  assert.equal(lapDeficitGap({ position: 12, lap: 42, gap_to_leader: null, availability: {} }, leader), "+3 LAPS");
+  assert.equal(lapDeficitGap({ position: 2, lap: 45, gap_to_leader: "+1.250", availability: { gap_to_leader: "available" } }, leader), null);
 });
 
 test("battle contributions remain distinct from raw factor values", () => {

@@ -361,10 +361,37 @@ def test_stopped_resumes_on_explicit_source_false() -> None:
     assert is_stopped(state.drivers["31"])
     state = _apply(
         state,
-        _timing("31", "02:38:23.000", retired=False, stopped=False, laps=52),
+        normalize_f1_timing(
+            {
+                "Lines": {
+                    "31": {
+                        "RacingNumber": "31",
+                        "Retired": False,
+                        "Stopped": False,
+                        "NumberOfLaps": 52,
+                    }
+                }
+            },
+            {"Lines": {"31": {"Retired": False, "Stopped": False}}},
+            "2026-08-23T02:38:23Z",
+            source="f1-static-public",
+        ),
     )
     assert state.drivers["31"].source_condition == "RUNNING"
     assert not is_stopped(state.drivers["31"])
+    assert state.drivers["31"].track_position is None
+
+    sectors = [{"Segments": [{"Status": 0} for _ in range(4)]} for _ in range(3)]
+    state = _apply(
+        state,
+        normalize_f1_timing(
+            {"Lines": {"31": {"Sectors": sectors}}},
+            {"Lines": {"31": {"Sectors": {"0": {"Segments": {"0": {"Status": 2049}}}}}}},
+            "2026-08-23T02:38:24Z",
+            source="f1-static-public",
+        ),
+    )
+    assert state.drivers["31"].track_position == pytest.approx(1 / 12)
 
 
 def test_explicit_in_pit_false_recovers_to_running() -> None:

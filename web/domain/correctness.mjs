@@ -26,20 +26,64 @@ export function gapChartModel(samples) {
   return { min, max, points };
 }
 
+const TERMINAL_TRACK_STATUSES = new Set([
+  "RETIRED", "RETIREMENT", "FINISHED", "DNF", "DNS", "DSQ",
+  "DISQUALIFIED", "WITHDRAWN", "EXCLUDED",
+]);
+
+export function trackMapLifecycleLabel(driver) {
+  const classification = String(driver.classification ?? "").toUpperCase();
+  if (classification) return classification === "DISQUALIFIED" ? "DSQ" : classification;
+  const condition = String(driver.source_condition ?? "").toUpperCase();
+  if (condition === "RETIRED_INDICATED") return "RETIRED";
+  if (condition === "STOPPED") return "STOPPED";
+  if (condition === "IN_PIT") return "IN PIT";
+  const status = String(driver.status ?? "").toUpperCase();
+  if (TERMINAL_TRACK_STATUSES.has(status)) return status;
+  if (status === "STOPPED") return "STOPPED";
+  return null;
+}
+
+export function isTrackMapActive(driver) {
+  if (trackMapLifecycleLabel(driver) != null) return false;
+  const condition = String(driver.source_condition ?? "").toUpperCase();
+  const status = String(driver.status ?? "").toUpperCase();
+  return condition === "RUNNING"
+    || (condition === "UNKNOWN" && ["RUNNING", "RACING", "LIVE"].includes(status))
+    || driver.activity === "ON_TRACK";
+}
+
 export function trackCoverage(drivers, positionMode) {
-  const classified = drivers.filter((driver) => driver.position != null);
+  const eligible = drivers.filter((driver) => isTrackMapActive(driver));
   const hasPosition = (driver) => positionMode !== "unavailable" && (
     (positionMode === "precise_xy" && driver.x != null && driver.y != null)
       || driver.track_position != null
   );
-  const positioned = classified.filter(hasPosition);
-  const unpositioned = classified.filter((driver) => !hasPosition(driver));
+  const positioned = eligible.filter(hasPosition);
+  const unpositioned = eligible.filter((driver) => !hasPosition(driver));
   return {
-    classified: classified.length,
+    eligible: eligible.length,
     positioned: positioned.length,
     unpositioned: unpositioned.length,
     unpositionedLabels: unpositioned.map((driver) => driver.code ?? driver.number),
+    inactiveLabels: drivers.flatMap((driver) => {
+      const label = trackMapLifecycleLabel(driver);
+      return label == null ? [] : [`${driver.code ?? driver.number} · ${label}`];
+    }),
   };
+}
+
+export function lapDeficitGap(driver, leader) {
+  if (driver.position === 1) return null;
+  const raw = driver.gap_to_leader;
+  const available = driver.availability?.gap_to_leader !== "unavailable";
+  if (available && raw != null && Number.isFinite(Number(String(raw).replace(/^\+/, "")))) {
+    return null;
+  }
+  if (!Number.isInteger(leader?.lap) || !Number.isInteger(driver.lap)) return null;
+  const deficit = leader.lap - driver.lap;
+  if (deficit < 1) return null;
+  return `+${deficit} ${deficit === 1 ? "LAP" : "LAPS"}`;
 }
 
 const FACTOR_UNITS = {
