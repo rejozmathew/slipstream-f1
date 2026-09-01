@@ -1028,6 +1028,17 @@ def test_official_archive_fails_closed_without_absolute_clock_anchor() -> None:
         F1HistoricalClient(opener=opener).capture_events("11353", year=2026)
 
 
+def test_s3_access_denied_is_absence_only_for_optional_official_topics() -> None:
+    def forbidden(request, timeout):
+        raise HTTPError(request.full_url, 403, "Access Denied", {}, None)
+
+    client = F1HistoricalClient(opener=forbidden)
+    assert client._get_optional_text("https://archive.test/LapCount.json") is None
+    with pytest.raises(HTTPError) as error:
+        client._get_json("https://archive.test/Index.json")
+    assert error.value.code == 403
+
+
 def test_sparse_session_info_never_overwrites_known_identity_with_placeholder() -> None:
     adapter = F1LiveAdapter("11353", source="f1-static-public")
     events = adapter.ingest(

@@ -220,7 +220,10 @@ class F1HistoricalClient:
         try:
             return self._get_text(url)
         except HTTPError as error:
-            if error.code == 404:
+            # The official CloudFront/S3 archive reports absent optional keys
+            # as either Not Found or AccessDenied depending on the prefix.
+            # Required index/session files use _get_json and still fail closed.
+            if error.code in {403, 404}:
                 return None
             raise
 
