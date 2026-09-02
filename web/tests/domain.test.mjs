@@ -19,6 +19,27 @@ import {
   sessionClockLabel,
 } from "../domain/replayControls.mjs";
 import { preferredWeekendSession } from "../domain/sessionSelection.mjs";
+import {
+  driverPublishedRouteRows,
+  driverPublishedRoutesText,
+  driverPublishedWindowsText,
+  driverStrategyRelationship,
+  NO_SPECIFIC_PIRELLI_STRATEGY,
+  nominationSummary,
+  optionDeltaText,
+  optionOrderNote,
+  prioritizedPirelliContextFacts,
+} from "../domain/pirelliPresentation.mjs";
+
+function pirelliBaseline(overrides = {}) {
+  return {
+    status: "PRESENT",
+    options: [],
+    compoundSelection: null,
+    contextFacts: [],
+    ...overrides,
+  };
+}
 
 // v2.1 §20 / invariant 6: Battle hysteresis is SERVER-owned (AnalyticsService,
 // session-scoped + cursor-keyed, pinned in tests/test_strategy_v21_battle.py).
@@ -40,6 +61,68 @@ test("analytics polling stops when Pirelli reaches a stable state", () => {
     assert.equal(shouldPollAnalytics("replay", "11280", "ready", status), false);
   }
   assert.equal(shouldPollAnalytics("live", "11280", "ready", "FETCHING"), false);
+});
+
+test("Australia and Canada context-only publications stay present without inventing routes", () => {
+  const australia = pirelliBaseline({
+    compoundSelection: { hard: "C3", medium: "C4", soft: "C5" },
+    contextFacts: [{ category: "COMPOUND_OUTLOOK", statement: "The softest three compounds are nominated." }],
+  });
+  const canada = pirelliBaseline({
+    compoundSelection: { hard: "C3", medium: "C4", soft: "C5" },
+    contextFacts: [{ category: "STRATEGY_OUTLOOK", statement: "A one-stop strategy could again be preferred." }],
+  });
+
+  assert.equal(nominationSummary(australia.compoundSelection), "C3 HARD · C4 MEDIUM · C5 SOFT");
+  assert.equal(driverStrategyRelationship(australia), NO_SPECIFIC_PIRELLI_STRATEGY);
+  assert.equal(driverPublishedRoutesText(australia), "No specific route published");
+  assert.equal(driverStrategyRelationship(canada), NO_SPECIFIC_PIRELLI_STRATEGY);
+  assert.equal(prioritizedPirelliContextFacts(canada.contextFacts, 1)[0].category, "STRATEGY_OUTLOOK");
+});
+
+test("Miami driver presentation resolves the actual route and window without exposing option ids", () => {
+  const miami = pirelliBaseline({ options: [{ id: "option-1", rank: "FASTEST_PUBLISHED", order: "ORDERED", stopCount: 1, compounds: ["MEDIUM", "HARD"], pitWindows: [{ startLap: 22, endLap: 28 }] }] });
+  const driver = { relation: "MATCHING_ONE", compatibleOptionIds: ["option-1"], observedCompounds: ["MEDIUM"], windows: [{ optionId: "option-1", stopIndex: 0, startLap: 22, endLap: 28, state: "COMPLETED" }] };
+  const rows = driverPublishedRouteRows(miami, driver, [{ ordinal: 1, lap: 24 }]);
+
+  assert.equal(driverPublishedRoutesText(miami, driver), "M → H");
+  assert.equal(driverPublishedWindowsText(miami, driver), "L22–28");
+  assert.match(driverStrategyRelationship(miami, driver), /M → H tyre strategy/);
+  assert.equal(rows[0].windows[0].state, "Observed stop L24");
+  assert.doesNotMatch(`${driverPublishedRoutesText(miami, driver)} ${driverPublishedWindowsText(miami, driver)}`, /option-1|MATCHING_ONE|COMPLETED/);
+});
+
+test("Dutch presentation preserves distinct routes, windows, and non-directional compound orders", () => {
+  const dutch = pirelliBaseline({ options: [
+    { id: "mh", rank: "FASTEST_PUBLISHED", order: "ORDERED", stopCount: 1, compounds: ["MEDIUM", "HARD"], pitWindows: [{ startLap: 27, endLap: 33 }] },
+    { id: "sh", rank: "ALTERNATIVE", order: "ORDERED", stopCount: 1, compounds: ["SOFT", "HARD"], pitWindows: [{ startLap: 26, endLap: 32 }], publishedDeltaSeconds: 1.0 },
+  ] });
+  const driver = { relation: "MATCHING_MULTIPLE", compatibleOptionIds: ["mh", "sh"], observedCompounds: ["MEDIUM"], windows: [] };
+  assert.equal(driverPublishedRoutesText(dutch, driver), "M → H / S → H");
+  assert.equal(driverPublishedWindowsText(dutch, driver), "M → H: L27–33 · S → H: L26–32");
+  assert.equal(driverStrategyRelationship(dutch, driver), "Current path remains compatible with 2 published tyre strategies.");
+  assert.equal(optionDeltaText(dutch.options[1]), "Published delta · +1.0s");
+  assert.equal(optionOrderNote({ order: "ANY_ORDER", compounds: ["MEDIUM", "HARD"] }), "Compounds may be used in either order.");
+});
+
+test("a diverged driver gets neutral wording instead of an internal relation label", () => {
+  const baseline = pirelliBaseline({ options: [{ id: "mh", rank: "FASTEST_PUBLISHED", order: "ORDERED", stopCount: 1, compounds: ["MEDIUM", "HARD"], pitWindows: [{ startLap: 22, endLap: 28 }] }] });
+  const driver = { relation: "DIVERGED", compatibleOptionIds: [], observedCompounds: ["SOFT", "MEDIUM"], windows: [] };
+  assert.equal(driverStrategyRelationship(baseline, driver), "No published Pirelli tyre strategy matches the current path.");
+});
+
+test("Pirelli context selection keeps up to five distinct useful categories", () => {
+  const selected = prioritizedPirelliContextFacts([
+    { category: "WEATHER", statement: "Rain is possible." },
+    { category: "COMPOUND_OUTLOOK", statement: "C4 offers the widest working range." },
+    { category: "WEATHER", statement: "A shower may arrive late." },
+    { category: "STRATEGY_OUTLOOK", statement: "A one-stop route is preferred." },
+    { category: "DEGRADATION", statement: "Thermal degradation is expected." },
+    { category: "TRACK_EVOLUTION", statement: "Grip should improve." },
+    { category: "GRIP", statement: "Rear grip is limited." },
+  ], 5);
+
+  assert.deepEqual(selected.map((fact) => fact.category), ["COMPOUND_OUTLOOK", "STRATEGY_OUTLOOK", "DEGRADATION", "WEATHER", "TRACK_EVOLUTION"]);
 });
 
 test("TV alerts distinguish critical track states from normal running", () => {

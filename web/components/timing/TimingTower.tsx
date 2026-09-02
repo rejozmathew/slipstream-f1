@@ -4,7 +4,7 @@ import { formatLapTime, formatSector } from "../../domain/format";
 import { driverClassificationLabel, driverLifecycle, lifecycleClassName } from "../../domain/lifecycle";
 import type { TowerView } from "../../domain/layout";
 import type { AnalyticsSnapshot, Driver, QualifyingIntelligence } from "../../domain/protocol";
-import { publishedWindowSummary } from "../analysis/PublishedStrategy";
+import { driverPublishedRoutesText, driverPublishedWindowsText } from "../../domain/pirelliPresentation.mjs";
 import { lapDeficitGap } from "../../domain/correctness.mjs";
 import { CompoundBadge } from "../shared/CompoundBadge";
 import { DataValue } from "../shared/DataValue";
@@ -74,14 +74,15 @@ function RaceTimingRow({ driver, leader, onSelect }: { driver: Driver; leader?: 
 function RaceStrategyRow({ driver, leader, analytics, onSelect }: { driver: Driver; leader?: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
   const lifecycle = driverLifecycle(driver);
   const published = analytics?.publishedStrategy?.drivers[driver.number];
-  const showPublished = analytics?.publishedStrategy?.status === "PRESENT";
+  const baseline = analytics?.publishedStrategy?.baseline;
+  const showPublished = baseline?.status === "PRESENT";
   return <button type="button" className={`timing-row timing-race-strategy${showPublished ? " timing-race-strategy-published" : ""} ${lifecycleClassName(driver)}`} role="row" onClick={() => onSelect?.(driver.number)}>
     <RaceCore driver={driver} leader={leader} />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
-    {showPublished && (lifecycle.terminal ? <span>{driverClassificationLabel(driver)}</span> : <span>{published?.relation.replaceAll("_", " ") ?? "—"}</span>)}
-    {showPublished && (lifecycle.terminal ? <span>—</span> : <DataValue compact value={publishedWindowSummary(published, "—")} />)}
+    {showPublished && (lifecycle.terminal ? <span>{driverClassificationLabel(driver)}</span> : <span>{driverPublishedRoutesText(baseline, published)}</span>)}
+    {showPublished && <DataValue compact value={driverPublishedWindowsText(baseline, published, lifecycle.terminal)} />}
   </button>;
 }
 
@@ -130,12 +131,12 @@ const raceModeHeaders = {
 };
 
 export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, sectorTimingAvailable = false, toolbar, onSelectDriver }: TimingTowerProps) {
-  const showPublished = analytics?.publishedStrategy?.status === "PRESENT";
+  const showPublished = analytics?.publishedStrategy?.baseline.status === "PRESENT";
   const qualifyingFinal = variant === "qualifying" && analytics?.qualifying.final === true;
   const qualifyingSegments = analytics?.sessionKind === "sprint_qualifying" ? ["SQ1", "SQ2", "SQ3"] : ["Q1", "Q2", "Q3"];
   const headersForView = variant === "race"
     ? mode === "strategy" && showPublished
-      ? [...raceModeHeaders.strategy, "PIRELLI FIT", "PUBLISHED WINDOW"]
+      ? [...raceModeHeaders.strategy, "PUBLISHED ROUTE", "STOP WINDOW"]
       : raceModeHeaders[mode]
     : variant === "qualifying"
       ? ["P", "DRIVER / TEAM", ...qualifyingSegments, "GAP", "TYRE", "AGE", ...(qualifyingFinal ? ["Q STATUS"] : []), ...(sectorTimingAvailable ? ["LATEST LAP", "S1", "S2", "S3"] : [])]

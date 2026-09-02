@@ -2,26 +2,27 @@ import type { ReactNode } from "react";
 
 import type {
   AnalyticsSnapshot,
-  DriverPublishedStrategy,
+  Driver,
+  PitEvent,
   PublishedStrategyBaseline,
   PublishedStrategyOption,
 } from "../../domain/protocol";
+import {
+  driverPublishedRouteRows,
+  driverPublishedRoutesText,
+  driverPublishedWindowsText,
+  driverStrategyRelationship,
+  NO_SPECIFIC_PIRELLI_STRATEGY,
+  optionDeltaText,
+  optionOrderNote,
+  optionWindowText,
+  prioritizedPirelliContextFacts,
+} from "../../domain/pirelliPresentation.mjs";
 import { CompoundBadge, CompoundTransition } from "../shared/CompoundBadge";
 import { Panel } from "../shared/Panel";
 
 function rankLabel(rank: PublishedStrategyOption["rank"]) {
   return rank.replaceAll("_", " ");
-}
-
-const contextPriority = ["COMPOUND_OUTLOOK", "STRATEGY_OUTLOOK", "DEGRADATION", "TYRE_STRESS", "WEATHER", "TRACK_EVOLUTION", "GRIP"] as const;
-
-function prioritizedContextFacts(facts: PublishedStrategyBaseline["contextFacts"]) {
-  const priority = new Map<string, number>(contextPriority.map((category, index) => [category, index]));
-  return facts
-    .map((fact, index) => ({ fact, index }))
-    .sort((left, right) => (priority.get(left.fact.category) ?? contextPriority.length) - (priority.get(right.fact.category) ?? contextPriority.length) || left.index - right.index)
-    .slice(0, 3)
-    .map(({ fact }) => fact);
 }
 
 function path(compounds: string[], empty = "—", ordered = true) {
@@ -40,40 +41,40 @@ function observedSequences(values: Array<{ sequence: string; drivers: number }> 
   return <span className="race-now-sequences">{values.map((item) => <span key={item.sequence}><b>{item.drivers} drivers</b>{path(item.sequence.split(/\s*→\s*/))}</span>)}</span>;
 }
 
-export function publishedWindowSummary(driver: DriverPublishedStrategy | undefined, empty = "NO PENDING PUBLISHED WINDOW") {
-  if (!driver?.windows.length) return empty;
-  const options = new Set(driver.windows.map((window) => window.optionId)).size;
-  const details = driver.windows.map((window) => `${window.optionId} L${window.startLap}–${window.endLap} ${window.state}`).join(" · ");
-  return options > 1 ? `${options} OPTIONS · ${details}` : details;
-}
-
-function windows(option: PublishedStrategyOption) {
-  const values = option.pitWindows.map((window, index) => window ? `STOP ${index + 1} · L${window.startLap}–${window.endLap}` : `STOP ${index + 1} · WINDOW NOT PUBLISHED`);
-  return values.length ? values.join("  ·  ") : "NO PUBLISHED STOP WINDOW";
-}
-
 export function PublishedOptionCard({ option, compact = false }: { option: PublishedStrategyOption; compact?: boolean }) {
+  const orderNote = optionOrderNote(option);
+  const delta = optionDeltaText(option);
   return <article className={`published-option${compact ? " published-option-compact" : ""}`}>
     <header><span>{rankLabel(option.rank)}</span><b>{option.stopCount}-STOP</b></header>
     <strong>{path(option.compounds, "—", option.order === "ORDERED")}</strong>
-    <small>{option.order === "ORDERED" ? windows(option) : `${option.order.replaceAll("_", " ")} · NOT SEQUENCE-COMPARABLE`}</small>
-    {!compact && option.publishedDeltaSeconds != null && <p>Published delta · +{option.publishedDeltaSeconds.toFixed(1)}s</p>}
-    {!compact && option.publishedDeltaSecondsRange && <p>Published delta · +{option.publishedDeltaSecondsRange[0].toFixed(1)}–{option.publishedDeltaSecondsRange[1].toFixed(1)}s</p>}
+    <small>{optionWindowText(option)}</small>
+    {orderNote && <small>{orderNote}</small>}
+    {!compact && delta && <p>{delta}</p>}
     {!compact && [...option.conditions, ...option.caveats].map((item) => <p key={item}>{item}</p>)}
   </article>;
 }
 
-export function PirelliBaseline({ baseline, compact = false, action }: { baseline?: PublishedStrategyBaseline | null; compact?: boolean; action?: ReactNode }) {
+export function PirelliNomination({ baseline }: { baseline?: PublishedStrategyBaseline | null }) {
+  if (!baseline?.compoundSelection) return null;
+  return <div className="physical-nomination"><span>WEEKEND NOMINATION</span><strong><CompoundBadge compound="HARD" compact />{baseline.compoundSelection.hard}<CompoundBadge compound="MEDIUM" compact />{baseline.compoundSelection.medium}<CompoundBadge compound="SOFT" compact />{baseline.compoundSelection.soft}</strong></div>;
+}
+
+function unavailableLabel(baseline?: PublishedStrategyBaseline | null) {
+  if (baseline?.status === "FETCHING") return "LOADING OFFICIAL PIRELLI STRATEGY…";
+  if (baseline?.status === "RETRYING") return "OFFICIAL PIRELLI STRATEGY RETRY SCHEDULED";
+  return "NO OFFICIAL PIRELLI STRATEGY AVAILABLE";
+}
+
+export function PirelliBaseline({ baseline, fieldFacts = [], compact = false, action }: { baseline?: PublishedStrategyBaseline | null; fieldFacts?: string[]; compact?: boolean; action?: ReactNode }) {
   const present = baseline?.status === "PRESENT";
-  const fetching = baseline?.status === "FETCHING";
-  const retrying = baseline?.status === "RETRYING";
-  return <Panel eyebrow="OFFICIAL PRE-RACE" title="Pirelli baseline" className={`pirelli-baseline${present ? "" : " pirelli-baseline-absent"}${compact ? " pirelli-baseline-compact" : ""}`} action={action ?? (present ? <span className="panel-badge context-ready">{baseline.provenanceLabel ?? "PUBLISHED · MODEL-ADMISSIBLE"}</span> : undefined)}>
-    {!present && <div className="pirelli-unavailable pirelli-unavailable-row" role="status"><strong>{fetching ? "FETCHING OFFICIAL PIRELLI CONTEXT…" : retrying ? "OFFICIAL PIRELLI CONTEXT RETRY SCHEDULED" : "PIRELLI CONTEXT NOT AVAILABLE"}</strong><p>Race facts remain primary.</p></div>}
+  return <Panel eyebrow="OFFICIAL PRE-RACE" title="Pirelli tyre strategy" className={`pirelli-baseline${present ? "" : " pirelli-baseline-absent"}${compact ? " pirelli-baseline-compact" : ""}`} action={action ?? (present ? <span className="panel-badge context-ready">{baseline.provenanceLabel ?? "PUBLISHED · MODEL-ADMISSIBLE"}</span> : undefined)}>
+    {!present && <div className="pirelli-unavailable pirelli-unavailable-row" role="status"><strong>{unavailableLabel(baseline)}</strong><p>Current race facts remain available.</p></div>}
     {present && <div className="pirelli-baseline-body">
       <div className="pirelli-source-row"><span>PIRELLI · PRE-RACE PUBLICATION</span>{baseline.publishedAt && <small>{new Date(baseline.publishedAt).toLocaleString()}</small>}{baseline.sourceUrl && <a href={baseline.sourceUrl} target="_blank" rel="noreferrer">SOURCE ↗</a>}</div>
-      {baseline.compoundSelection && <div className="physical-nomination"><span>WEEKEND NOMINATION</span><strong><CompoundBadge compound="HARD" compact />{baseline.compoundSelection.hard}<CompoundBadge compound="MEDIUM" compact />{baseline.compoundSelection.medium}<CompoundBadge compound="SOFT" compact />{baseline.compoundSelection.soft}</strong></div>}
-      <div className="published-options">{baseline.options.length ? baseline.options.map((option) => <PublishedOptionCard key={option.id} option={option} compact={compact} />) : <div className="pirelli-no-options">NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED</div>}</div>
-      {!compact && baseline.contextFacts.length > 0 && <div className="pirelli-context-facts">{prioritizedContextFacts(baseline.contextFacts).map((fact) => <p key={`${fact.category}-${fact.statement}`}><span>{fact.category.replaceAll("_", " ")}</span>{fact.statement}</p>)}</div>}
+      <PirelliNomination baseline={baseline} />
+      <div className="published-options">{baseline.options.length ? baseline.options.map((option) => <PublishedOptionCard key={option.id} option={option} compact={compact} />) : <div className="pirelli-no-options">{NO_SPECIFIC_PIRELLI_STRATEGY}</div>}</div>
+      {!compact && baseline.contextFacts.length > 0 && <div className="pirelli-context-facts">{prioritizedPirelliContextFacts(baseline.contextFacts, 5).map((fact) => <p key={`${fact.category}-${fact.statement}`}><span>{fact.category.replaceAll("_", " ")}</span>{fact.statement}</p>)}</div>}
+      {!compact && fieldFacts.length > 0 && <div className="pirelli-field-facts"><span>CURRENT PIRELLI CONTEXT</span>{fieldFacts.map((fact) => <p key={fact}>{fact}</p>)}</div>}
     </div>}
   </Panel>;
 }
@@ -109,39 +110,31 @@ export function RaceNow({ analytics, compact = false }: { analytics: AnalyticsSn
   </Panel>;
 }
 
-function relationLabel(relation: DriverPublishedStrategy["relation"]) {
-  const labels: Record<DriverPublishedStrategy["relation"], string> = {
-    MATCHING_ONE: "MATCHES ONE PUBLISHED OPTION",
-    MATCHING_MULTIPLE: "MULTIPLE OPTIONS REMAIN COMPATIBLE",
-    DIVERGED: "DIVERGED FROM ORDERED OPTIONS",
-    NOT_COMPARABLE: "PUBLISHED ORDER NOT COMPARABLE",
-    TERMINAL: "FINAL · RETROSPECTIVE ONLY",
-    UNKNOWN: "—",
-  };
-  return labels[relation];
-}
-
-export function DriverPirelliContext({ analytics, driverNumber, compact = false }: { analytics: AnalyticsSnapshot | null; driverNumber: string; compact?: boolean }) {
+export function DriverPirelliContext({ analytics, driver, pitEvents = [], compact = false }: { analytics: AnalyticsSnapshot | null; driver: Driver; pitEvents?: PitEvent[]; compact?: boolean }) {
   const baseline = analytics?.publishedStrategy?.baseline;
-  const driver = analytics?.publishedStrategy?.drivers[driverNumber];
-  const bank = baseline?.tyreBank.drivers[driverNumber];
-  const present = baseline?.status === "PRESENT" && driver;
-  const fetching = baseline?.status === "FETCHING";
-  return <Panel eyebrow="PUBLISHED STRATEGY" title="Pirelli context" className={`driver-pirelli-context${present ? "" : " driver-pirelli-context-absent"}${compact ? " driver-pirelli-context-compact" : ""}`}>
-    {!present ? <div className="pirelli-unavailable pirelli-unavailable-row"><strong>{fetching ? "FETCHING OFFICIAL PIRELLI CONTEXT…" : "PIRELLI CONTEXT NOT AVAILABLE"}</strong><p>Driver facts remain primary.</p></div> : <div className="driver-pirelli-body">
-      <div className="driver-pirelli-relation"><span>OBSERVED PATH</span><strong>{path(driver.observedCompounds)}</strong><b data-relation={driver.relation}>{relationLabel(driver.relation)}</b></div>
-      <div className="driver-pirelli-windows">{driver.windows.length ? driver.windows.map((window) => <div key={`${window.optionId}-${window.stopIndex}`}><span>{window.optionId} · STOP {window.stopIndex + 1}</span><strong>L{window.startLap}–{window.endLap}</strong><b data-state={window.state}>{window.state}</b></div>) : <div><span>PUBLISHED WINDOW</span><strong>—</strong><b>NO PENDING COMPARABLE WINDOW</b></div>}</div>
-      {!compact && driver.facts.length > 0 && <div className="driver-pirelli-facts">{driver.facts.map((fact) => <p key={fact}>{fact}</p>)}</div>}
+  const published = analytics?.publishedStrategy?.drivers[driver.number];
+  const bank = baseline?.tyreBank.drivers[driver.number];
+  const present = baseline?.status === "PRESENT";
+  const routes = driverPublishedRouteRows(baseline, published, pitEvents);
+  const observed = published?.observedCompounds ?? [];
+  const contextFact = prioritizedPirelliContextFacts(baseline?.contextFacts ?? [], 1)[0];
+  return <Panel eyebrow="DRIVER STRATEGY" title="Tyre strategy" className={`driver-pirelli-context${present ? "" : " driver-pirelli-context-absent"}${compact ? " driver-pirelli-context-compact" : ""}`}>
+    {!present ? <div className="pirelli-unavailable pirelli-unavailable-row"><strong>{unavailableLabel(baseline)}</strong><p>Current driver facts remain available.</p></div> : <div className="driver-pirelli-body">
+      <div className="driver-strategy-current"><div><span>CURRENT TYRE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>STOPS</span><strong>{driver.pit_count}</strong></div><div><span>OBSERVED PATH</span><strong>{path(observed)}</strong></div></div>
+      <p className="driver-strategy-relationship">{driverStrategyRelationship(baseline, published)}</p>
+      {routes.length > 0 ? <div className="driver-pirelli-routes">{routes.map((route) => <article key={route.id}><header><span>{rankLabel(route.rank)}</span><strong>{route.route}</strong></header>{route.orderNote && <p>{route.orderNote}</p>}<div>{route.windows.length ? route.windows.map((window) => <span key={window.stopIndex}><b>STOP {window.stopIndex + 1} · {window.range}</b><small>{window.state}</small></span>) : <span><b>NO STOP LAP PUBLISHED</b></span>}</div></article>)}</div> : <div className="driver-pirelli-context-only"><strong>{NO_SPECIFIC_PIRELLI_STRATEGY}</strong><PirelliNomination baseline={baseline} />{contextFact && <p><span>{contextFact.category.replaceAll("_", " ")}</span>{contextFact.statement}</p>}</div>}
       {!compact && bank && <div className="driver-tyre-bank"><span>PRE-RACE TYRE BANK</span>{(["hard", "medium", "soft"] as const).map((compound) => <div key={compound}><CompoundBadge compound={compound} compact /><b>{bank[compound].new} NEW</b><small>{bank[compound].used} USED</small></div>)}</div>}
     </div>}
   </Panel>;
 }
 
-export function BattlePublishedContext({ analytics, driverNumbers }: { analytics: AnalyticsSnapshot | null; driverNumbers: [string, string] | null }) {
+export function BattlePublishedContext({ analytics, drivers }: { analytics: AnalyticsSnapshot | null; drivers: [Driver, Driver] | null }) {
   const baseline = analytics?.publishedStrategy?.baseline;
-  if (!driverNumbers || baseline?.status !== "PRESENT") return <div className="panel-empty">NO PUBLISHED PIRELLI CONTEXT FOR THIS PAIR</div>;
-  return <div className="battle-published-context">{driverNumbers.map((number) => {
-    const driver = analytics?.publishedStrategy?.drivers[number];
-    return <div key={number}><span>CAR {number} · PIRELLI FIT</span><strong>{driver ? relationLabel(driver.relation) : "—"}</strong><div>{driver ? path(driver.observedCompounds) : "—"}</div><small>{publishedWindowSummary(driver)}</small></div>;
-  })}</div>;
+  if (!drivers) return <div className="panel-empty">SELECT TWO DRIVERS TO COMPARE STRATEGY</div>;
+  if (baseline?.status !== "PRESENT") return <div className="panel-empty">{unavailableLabel(baseline)}</div>;
+  return <div className="battle-published-context">{drivers.map((raceDriver) => {
+    const published = analytics?.publishedStrategy?.drivers[raceDriver.number];
+    const pitEvents = analytics?.drivers[raceDriver.number]?.pitEvents ?? [];
+    return <div key={raceDriver.number}><span>CAR {raceDriver.number} · CURRENT STRATEGY</span><strong><CompoundBadge compound={raceDriver.compound} compact /> {raceDriver.tyre_age == null ? "—" : `${raceDriver.tyre_age}L`} · {raceDriver.pit_count} STOPS</strong><div><small>OBSERVED PATH</small>{path(published?.observedCompounds ?? [])}</div><div><small>PUBLISHED ROUTE</small><b>{driverPublishedRoutesText(baseline, published)}</b></div><div><small>STOP WINDOW</small><b>{driverPublishedWindowsText(baseline, published, false, pitEvents)}</b></div><p>{driverStrategyRelationship(baseline, published)}</p></div>;
+  })}{baseline.options.length === 0 && <div className="battle-pirelli-context-only"><PirelliNomination baseline={baseline} /></div>}</div>;
 }

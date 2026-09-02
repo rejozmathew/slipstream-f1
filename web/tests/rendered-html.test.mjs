@@ -29,9 +29,10 @@ test("builds the replay-driven desktop shell as static files", async () => {
   assert.match(bundle, /TOWER WIDE/);
   assert.match(bundle, /ANALYSIS WIDE/);
   assert.match(bundle, /TOWER VIEW/);
-  assert.match(bundle, /PIRELLI BASELINE/);
+  assert.match(bundle, /PIRELLI TYRE STRATEGY/);
   assert.match(bundle, /RACE NOW/);
-  assert.match(bundle, /NO PUBLISHED PIRELLI CONTEXT FOR THIS PAIR/);
+  assert.match(bundle, /No specific Pirelli tyre strategy published/);
+  assert.doesNotMatch(bundle, /PIRELLI FIT|NOT SEQUENCE-COMPARABLE|NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED|PIRELLI CONTEXT NOT AVAILABLE|NO PENDING COMPARABLE WINDOW/);
   assert.doesNotMatch(bundle, /Strategy Outlook/);
   assert.doesNotMatch(bundle, /NET PIT LOSS/);
   assert.match(bundle, /PACE DELTA/);
@@ -123,7 +124,9 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(strategyView, /PirelliBaseline/);
   assert.match(strategyView, /RaceNow/);
   assert.doesNotMatch(strategyView, /dryRuleStates/);
-  assert.match(snapshot, /Pirelli baseline · Race now/);
+  assert.match(snapshot, /Pirelli tyre strategy · Race now/);
+  assert.match(snapshot, /status === "PRESENT"[\s\S]*<PirelliNomination baseline=\{baseline\}/);
+  assert.match(snapshot, /PIRELLI TYRE STRATEGIES/);
   assert.match(driverView, /model\?\.read\.headline/);
   assert.match(driverView, /focusedDriverNumbers=\{\[driverNumber\]\}/);
   assert.match(driverView, /events\.map\(\(event, index\)/);
@@ -134,7 +137,7 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.doesNotMatch(driverView, /CURSOR-SAFE LAP EVIDENCE|PHASE —/);
   assert.match(battleView, /analytics\?\.battle\.histories/);
   assert.doesNotMatch(battleView, /stateHistory/);
-  assert.match(battleView, /Published strategy context/);
+  assert.match(battleView, /STRATEGY COMPARISON/);
   assert.match(trackMap, /car-deemphasized/);
   assert.match(shell, /layout === "race" \|\| \(view !== "strategy" && view !== "battle"\)/);
   assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
@@ -188,7 +191,8 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.doesNotMatch(tvMode, /UNDERCUT/);
   assert.doesNotMatch(tvMode, /STRATEGY · DISPOSITION/);
   assert.match(publishedStrategy, /ordered \? "→" : "\+"/);
-  assert.match(publishedStrategy, /publishedWindowSummary/);
+  assert.match(publishedStrategy, /driverPublishedWindowsText/);
+  assert.match(publishedStrategy, /optionDeltaText/);
   assert.match(publishedStrategy, /compoundCounts/);
   assert.match(publishedStrategy, /race-now-sequences/);
   assert.match(publishedStrategy, /Active running \/ in-pit compound paths/);
@@ -251,7 +255,7 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(timingTower, /"Q STATUS"/);
   assert.match(timingTower, /qualifying\.final === true/);
   assert.match(timingTower, /segmentResults/);
-  assert.match(timingTower, /"PIRELLI FIT", "PUBLISHED WINDOW"/);
+  assert.match(timingTower, /"PUBLISHED ROUTE", "STOP WINDOW"/);
   assert.match(timingTower, /driver\.gap_to_leader/);
   assert.doesNotMatch(timingTower, /interval_to_ahead|NO RECENT PROGRESS|TO AHEAD|TO LEADER/);
   assert.match(lifecycle, /RETIRED: "RET"/);
@@ -280,6 +284,10 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(tvMode, /pitLaneDuration/);
   assert.match(battleView, /preferences\.pinnedPair/);
   assert.match(battleView, /PINNED BATTLE UNAVAILABLE/);
+
+  for (const source of [timingTower, strategyView, sessionSnapshot, driverFocus, battleView, tvMode]) {
+    assert.doesNotMatch(source, /PIRELLI FIT|NOT SEQUENCE-COMPARABLE|NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED|PIRELLI CONTEXT NOT AVAILABLE|relation\.replaceAll/);
+  }
 
   assert.match(qualifyingView, /title="SESSION"/);
   assert.match(qualifyingView, /SEGMENT TIMING WAS NOT RECORDED FOR THIS REPLAY/);
