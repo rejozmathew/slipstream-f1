@@ -2,6 +2,7 @@ import asyncio
 import gzip
 import hashlib
 import json
+import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,13 +11,27 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+import slipstream.pirelli.backfill as backfill_module
 from slipstream.api import create_app
 from slipstream.catalog import CATALOG_FORMAT
-from slipstream.pirelli.acquisition import AcquiredArtifact
-from slipstream.pirelli.archive import PirelliArchive
+from slipstream.pirelli.acquisition import AcquiredArtifact, PirelliPublicClient
+from slipstream.pirelli.archive import PirelliArchive, save_normalized_release
 from slipstream.pirelli.backfill import PirelliHistoricalCoordinator
 from slipstream.pirelli.config import NORMALIZER_VERSION
-from slipstream.pirelli.contracts import SessionScope, SourceType
+from slipstream.pirelli.contracts import (
+    Compound,
+    ContextFact,
+    EvidenceKind,
+    ExtractionMethod,
+    FactApplicability,
+    PirelliRelease,
+    PitWindow,
+    SessionScope,
+    SourceEvidence,
+    SourceType,
+    StrategyOption,
+    StrategyRank,
+)
 from slipstream.pirelli.discovery import PIRELLI_F1_RSS_URL
 from slipstream.pirelli.ingest import PirelliIngestionService
 from slipstream.pirelli.seed import (
@@ -415,6 +430,185 @@ def test_miami_api_self_backfills_from_production_seed_without_restart(
     )
     assert fake_client.calls[0] == PIRELLI_F1_RSS_URL
     assert {nomination_url, strategy_url} <= set(fake_client.calls)
+
+
+def test_miami_api_keeps_partial_worker_result_fetching_until_complete(
+    tmp_path, monkeypatch
+):
+    _write_audited_replays(tmp_path)
+    monkeypatch.delenv("SLIPSTREAM_PIRELLI_SEED_PATH", raising=False)
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    started = threading.Event()
+    release = threading.Event()
+    descriptor = SimpleNamespace(
+        key="11280",
+        session_kind="race",
+        meeting_key="1284",
+        date_start="2026-05-03T17:00:00+00:00",
+        date_end="2026-05-03T19:00:00+00:00",
+        year=2026,
+        meeting_name="Miami Grand Prix",
+        location="Miami Gardens",
+        circuit="Miami",
+        country="United States",
+    )
+
+    def save_release(*, complete: bool) -> None:
+        published = datetime(2026, 5, 2, 20, tzinfo=UTC)
+        source_url = f"https://press.pirelli.com/miami-{'complete' if complete else 'partial'}"
+        archive = PirelliArchive(tmp_path)
+        artifact = archive.archive_artifact(
+            meeting_key="1284",
+            source_url=source_url,
+            source_type=SourceType.NEWSROOM_HTML,
+            body=(b"complete Miami strategy" if complete else b"partial Miami context"),
+            retrieved_at=published,
+            published_at=published,
+            modified_at=published,
+            media_type="text/html",
+            collector_version="partial-worker-test",
+            extension="html",
+        )
+        scope = FactApplicability(
+            meeting_key="1284",
+            session_scope=SessionScope.RACE,
+            target_session_key="11280",
+        )
+        evidence = SourceEvidence(
+            artifact.artifact_id,
+            source_url,
+            EvidenceKind.TEXT,
+            ExtractionMethod.DETERMINISTIC_PROSE,
+        )
+        save_normalized_release(
+            archive,
+            meeting_key="1284",
+            release=PirelliRelease(
+                release_id=artifact.artifact_id,
+                source_url=source_url,
+                published_at=published,
+                modified_at=published,
+                retrieved_at=published,
+                content_hash=artifact.content_hash,
+                source_type=SourceType.NEWSROOM_HTML,
+                extraction_method=ExtractionMethod.DETERMINISTIC_PROSE,
+                normalizer_version=(NORMALIZER_VERSION if complete else "partial-v0"),
+                artifact_ids=(artifact.artifact_id,),
+                applicability=scope,
+                strategies=(
+                    (
+                        StrategyOption(
+                            id="miami-complete",
+                            rank=StrategyRank.FASTEST_PUBLISHED,
+                            stop_count=1,
+                            compounds=(Compound.MEDIUM, Compound.HARD),
+                            pit_windows=(PitWindow(22, 28),),
+                            source_evidence=(evidence,),
+                            applicability=scope,
+                        ),
+                    )
+                    if complete
+                    else ()
+                ),
+                context_facts=(
+                    ContextFact(
+                        category="STRATEGY_OUTLOOK",
+                        statement=(
+                            "Complete Miami strategy guidance"
+                            if complete
+                            else "Partial Miami context"
+                        ),
+                        source_evidence=(evidence,),
+                        applicability=scope,
+                    ),
+                ),
+            ),
+        )
+
+    async def production_sync(*_args, **_kwargs):
+        save_release(complete=False)
+        started.set()
+        release.wait(timeout=2)
+        save_release(complete=True)
+        return SimpleNamespace(
+            items=(SimpleNamespace(status="PRESENT", issue=None),)
+        )
+
+    def metadata_sync(*_args, **_kwargs):
+        return {
+            "format": "slipstream.pirelli.metadata.v1",
+            "updatedAt": "2026-09-02T00:00:00+00:00",
+            "years": [2026],
+            "meetings": {
+                "1284": {
+                    "meetingKey": "1284",
+                    "meetingName": descriptor.meeting_name,
+                    "year": descriptor.year,
+                }
+            },
+            "sessions": [
+                {
+                    "sessionKey": descriptor.key,
+                    "meetingKey": descriptor.meeting_key,
+                    "sessionName": "Race",
+                    "sessionType": "Race",
+                    "dateStart": descriptor.date_start,
+                    "dateEnd": descriptor.date_end,
+                    "year": descriptor.year,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(backfill_module, "sync_pirelli_backfill", production_sync)
+    coordinator = PirelliHistoricalCoordinator(
+        tmp_path,
+        PirelliIngestionService(PirelliArchive(tmp_path), PirelliPublicClient()),
+        metadata_sync=metadata_sync,
+    )
+    coordinator.prioritize("1284")
+    app = create_app(
+        tmp_path,
+        now=lambda: datetime(2026, 9, 2, tzinfo=UTC),
+        public_live=False,
+        prepare_weekend_context=lambda **_kwargs: {},
+        pirelli_historical_coordinator=coordinator,
+        pirelli_backfill_initial_delay=3_600,
+    )
+
+    try:
+        with TestClient(app) as client:
+            assert started.wait(timeout=1)
+            partial_store = PirelliEvidenceStore(tmp_path).load(
+                meeting_key="1284",
+                target_session_key="11280",
+                evidence_cutoff=descriptor.date_start,
+                session_scope=SessionScope.RACE,
+            )
+            assert partial_store.status == "PRESENT"
+            assert any(
+                fact.statement == "Partial Miami context"
+                for fact in partial_store.snapshot.context_facts
+            )
+            partial = client.get("/api/v1/analytics?session_key=11280").json()[
+                "officialPreRace"
+            ]
+            assert partial["status"] == "FETCHING"
+            assert partial["contextFacts"] == []
+            release.set()
+            complete = None
+            for _ in range(100):
+                baseline = client.get(
+                    "/api/v1/analytics?session_key=11280"
+                ).json()["officialPreRace"]
+                if baseline["status"] == "PRESENT" and baseline["options"]:
+                    complete = baseline
+                    break
+                time.sleep(0.01)
+    finally:
+        release.set()
+
+    assert complete is not None
+    _option(complete, ["MEDIUM", "HARD"], 22, 28)
 
 
 def test_miami_api_reports_metadata_backoff_as_retrying(tmp_path, monkeypatch):

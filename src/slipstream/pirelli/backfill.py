@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..catalog import recent_seasons
+from .acquisition import PirelliPublicClient
 from .archive import list_normalized_releases
 from .config import (
     DEFAULT_PIRELLI_HISTORY_YEARS,
@@ -375,68 +376,104 @@ class PirelliHistoricalCoordinator:
         if self._lock.locked():
             return HistoricalBackfillResult("BUSY")
         async with self._lock:
-            clock = (now or datetime.now(UTC)).astimezone(UTC)
-            priority_revision = self._priority_revision
-            years = tuple(recent_seasons(self.history_years, now=clock))
-            if descriptors is None and _retry_pending(
-                self.data_root, "__metadata__", clock
-            ):
-                return HistoricalBackfillResult(
-                    "DEFERRED", issue="historical metadata retry is not due"
-                )
+            attempt = asyncio.create_task(
+                self._run_once_locked(now=now, descriptors=descriptors)
+            )
             try:
-                available = descriptors
-                if available is None:
-                    metadata = await asyncio.to_thread(
-                        self.metadata_sync,
-                        metadata_path(self.data_root),
-                        years,
-                        now=clock,
-                    )
-                    available = metadata_descriptors(metadata)
-                selected = self._select(available, now=clock)
-                if selected is None:
-                    return HistoricalBackfillResult("IDLE")
-                meeting_key = str(selected.meeting_key)
-                priority_revision = self._priority_revision
-                self._active_meeting = meeting_key
-                self._record_attempt(meeting_key, clock, status="RUNNING")
-                report = await sync_pirelli_backfill(
-                    self.data_root,
-                    years=(int(selected.year),),
-                    meeting_keys=(meeting_key,),
-                    force=False,
+                return await asyncio.shield(attempt)
+            except asyncio.CancelledError:
+                # asyncio.to_thread cannot stop an already-running worker. Keep
+                # the coordinator lock and wait for the selected meeting to
+                # reach a persisted terminal state before shutdown completes.
+                await asyncio.shield(attempt)
+                raise
+
+    async def _run_once_locked(
+        self,
+        *,
+        now: datetime | None,
+        descriptors: tuple[object, ...] | None,
+    ) -> HistoricalBackfillResult:
+        clock = (now or datetime.now(UTC)).astimezone(UTC)
+        priority_revision = self._priority_revision
+        years = tuple(recent_seasons(self.history_years, now=clock))
+        if descriptors is None and _retry_pending(
+            self.data_root, "__metadata__", clock
+        ):
+            return HistoricalBackfillResult(
+                "DEFERRED", issue="historical metadata retry is not due"
+            )
+        try:
+            available = descriptors
+            if available is None:
+                metadata = await asyncio.to_thread(
+                    self.metadata_sync,
+                    metadata_path(self.data_root),
+                    years,
                     now=clock,
-                    library=_DescriptorLibrary(available),
-                    service=self.service,
                 )
-                item = report.items[0] if report.items else None
-                if item is None:
-                    status, issue = "ABSENT", "selected meeting produced no report"
-                else:
-                    status, issue = item.status, item.issue
-                self._record_attempt(meeting_key, clock, status=status, issue=issue)
-                if (
-                    self._priority == meeting_key
-                    and self._priority_revision == priority_revision
-                ):
-                    self._priority = None
-                return HistoricalBackfillResult(status, meeting_key, issue)
-            except Exception as error:  # noqa: BLE001 - catch-up never blocks product
-                meeting_key = (
-                    str(selected.meeting_key) if "selected" in locals() and selected else None
+                available = metadata_descriptors(metadata)
+            selected = self._select(available, now=clock)
+            if selected is None:
+                return HistoricalBackfillResult("IDLE")
+            meeting_key = str(selected.meeting_key)
+            priority_revision = self._priority_revision
+            self._active_meeting = meeting_key
+            self._record_attempt(meeting_key, clock, status="RUNNING")
+            sync_kwargs = {
+                "years": (int(selected.year),),
+                "meeting_keys": (meeting_key,),
+                "force": False,
+                "now": clock,
+                "library": _DescriptorLibrary(available),
+                "service": self.service,
+            }
+            if isinstance(
+                getattr(self.service, "client", None), PirelliPublicClient
+            ):
+                # Production ingestion mixes async HTTP with substantial
+                # immutable-archive parsing. Run its private event loop in a
+                # worker so historical catch-up cannot starve API/WebSocket
+                # traffic in the one-process application.
+                report = await asyncio.to_thread(
+                    _sync_pirelli_backfill_worker,
+                    self.data_root,
+                    sync_kwargs,
                 )
-                issue = f"{type(error).__name__}: {error}"
-                self._record_attempt(
-                    meeting_key or "__metadata__",
-                    clock,
-                    status="FAILURE",
-                    issue=issue,
+            else:
+                # Lightweight injected services remain on the caller's loop;
+                # tests and integrations may intentionally own loop-bound
+                # synchronization primitives.
+                report = await sync_pirelli_backfill(
+                    self.data_root, **sync_kwargs
                 )
-                logger.warning("Historical Pirelli catch-up failed: %s", issue)
-                return HistoricalBackfillResult("FAILURE", meeting_key, issue)
-            finally:
-                self._active_meeting = None
+            item = report.items[0] if report.items else None
+            if item is None:
+                status, issue = "ABSENT", "selected meeting produced no report"
+            else:
+                status, issue = item.status, item.issue
+            self._record_attempt(meeting_key, clock, status=status, issue=issue)
+            if (
+                self._priority == meeting_key
+                and self._priority_revision == priority_revision
+            ):
+                self._priority = None
+            return HistoricalBackfillResult(status, meeting_key, issue)
+        except Exception as error:  # noqa: BLE001 - catch-up never blocks product
+            meeting_key = (
+                str(selected.meeting_key) if "selected" in locals() and selected else None
+            )
+            issue = f"{type(error).__name__}: {error}"
+            self._record_attempt(
+                meeting_key or "__metadata__",
+                clock,
+                status="FAILURE",
+                issue=issue,
+            )
+            logger.warning("Historical Pirelli catch-up failed: %s", issue)
+            return HistoricalBackfillResult("FAILURE", meeting_key, issue)
+        finally:
+            self._active_meeting = None
 
     async def run_forever(
         self,
@@ -532,6 +569,12 @@ class PirelliHistoricalCoordinator:
             _write_backfill_state(self.data_root, state)
         except (OSError, TypeError, ValueError) as error:
             logger.warning("Could not persist historical Pirelli retry state: %s", error)
+
+
+def _sync_pirelli_backfill_worker(
+    data_root: Path, kwargs: dict[str, Any]
+) -> PirelliBackfillReport:
+    return asyncio.run(sync_pirelli_backfill(data_root, **kwargs))
 
 
 def format_pirelli_backfill_report(report: PirelliBackfillReport) -> str:

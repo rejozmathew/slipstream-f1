@@ -1,10 +1,14 @@
 import asyncio
 import json
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import slipstream.pirelli.backfill as backfill_module
 from slipstream.catalog import CATALOG_FORMAT
 from slipstream.library import ReplayLibrary
+from slipstream.pirelli.acquisition import PirelliPublicClient
 from slipstream.pirelli.archive import PirelliArchive, save_normalized_release
 from slipstream.pirelli.backfill import PirelliHistoricalCoordinator
 from slipstream.pirelli.config import NORMALIZER_VERSION
@@ -21,7 +25,7 @@ from slipstream.pirelli.contracts import (
     StrategyOption,
     StrategyRank,
 )
-from slipstream.pirelli.ingest import PirelliIngestionReport
+from slipstream.pirelli.ingest import PirelliIngestionReport, PirelliIngestionService
 from slipstream.pirelli.metadata import (
     PIRELLI_METADATA_FORMAT,
     metadata_descriptors,
@@ -73,6 +77,90 @@ class _ImmediateService:
     async def refresh(self, target, *, now):
         self.calls.append(target)
         return PirelliIngestionReport((), (), ())
+
+
+def test_production_catchup_does_not_block_the_server_event_loop(
+    tmp_path, monkeypatch
+):
+    descriptor = _descriptor(2025, "worker")
+
+    async def blocking_sync(*_args, **_kwargs):
+        time.sleep(0.2)  # noqa: ASYNC251 - deliberately simulate blocking parsing
+        return SimpleNamespace(
+            items=(SimpleNamespace(status="ABSENT", issue=None),)
+        )
+
+    monkeypatch.setattr(backfill_module, "sync_pirelli_backfill", blocking_sync)
+    coordinator = PirelliHistoricalCoordinator(
+        tmp_path,
+        PirelliIngestionService(PirelliArchive(tmp_path), PirelliPublicClient()),
+    )
+
+    async def exercise():
+        started = asyncio.get_running_loop().time()
+        task = asyncio.create_task(
+            coordinator.run_once(
+                now=datetime(2026, 9, 2, tzinfo=UTC), descriptors=(descriptor,)
+            )
+        )
+        await asyncio.sleep(0.03)
+        responsive_after = asyncio.get_running_loop().time() - started
+        assert not task.done()
+        return responsive_after, await task
+
+    responsive_after, result = asyncio.run(exercise())
+
+    assert responsive_after < 0.15
+    assert result.status == "ABSENT"
+
+
+def test_cancelled_production_catchup_waits_for_a_terminal_state(
+    tmp_path, monkeypatch
+):
+    descriptor = _descriptor(2025, "cancelled-worker")
+    started = threading.Event()
+    release = threading.Event()
+
+    async def blocking_sync(*_args, **_kwargs):
+        started.set()
+        release.wait(timeout=2)
+        return SimpleNamespace(
+            items=(SimpleNamespace(status="ABSENT", issue=None),)
+        )
+
+    monkeypatch.setattr(backfill_module, "sync_pirelli_backfill", blocking_sync)
+    coordinator = PirelliHistoricalCoordinator(
+        tmp_path,
+        PirelliIngestionService(PirelliArchive(tmp_path), PirelliPublicClient()),
+    )
+
+    async def exercise():
+        task = asyncio.create_task(
+            coordinator.run_once(
+                now=datetime(2026, 9, 2, tzinfo=UTC), descriptors=(descriptor,)
+            )
+        )
+        while not started.is_set():
+            await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0.03)
+        assert not task.done()
+        release.set()
+        try:
+            await task
+        except asyncio.CancelledError:
+            return
+        raise AssertionError("cancelled coordinator task completed normally")
+
+    try:
+        asyncio.run(asyncio.wait_for(exercise(), timeout=2))
+    finally:
+        release.set()
+
+    state = json.loads(
+        (tmp_path / ".slipstream" / "pirelli-backfill-state.json").read_text()
+    )
+    assert state["meetings"]["cancelled-worker"]["status"] == "ABSENT"
 
 
 def _save_covered(data_root, descriptor) -> None:

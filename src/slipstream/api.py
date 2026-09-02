@@ -190,12 +190,15 @@ def create_app(
             evidence_cutoff=selected.descriptor.date_start,
             session_scope=scope,
         )
-        if availability.status != "PRESENT" and pirelli_historical is not None:
-            pirelli_historical.prioritize(selected.descriptor.meeting_key)
+        if pirelli_historical is not None:
+            if availability.status != "PRESENT":
+                pirelli_historical.prioritize(selected.descriptor.meeting_key)
             refresh_status = pirelli_historical.availability_status(
                 selected.descriptor.meeting_key, now=clock()
             )
-            if refresh_status is not None:
+            if refresh_status == "FETCHING" or (
+                availability.status != "PRESENT" and refresh_status is not None
+            ):
                 availability = replace(
                     availability,
                     status=refresh_status,
