@@ -172,14 +172,18 @@ Open `http://127.0.0.1:3344`. Vite is fixed to port 3344 and proxies API/WebSock
 
 ## Pirelli sync
 
-Pirelli is an attributed sidecar, not part of timing-source precedence. Server-owned current-weekend refresh uses RSS as an optional fast path and exact event archive pages as a meeting-scoped fallback. A separate quiet historical coordinator uses the same ingestion core with concurrency one and one meeting per pass.
+Pirelli is an attributed sidecar, not part of timing-source precedence. Server-owned current-weekend refresh uses the global Formula 1 RSS as an optional fast path, then the exact event archive and exact event/tag RSS as bounded meeting-scoped fallbacks. A separate quiet historical coordinator uses the same ingestion core with concurrency one and one meeting per pass.
 
 ```sh
 slipstream sync-pirelli --years 10 --data-root recordings
+slipstream renormalize-pirelli --data-root recordings --from-year 2017 --through-year 2026
+slipstream refresh-pirelli-seed --data-root recordings --from-year 2017 --through-year 2026 --output src/slipstream/data/pirelli-seed-v1.json.gz
 slipstream build-pirelli-seed --data-root recordings --from-year 2017 --through-year 2026 --output pirelli-seed-v1.json.gz
 ```
 
-The application validates and idempotently imports its bundled normalized seed on writable startup. The seed contains no raw Pirelli HTML, PDF, image, or article body. Historical catch-up defaults to the current season plus nine preceding seasons, uses a private lightweight metadata cache rather than the three-season browser catalog, persists retry state, and never downloads timing replay data. Set `SLIPSTREAM_PIRELLI_HISTORY_YEARS` to change that horizon, `SLIPSTREAM_PIRELLI_SEED=0` to disable seed import, `SLIPSTREAM_PIRELLI_BACKFILL=0` to disable catch-up, or `SLIPSTREAM_PIRELLI_REFRESH=0` to disable current-weekend acquisition.
+`renormalize-pirelli` is offline: it applies the current normalizer to immutable archived HTML/text and writes a new derivation without replacing older outputs. `refresh-pirelli-seed` is the maintainer/release workflow: refresh lightweight metadata, re-normalize local sources, backfill genuine gaps, validate, and build a non-empty production seed. `build-pirelli-seed` also rejects an empty production output unless `--allow-empty` is explicitly used for diagnostics. None of these maintenance commands run during normal startup.
+
+The application validates and idempotently imports its bundled normalized seed on writable startup. The seed contains no raw Pirelli HTML, PDF, image, or article body. Historical catch-up defaults to the current season plus nine preceding seasons, uses a private lightweight metadata cache rather than the three-season browser catalog, persists retry state, and never downloads timing replay data. Set `SLIPSTREAM_PIRELLI_HISTORY_YEARS=10` or pass `slipstream serve --pirelli-history-years 10` to configure that horizon. `--catalog-years 3` remains independent. Set `SLIPSTREAM_PIRELLI_SEED=0` to disable seed import, `SLIPSTREAM_PIRELLI_BACKFILL=0` to disable catch-up, or `SLIPSTREAM_PIRELLI_REFRESH=0` to disable current-weekend acquisition.
 
 Artifacts and normalized releases are retained under `.slipstream/pirelli/<meeting_key>/` below the data root. The builder consumes that normalized store and emits the versioned `slipstream.pirelli.seed.v1` distribution artifact; it does not copy raw archive directories.
 

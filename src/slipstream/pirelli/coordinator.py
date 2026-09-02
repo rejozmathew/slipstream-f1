@@ -212,6 +212,15 @@ def build_ingestion_target(
             )
             for driver in resource.final_state.drivers.values()
         )
+    event_tag = pirelli_event_tag(
+        int(descriptor.year), str(descriptor.meeting_name)
+    )
+    country = getattr(descriptor, "country", None)
+    country_tag = (
+        pirelli_event_tag(int(descriptor.year), f"{country} Grand Prix")
+        if country
+        else None
+    )
     return PirelliIngestionTarget(
         MeetingDiscoveryTarget(
             meeting_key=meeting_key,
@@ -229,9 +238,10 @@ def build_ingestion_target(
                     if value
                 )
             ),
-            exact_tag=pirelli_event_tag(
-                int(descriptor.year), str(descriptor.meeting_name)
-            ),
+            exact_tag=event_tag,
+            tag_aliases=(country_tag,)
+            if country_tag is not None and country_tag != event_tag
+            else (),
         ),
         target_session_key=str(descriptor.key),
         session_scope=(

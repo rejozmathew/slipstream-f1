@@ -13,7 +13,7 @@ function rankLabel(rank: PublishedStrategyOption["rank"]) {
   return rank.replaceAll("_", " ");
 }
 
-const contextPriority = ["COMPOUND_OUTLOOK", "WEATHER", "TRACK_EVOLUTION", "DEGRADATION", "TYRE_STRESS", "GRIP"] as const;
+const contextPriority = ["COMPOUND_OUTLOOK", "STRATEGY_OUTLOOK", "DEGRADATION", "TYRE_STRESS", "WEATHER", "TRACK_EVOLUTION", "GRIP"] as const;
 
 function prioritizedContextFacts(facts: PublishedStrategyBaseline["contextFacts"]) {
   const priority = new Map<string, number>(contextPriority.map((category, index) => [category, index]));

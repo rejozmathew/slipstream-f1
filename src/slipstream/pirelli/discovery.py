@@ -14,6 +14,7 @@ from .contracts import ExtractionStatus
 from .extractors.base import HtmlDocument
 
 PIRELLI_F1_RSS_URL = "https://press.pirelli.com/tagfeed/en/tags/formula__1"
+PIRELLI_TAGFEED_ROOT = "https://press.pirelli.com/tagfeed/en/tags/"
 PIRELLI_EVENT_ARCHIVE_URL = "https://press.pirelli.com/"
 
 
@@ -38,6 +39,7 @@ class MeetingDiscoveryTarget:
     weekend_end: datetime
     aliases: tuple[str, ...] = ()
     exact_tag: str | None = None
+    tag_aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -76,8 +78,44 @@ def pirelli_event_tag(season: int, canonical_name: str) -> str:
 
 
 def pirelli_event_archive_url(target: MeetingDiscoveryTarget) -> str:
-    tag = target.exact_tag or pirelli_event_tag(target.season, target.canonical_name)
+    tag = pirelli_event_tags(target)[0]
     return f"{PIRELLI_EVENT_ARCHIVE_URL}?h=1&t={quote_plus(tag)}"
+
+
+def pirelli_event_archive_urls(target: MeetingDiscoveryTarget) -> tuple[str, ...]:
+    return tuple(
+        f"{PIRELLI_EVENT_ARCHIVE_URL}?h=1&t={quote_plus(tag)}"
+        for tag in pirelli_event_tags(target)
+    )
+
+
+def pirelli_event_tags(target: MeetingDiscoveryTarget) -> tuple[str, ...]:
+    primary = target.exact_tag or pirelli_event_tag(
+        target.season, target.canonical_name
+    )
+    return tuple(dict.fromkeys((primary, *target.tag_aliases)))
+
+
+def pirelli_event_rss_url(tag: str) -> str:
+    """Return the bounded official PressPage feed for one exact event tag."""
+
+    slug = re.sub(r"\s+", "__", tag.strip().casefold())
+    return f"{PIRELLI_TAGFEED_ROOT}{slug}"
+
+
+def entries_from_event_feed(xml_text: str, tag: str) -> tuple[FeedEntry, ...]:
+    """Parse an exact-tag feed and preserve the tag as discovery scope."""
+
+    return tuple(
+        FeedEntry(
+            entry.title,
+            entry.url,
+            entry.published_at,
+            tuple(dict.fromkeys((*entry.categories, tag))),
+            entry.summary,
+        )
+        for entry in parse_formula1_feed(xml_text)
+    )
 
 
 def entries_from_event_archive(
@@ -230,6 +268,11 @@ def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
     )
     if race_guidance_title and (_explicit_race_strategy(lower) or ranked_stop_strategy):
         return ReleasePurpose.RACE_STRATEGY
+    if ranked_stop_strategy and any(
+        marker in lower
+        for marker in ("grand prix", "remainder of the race", "complete the race")
+    ):
+        return ReleasePurpose.RACE_STRATEGY
     if "compound" in lower and any(
         word in lower for word in ("selected", "selection", "choices")
     ):
@@ -304,7 +347,7 @@ def discover_for_meeting(
         categories = {value.casefold() for value in entry.categories}
         score = 0
         reasons: list[str] = []
-        if target.exact_tag and target.exact_tag.casefold() in categories:
+        if any(tag.casefold() in categories for tag in pirelli_event_tags(target)):
             score += 100
             reasons.append("exact_event_tag")
         title_hits = [alias for alias in aliases if alias and alias in title]

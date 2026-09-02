@@ -22,6 +22,7 @@ from .archive import (
     release_from_payload,
     save_normalized_release,
 )
+from .config import NORMALIZER_VERSION
 from .contracts import ArtifactVersion, PirelliRelease, SourceType
 from .metadata import metadata_path, read_pirelli_metadata
 
@@ -56,6 +57,7 @@ def build_pirelli_seed(
     from_year: int,
     through_year: int,
     output: Path,
+    require_nonempty: bool = False,
 ) -> PirelliSeedReport:
     if from_year > through_year:
         raise ValueError("Pirelli seed from-year must not exceed through-year")
@@ -77,7 +79,11 @@ def build_pirelli_seed(
         meeting_roots = []
     for root in meeting_roots:
         meeting_key = root.name
-        releases = list_normalized_releases(archive, meeting_key)
+        releases = tuple(
+            release
+            for release in list_normalized_releases(archive, meeting_key)
+            if release.normalizer_version == NORMALIZER_VERSION
+        )
         if not releases:
             continue
         raw_metadata = meeting_metadata.get(meeting_key, {})
@@ -123,6 +129,7 @@ def build_pirelli_seed(
 
     base: dict[str, Any] = {
         "format": PIRELLI_SEED_FORMAT,
+        "normalizerVersion": NORMALIZER_VERSION,
         "coverage": {
             "fromSeason": from_year,
             "throughSeason": through_year,
@@ -134,6 +141,10 @@ def build_pirelli_seed(
         },
         "meetings": sorted(meetings, key=lambda item: item["meetingKey"]),
     }
+    if require_nonempty and (not meetings or release_count == 0):
+        raise ValueError(
+            "Pirelli production seed must contain at least one useful meeting/release"
+        )
     encoded_base = _canonical(base)
     digest = hashlib.sha256(encoded_base).hexdigest()
     payload = {**base, "integrity": {"algorithm": "sha256", "digest": digest}}
@@ -170,6 +181,8 @@ def validate_pirelli_seed_bytes(data: bytes) -> dict[str, Any]:
         raise ValueError(f"invalid compressed Pirelli seed: {error}") from error
     if not isinstance(payload, dict) or payload.get("format") != PIRELLI_SEED_FORMAT:
         raise ValueError("unsupported Pirelli seed format")
+    if payload.get("normalizerVersion") != NORMALIZER_VERSION:
+        raise ValueError("Pirelli seed normalizer version is not current")
     integrity = payload.get("integrity")
     if not isinstance(integrity, dict) or integrity.get("algorithm") != "sha256":
         raise ValueError("Pirelli seed integrity metadata is missing")
@@ -215,6 +228,8 @@ def validate_pirelli_seed_bytes(data: bytes) -> dict[str, Any]:
             if not isinstance(raw_release, dict) or raw_release.get("format") != NORMALIZED_FORMAT:
                 raise ValueError("Pirelli seed normalized release format is invalid")
             release = release_from_payload(raw_release)
+            if release.normalizer_version != NORMALIZER_VERSION:
+                raise ValueError("Pirelli seed release normalizer version is not current")
             if release.applicability.meeting_key != meeting_key:
                 raise ValueError("Pirelli seed release meeting scope does not match")
             parent = artifact_map.get(release.release_id)

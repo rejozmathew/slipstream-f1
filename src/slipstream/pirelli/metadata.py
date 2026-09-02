@@ -26,6 +26,7 @@ class PirelliSessionDescriptor:
     year: int
     location: str | None = None
     circuit: str | None = None
+    country: str | None = None
 
     @property
     def session_kind(self) -> str:
@@ -66,6 +67,7 @@ def sync_pirelli_metadata(
                 "meetingKey": meeting_key,
                 "meetingName": meeting.get("meeting_name"),
                 "location": meeting.get("location"),
+                "country": meeting.get("country_name"),
                 "circuit": meeting.get("circuit_short_name"),
                 "dateStart": meeting.get("date_start"),
                 "dateEnd": meeting.get("date_end"),
@@ -150,6 +152,11 @@ def metadata_descriptors(payload: dict[str, Any]) -> tuple[PirelliSessionDescrip
                 circuit=(
                     str(meeting["circuit"])
                     if meeting.get("circuit") is not None
+                    else None
+                ),
+                country=(
+                    str(meeting["country"])
+                    if meeting.get("country") is not None
                     else None
                 ),
             )

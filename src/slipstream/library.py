@@ -35,6 +35,7 @@ class SessionDescriptor:
     source: str
     capabilities: dict[str, bool]
     circuit_data: dict[str, Any] | None = None
+    country: str | None = None
 
     @property
     def session_kind(self) -> str:
@@ -302,6 +303,7 @@ def _catalog_descriptors(raw: dict[str, Any]) -> dict[str, SessionDescriptor]:
                 "authenticated": False,
             },
             circuit_data=circuit_data if isinstance(circuit_data, dict) else None,
+            country=session.get("country_name") or meeting.get("country_name"),
         )
     return descriptors
 
@@ -445,6 +447,7 @@ def _read_descriptor(path: Path) -> SessionDescriptor | None:
             path=path,
             source=str(raw.get("source") or "openf1"),
             capabilities=capabilities,
+            country=session.get("country_name") or meeting.get("country_name"),
         )
     if isinstance(raw, list):
         try:

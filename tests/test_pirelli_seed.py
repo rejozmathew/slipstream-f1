@@ -11,6 +11,7 @@ from slipstream.pirelli.archive import (
     list_normalized_releases,
     save_normalized_release,
 )
+from slipstream.pirelli.config import NORMALIZER_VERSION
 from slipstream.pirelli.contracts import (
     Compound,
     EvidenceKind,
@@ -36,7 +37,7 @@ from slipstream.pirelli.store import PirelliEvidenceStore
 def _save_source(
     data_root,
     *,
-    normalizer: str = "slipstream-pirelli-v5-adapted.3",
+    normalizer: str = NORMALIZER_VERSION,
     compounds=(Compound.MEDIUM, Compound.HARD),
 ):
     archive = PirelliArchive(data_root)
@@ -128,6 +129,32 @@ def test_seed_build_is_deterministic_and_import_is_idempotent(tmp_path):
     )
     assert availability.status == "PRESENT"
     assert availability.model_admissible is True
+
+
+def test_production_seed_rejects_empty_or_superseded_normalizer_history(tmp_path):
+    source = tmp_path / "source"
+    _save_source(source, normalizer="slipstream-pirelli-v5-adapted.3")
+
+    with pytest.raises(ValueError, match="at least one useful meeting/release"):
+        build_pirelli_seed(
+            source,
+            from_year=2024,
+            through_year=2024,
+            output=tmp_path / "production.json.gz",
+            require_nonempty=True,
+        )
+
+    diagnostic = tmp_path / "diagnostic.json.gz"
+    report = build_pirelli_seed(
+        source,
+        from_year=2024,
+        through_year=2024,
+        output=diagnostic,
+    )
+    payload = validate_pirelli_seed(diagnostic)
+    assert report.meetings == 0
+    assert report.releases == 0
+    assert payload["normalizerVersion"] == NORMALIZER_VERSION
 
 
 def test_seed_import_preserves_better_local_release_and_hydrates_on_reacquire(

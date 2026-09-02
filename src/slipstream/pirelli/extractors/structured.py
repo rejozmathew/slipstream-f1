@@ -62,6 +62,7 @@ def extract_compound_nominations(
     artifact_id: str,
     meeting_aliases: Mapping[str, str] | None = None,
     default_applicability: FactApplicability = _WEEKEND_APPLICABILITY,
+    exact_event_scope: bool = False,
 ) -> ExtractionResult:
     """Extract one or more meeting-scoped nominations.
 
@@ -73,12 +74,14 @@ def extract_compound_nominations(
     facts: list[CompoundSelection] = []
     issues: list[ExtractionIssue] = []
     relevant = False
-
     # Split additionally on semicolons; multi-event Pirelli nomination releases often
     # place one event selection per sentence/clause.
     clauses = [
         part.strip() for part in re.split(r"(?<=[.!?;])\s+", text) if part.strip()
     ]
+    multi_event = is_multi_event_nomination_article(text)
+    nomination_clause_count = sum(len(_codes(clause)) >= 3 for clause in clauses)
+    can_inherit_exact_scope = exact_event_scope and nomination_clause_count == 1
     for clause in clauses:
         lower = clause.casefold()
         if (
@@ -103,7 +106,14 @@ def extract_compound_nominations(
                 key=lambda item: (lower.find(item[0].casefold()), -len(item[0])),
             ):
                 matched_meetings.setdefault(meeting_key, alias)
-            if not matched_meetings:
+            if not matched_meetings and can_inherit_exact_scope:
+                applicabilities = (default_applicability,)
+            elif not matched_meetings:
+                if multi_event:
+                    # A foreign event clause is expected in an explicitly
+                    # multi-event nomination. It is not an ambiguity in a
+                    # separately proven target-local clause.
+                    continue
                 issues.append(
                     ExtractionIssue(
                         "compound_nomination_meeting_ambiguous",
@@ -112,14 +122,15 @@ def extract_compound_nominations(
                     )
                 )
                 continue
-            applicabilities = tuple(
-                FactApplicability(
-                    meeting_key=meeting_key,
-                    source_meeting_name=alias,
-                    session_scope=SessionScope.WEEKEND,
+            else:
+                applicabilities = tuple(
+                    FactApplicability(
+                        meeting_key=meeting_key,
+                        source_meeting_name=alias,
+                        session_scope=SessionScope.WEEKEND,
+                    )
+                    for meeting_key, alias in matched_meetings.items()
                 )
-                for meeting_key, alias in matched_meetings.items()
-            )
         else:
             applicabilities = (default_applicability,)
 
@@ -252,6 +263,23 @@ def extract_context_facts(
                 ),
             ),
         ),
+        (
+            "STRATEGY_OUTLOOK",
+            (
+                re.compile(
+                    r"\b(?:one|two|three)[ \-‐‑‒–—]stop\s+strateg(?:y|ies)\b"
+                    r"[^.!?]{0,100}\b(?:preferred|competitive|viable|likely|"
+                    r"favou?red|best\s+option)\b",
+                    re.IGNORECASE,
+                ),
+                re.compile(
+                    r"\b(?:preferred|competitive|viable|likely|favou?red)\b"
+                    r"[^.!?]{0,100}\b(?:one|two|three)[ \-‐‑‒–—]stop\s+"
+                    r"strateg(?:y|ies)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+        ),
         ("DEGRADATION", (re.compile(r"\bdegradation\b", re.IGNORECASE),)),
         ("GRIP", (re.compile(r"\bgrip\b", re.IGNORECASE),)),
         (
@@ -282,9 +310,15 @@ def extract_context_facts(
     )
     out: list[ContextFact] = []
     for section in scoped_sections:
+        if _non_article_context_section(section):
+            continue
         for sentence in re.split(r"(?<=[.!?])\s+", section):
             sentence = sentence.strip()
             if not sentence:
+                continue
+            if not _session_applicable_context(
+                sentence, applicability.session_scope, section=section
+            ):
                 continue
             for category, patterns in categories:
                 if not any(pattern.search(sentence) for pattern in patterns):
@@ -309,11 +343,82 @@ def extract_context_facts(
     return tuple(out)
 
 
+_NAME_TOKEN = r"[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’\-]*"
 _NAMED_GRAND_PRIX = re.compile(
-    r"\b([A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’\-]*(?:\s+[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’\-]*){0,3}"
-    r"\s+Grand\s+Prix)\b",
-    re.IGNORECASE,
+    rf"\b({_NAME_TOKEN}(?:\s+{_NAME_TOKEN}){{0,3}}\s+"
+    r"(?:Grand Prix|GRAND PRIX))\b"
 )
+
+_MULTI_EVENT_PLURAL = re.compile(
+    rf"\b{_NAME_TOKEN}(?:\s*,\s*|\s+and\s+){_NAME_TOKEN}\s+"
+    r"(?:Grands? Prix|GRANDS? PRIX)\b"
+)
+
+
+def is_multi_event_article(text: str) -> bool:
+    """Identify explicit multi-event prose without inferring unnamed locations."""
+
+    named = {name.casefold() for name in _NAMED_GRAND_PRIX.findall(text)}
+    return len(named) > 1 or _MULTI_EVENT_PLURAL.search(text) is not None
+
+
+def is_multi_event_nomination_article(text: str) -> bool:
+    """Identify a release carrying separate nomination triplets for several events."""
+
+    clauses = re.split(r"(?<=[.!?;])\s+", text)
+    return is_multi_event_article(text) and sum(
+        len(_codes(clause)) >= 3 for clause in clauses
+    ) > 1
+
+
+def _session_applicable_context(
+    sentence: str, scope: SessionScope, *, section: str | None = None
+) -> bool:
+    if scope != SessionScope.RACE:
+        return True
+    historical = re.search(
+        r"\b(?:last\s+year|previous\s+(?:year|edition)|in\s+(?:19|20)\d{2})\b|"
+        r"\bthe\s+(?:19|20)\d{2}\s+race\b",
+        sentence,
+        re.IGNORECASE,
+    )
+    if historical is not None and re.search(
+        r"\b(?:this\s+year|tomorrow|sunday|upcoming)\b",
+        sentence,
+        re.IGNORECASE,
+    ) is None:
+        return False
+    earlier_pattern = (
+        r"\b(?:during|in|after)\s+(?:(?:free\s+)?practice|qualifying)\b|\bFP[123]\b|"
+        r"\b(?:today(?:'s|’s)?|the)\s+(?:sprint|qualifying)\b|"
+        r"\bas\s+in\s+qualifying\b|"
+        r"\bbring(?:ing)?\s+forward\b[^.!?]{0,50}\bruns?\b|"
+        r"\bqualifying\s+runs?\b|\bover\s+a\s+single\s+lap\b|"
+        r"\bone[ \-‐‑‒–—]lap\s+(?:pace|performance|grip)\b"
+    )
+    earlier_only = re.search(earlier_pattern, sentence, re.IGNORECASE)
+    if earlier_only is None and section is not None:
+        earlier_only = re.search(earlier_pattern, section, re.IGNORECASE)
+    if earlier_only is None:
+        return True
+    return re.search(
+        r"\b(?:for|in|during)\s+(?:tomorrow(?:'s|’s)?\s+)?(?:the\s+)?"
+        r"(?:grand\s+prix|race)\b|\brace\s+strateg(?:y|ies)\b|"
+        r"\b(?:could|may|might|likely|expected)\b[^.!?]{0,80}\b"
+        r"(?:grand\s+prix|race|strateg(?:y|ies))\b",
+        sentence,
+        re.IGNORECASE,
+    ) is not None
+
+
+def _non_article_context_section(section: str) -> bool:
+    return bool(
+        re.search(r"\bShare on:\s*(?:X|Facebook|LinkedIn)\b", section)
+        or re.search(
+            r"^[^.!?]{0,40}\b\d{1,2}\s+[A-Za-z]+\s+20\d{2}\s*\|",
+            section,
+        )
+    )
 
 
 def _paragraphs(text: str) -> tuple[str, ...]:

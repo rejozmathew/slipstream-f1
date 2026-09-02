@@ -38,6 +38,7 @@ from .contracts import (
 ARCHIVE_FORMAT = "slipstream.pirelli.archive.v5"
 NORMALIZED_FORMAT = "slipstream.pirelli.normalized-release.v5"
 TEXT_REPRESENTATION_FORMAT = "slipstream.pirelli.text-representation.v1"
+DISCOVERY_PROVENANCE_FORMAT = "slipstream.pirelli.discovery-provenance.v1"
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -301,6 +302,50 @@ class PirelliArchive:
         )
         _atomic_json(path, payload)
         return path
+
+    def save_discovery_provenance(
+        self,
+        *,
+        meeting_key: str,
+        artifact_id: str,
+        match_reason: str,
+    ) -> Path:
+        """Persist immutable discovery proof used by later offline normalization."""
+
+        payload = {
+            "format": DISCOVERY_PROVENANCE_FORMAT,
+            "meetingKey": str(meeting_key),
+            "artifactId": artifact_id,
+            "matchReason": match_reason,
+        }
+        digest = sha256_bytes(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )[:16]
+        path = (
+            self.meeting_root(meeting_key)
+            / "derived"
+            / f"{artifact_id}-discovery-{digest}.json"
+        )
+        _atomic_json(path, payload)
+        return path
+
+    def has_exact_event_discovery(self, meeting_key: str, artifact_id: str) -> bool:
+        """Return whether an immutable discovery record proves exact-event scope."""
+
+        root = self.meeting_root(meeting_key) / "derived"
+        for path in sorted(root.glob(f"{artifact_id}-discovery-*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (
+                payload.get("format") == DISCOVERY_PROVENANCE_FORMAT
+                and payload.get("meetingKey") == str(meeting_key)
+                and payload.get("artifactId") == artifact_id
+                and "exact_event_tag" in str(payload.get("matchReason", ""))
+            ):
+                return True
+        return False
 
     def load_evidence_artifact(
         self,
@@ -594,6 +639,32 @@ def release_from_payload(raw: dict[str, object]) -> PirelliRelease:
 def list_normalized_releases(
     archive: PirelliArchive, meeting_key: str
 ) -> tuple[PirelliRelease, ...]:
+    releases = list_normalized_derivations(archive, meeting_key)
+    # Normalized outputs remain immutable on disk, but one exact source artifact
+    # can be reprocessed by a newer deterministic normalizer. Consumers must not
+    # treat those derivations as separate releases or select an older output by
+    # filename/hash ordering.
+    current: dict[tuple[str, str], PirelliRelease] = {}
+    for release in releases:
+        key = (release.release_id, release.content_hash)
+        selected = current.get(key)
+        if selected is None or normalizer_order(
+            release.normalizer_version
+        ) > normalizer_order(selected.normalizer_version):
+            current[key] = release
+    return tuple(
+        sorted(
+            current.values(),
+            key=lambda r: (r.published_at or r.retrieved_at, r.release_id),
+        )
+    )
+
+
+def list_normalized_derivations(
+    archive: PirelliArchive, meeting_key: str
+) -> tuple[PirelliRelease, ...]:
+    """Read every immutable derivation, including superseded normalizers."""
+
     root = archive.meeting_root(meeting_key) / "normalized"
     if not root.exists():
         return ()
@@ -606,25 +677,26 @@ def list_normalized_releases(
             releases.append(release_from_payload(raw))
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
-    # Normalized outputs remain immutable on disk, but one exact source artifact
-    # can be reprocessed by a newer deterministic normalizer. Consumers must not
-    # treat those derivations as separate releases or select an older output by
-    # filename/hash ordering.
-    current: dict[tuple[str, str], PirelliRelease] = {}
-    for release in releases:
-        key = (release.release_id, release.content_hash)
-        selected = current.get(key)
-        if selected is None or _normalizer_order(
-            release.normalizer_version
-        ) > _normalizer_order(selected.normalizer_version):
-            current[key] = release
     return tuple(
         sorted(
-            current.values(),
-            key=lambda r: (r.published_at or r.retrieved_at, r.release_id),
+            releases,
+            key=lambda r: (
+                r.published_at or r.retrieved_at,
+                r.release_id,
+                normalizer_order(r.normalizer_version),
+            ),
         )
     )
 
 
-def _normalizer_order(value: str) -> tuple[tuple[int, ...], str]:
+def normalizer_order(value: str) -> tuple[tuple[int, ...], str]:
     return tuple(int(part) for part in re.findall(r"\d+", value)), value
+
+
+def has_normalizer_release(
+    archive: PirelliArchive, meeting_key: str, normalizer_version: str
+) -> bool:
+    return any(
+        release.normalizer_version == normalizer_version
+        for release in list_normalized_derivations(archive, meeting_key)
+    )

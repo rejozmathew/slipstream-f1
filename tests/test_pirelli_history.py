@@ -7,6 +7,7 @@ from slipstream.catalog import CATALOG_FORMAT
 from slipstream.library import ReplayLibrary
 from slipstream.pirelli.archive import PirelliArchive, save_normalized_release
 from slipstream.pirelli.backfill import PirelliHistoricalCoordinator
+from slipstream.pirelli.config import NORMALIZER_VERSION
 from slipstream.pirelli.contracts import (
     Compound,
     EvidenceKind,
@@ -112,7 +113,7 @@ def _save_covered(data_root, descriptor) -> None:
             content_hash=artifact.content_hash,
             source_type=artifact.source_type,
             extraction_method=ExtractionMethod.DETERMINISTIC_PROSE,
-            normalizer_version="test-v1",
+            normalizer_version=NORMALIZER_VERSION,
             artifact_ids=(artifact.artifact_id,),
             applicability=FactApplicability(
                 meeting_key=descriptor.meeting_key,

@@ -196,16 +196,28 @@ Retain `PirelliRuntimeCoordinator` as the fastest/current-weekend path. Historic
 
 ## Builder / maintenance interface
 
-Add a public deterministic builder command or equivalent, for example:
+The public maintenance interfaces are:
 
 ```text
+slipstream renormalize-pirelli \
+  --data-root recordings \
+  --from-year 2017 \
+  --through-year 2026
+
+slipstream refresh-pirelli-seed \
+  --data-root recordings \
+  --from-year 2017 \
+  --through-year 2026 \
+  --output src/slipstream/data/pirelli-seed-v1.json.gz
+
 slipstream build-pirelli-seed \
+  --data-root recordings \
   --from-year 2017 \
   --through-year 2026 \
   --output pirelli-seed-v1.json.gz
 ```
 
-The exact CLI spelling may differ, but it must support explicit historical bounds and be documented.
+`renormalize-pirelli` is offline and uses the normal extraction/validation path. `refresh-pirelli-seed` is maintainer-only orchestration and never runs at application startup. A production build fails when it has zero useful current-normalizer releases; `build-pirelli-seed --allow-empty` exists only for diagnostics.
 
 Do not couple seed depth to `sync-catalog --years` or the browser catalog-years default.
 
@@ -269,7 +281,11 @@ Add focused tests for at least:
 12. late backfill cannot become strict model evidence without exact cutoff/version proof;
 13. Pirelli backfill can cover years outside the browser catalog horizon without expanding the user-facing catalog;
 14. current-weekend runtime refresh remains functional and independent;
-15. no OCR/image/VLM path is introduced.
+15. no OCR/image/VLM path is introduced;
+16. the checked-in seed is non-empty and records its current normalizer and exact coverage;
+17. seed-only API acceptance proves Dutch 2026 and Canada 2026 facts on an empty runtime;
+18. missing Canada is prioritized and becomes PRESENT through one bounded self-backfill without restart;
+19. adapted.3 source archives re-normalize offline to adapted.4 while preserving old output.
 
 Use the known modern corpus cases already documented in `docs/pirelli-strategy.md` (including Austria/Hungary recall limitations) plus bounded new regression fixtures for the nomination/context bugs. Do not commit the user's raw `.slipstream` archive.
 

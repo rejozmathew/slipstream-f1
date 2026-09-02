@@ -215,7 +215,7 @@ Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` whe
 | `slipstream.f1-signalr-recording.v1` | Optional raw public live SignalR JSONL evidence; live viewers still consume canonical state |
 | normalized event-list JSON | Canonical live product recording; ordinary ReplayLibrary-supported `NormalizedEvent` mappings finalized atomically |
 | `slipstream.weekend-context.v1` | Compact operational meeting context for one target-session cutoff; not a replay asset |
-| `slipstream.pirelli.seed.v1` | Gzip-compressed deterministic distribution seed containing normalized Pirelli releases and minimal provenance only; no raw source bodies |
+| `slipstream.pirelli.seed.v1` | Gzip-compressed deterministic distribution seed recording exact season coverage and current normalizer, with normalized Pirelli releases and minimal provenance only; no raw source bodies |
 | `slipstream.pirelli.metadata.v1` | Private lightweight meeting/Race-session discovery cache for the configured Pirelli history horizon; not catalog-visible |
 | `slipstream.pirelli.backfill-state.v1` | Private attempt, failure, and retry state for bounded historical Pirelli catch-up |
 
@@ -254,4 +254,4 @@ Driver relations are `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPA
 
 A display-only official historical baseline can be rendered with provenance, but `modelAdmissible: false` forces model-comparable options to an empty set. It therefore cannot produce a matching/diverged model relation or future window state. Strict admission remains cutoff-safe and version-proven.
 
-Pirelli raw/normalized archives live below `/data/.slipstream/pirelli/<meeting_key>/` and are operational evidence, not API payloads. The bundled seed is validated and imported into that normalized store on writable startup; its private ten-season-by-default metadata cache does not alter catalog API contents. See [Published Pirelli strategy](pirelli-strategy.md) for admission and derivation semantics.
+Pirelli raw/normalized archives live below `/data/.slipstream/pirelli/<meeting_key>/` and are operational evidence, not API payloads. The bundled seed is validated and imported into that normalized store on writable startup; its top-level `normalizerVersion` must equal the current normalizer and `coverage.fromSeason`/`coverage.throughSeason` are exact release bounds. Its private ten-season-by-default metadata cache does not alter catalog API contents. Startup does not run seed maintenance or scrape that horizon. See [Published Pirelli strategy](pirelli-strategy.md) for admission and derivation semantics.

@@ -10,9 +10,11 @@ from slipstream.pirelli.archive import (
     save_normalized_release,
 )
 from slipstream.pirelli.backfill import (
+    PirelliHistoricalCoordinator,
     format_pirelli_backfill_report,
     sync_pirelli_backfill,
 )
+from slipstream.pirelli.config import NORMALIZER_VERSION
 from slipstream.pirelli.contracts import (
     Compound,
     EvidenceKind,
@@ -34,6 +36,7 @@ from slipstream.pirelli.discovery import (
     classify_release_purpose,
     entries_from_event_archive,
     pirelli_event_archive_url,
+    pirelli_event_rss_url,
     pirelli_event_tag,
 )
 from slipstream.pirelli.extractors.base import HtmlDocument
@@ -416,6 +419,271 @@ def test_malformed_rss_falls_back_per_event_and_one_failure_is_isolated(tmp_path
     assert report.count("FAILURE") == 1
     assert client.calls.count(PIRELLI_F1_RSS_URL) == 1
     assert pirelli_event_archive_url(dutch_target) in client.calls
+
+
+def test_empty_global_and_event_archive_fall_back_to_exact_event_rss(tmp_path):
+    target = MeetingDiscoveryTarget(
+        meeting_key="1285",
+        canonical_name="Canadian Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 5, 22, tzinfo=UTC),
+        weekend_end=datetime(2026, 5, 24, 22, tzinfo=UTC),
+        aliases=("Canada", "Montreal"),
+        exact_tag="2026 Canadian Grand Prix",
+    )
+    article_url = "https://press.pirelli.com/the-first-sprint-in-montreal/"
+    published = datetime(2026, 5, 20, 14, tzinfo=UTC)
+    payloads = {
+        PIRELLI_F1_RSS_URL: _Payload(
+            b"<rss><channel></channel></rss>",
+            SourceType.RSS,
+            media_type="application/rss+xml",
+        ),
+        pirelli_event_archive_url(target): _Payload(
+            b"<html><main>No article cards are present.</main></html>",
+            SourceType.NEWSROOM_HTML,
+        ),
+        pirelli_event_rss_url("2026 Canadian Grand Prix"): _Payload(
+            _feed(
+                [
+                    (
+                        "The first Sprint in Montreal",
+                        article_url,
+                        published,
+                        "2026 Canadian Grand Prix",
+                    )
+                ]
+            ),
+            SourceType.RSS,
+            media_type="application/rss+xml",
+        ),
+        article_url: _Payload(
+            _page(
+                "The three compounds selected for the weekend are C3, C4 and C5. "
+                "For Sunday's Canadian Grand Prix, a one-stop strategy could again "
+                "be preferred, although teams will evaluate all three compounds."
+            ),
+            SourceType.NEWSROOM_HTML,
+            published,
+            published,
+        ),
+    }
+    archive = PirelliArchive(tmp_path)
+    client = _FakeClient(payloads)
+    service = PirelliIngestionService(archive, client)
+
+    report = asyncio.run(
+        service.refresh(
+            PirelliIngestionTarget(target, "race-1285", SessionScope.RACE),
+            now=published,
+        )
+    )
+    releases = list_normalized_releases(archive, "1285")
+
+    assert report.normalized_release_ids
+    assert client.calls == [
+        PIRELLI_F1_RSS_URL,
+        pirelli_event_archive_url(target),
+        pirelli_event_rss_url("2026 Canadian Grand Prix"),
+        article_url,
+    ]
+    assert [(item.hard, item.medium, item.soft) for item in releases[0].compound_selections] == [
+        ("C3", "C4", "C5")
+    ]
+    assert {fact.category for fact in releases[0].context_facts} >= {
+        "STRATEGY_OUTLOOK"
+    }
+
+
+def test_partial_global_nomination_still_uses_exact_event_archive(tmp_path):
+    target = MeetingDiscoveryTarget(
+        meeting_key="1285",
+        canonical_name="Canadian Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 5, 22, tzinfo=UTC),
+        weekend_end=datetime(2026, 5, 24, 22, tzinfo=UTC),
+        aliases=("Canada", "Montreal"),
+        exact_tag="2026 Canadian Grand Prix",
+    )
+    nomination_url = "https://press.pirelli.com/canada-compounds/"
+    strategy_url = "https://press.pirelli.com/canada-preview/"
+    archive_url = pirelli_event_archive_url(target)
+    published = datetime(2026, 5, 20, 14, tzinfo=UTC)
+    payloads = {
+        nomination_url: _Payload(
+            _page("Pirelli will supply C3 as Hard, C4 as Medium and C5 as Soft."),
+            SourceType.NEWSROOM_HTML,
+            published,
+            published,
+        ),
+        archive_url: _Payload(
+            f'<html><a href="{strategy_url}">2026 Canadian Grand Prix preview</a></html>'.encode(),
+            SourceType.NEWSROOM_HTML,
+        ),
+        strategy_url: _Payload(
+            _page(
+                "For Sunday's Canadian Grand Prix, a one-stop strategy could again "
+                "be preferred."
+            ),
+            SourceType.NEWSROOM_HTML,
+            published,
+            published,
+        ),
+    }
+    archive = PirelliArchive(tmp_path)
+    client = _FakeClient(payloads)
+    service = PirelliIngestionService(archive, client)
+
+    report = asyncio.run(
+        service.refresh(
+            PirelliIngestionTarget(target, "race-1285", SessionScope.RACE),
+            now=published,
+            feed_entries=(
+                FeedEntry(
+                    "Tyre compounds selected",
+                    nomination_url,
+                    published,
+                    ("2026 Canadian Grand Prix",),
+                    "Official compound nomination",
+                ),
+            ),
+        )
+    )
+    releases = list_normalized_releases(archive, "1285")
+
+    assert len(report.normalized_release_ids) == 2
+    assert client.calls == [nomination_url, archive_url, strategy_url]
+    assert any(release.compound_selections for release in releases)
+    assert any(
+        fact.category == "STRATEGY_OUTLOOK"
+        for release in releases
+        for fact in release.context_facts
+    )
+    nomination = next(
+        release for release in releases if release.source_url == nomination_url
+    )
+    assert archive.has_exact_event_discovery("1285", nomination.release_id)
+
+
+def test_mixed_old_admitted_and_current_postrace_release_is_not_covered(tmp_path):
+    descriptor = _descriptor(
+        2026,
+        "1285",
+        "Canadian Grand Prix",
+        datetime(2026, 5, 24, 18, tzinfo=UTC),
+    )
+    archive = PirelliArchive(tmp_path)
+    scope = FactApplicability(
+        meeting_key="1285",
+        session_scope=SessionScope.RACE,
+        target_session_key=descriptor.key,
+    )
+
+    def save_release(
+        url: str,
+        published: datetime,
+        normalizer: str,
+        *,
+        target_archive: PirelliArchive = archive,
+        target_scope: FactApplicability = scope,
+    ) -> None:
+        artifact = target_archive.archive_artifact(
+            meeting_key="1285",
+            source_url=url,
+            source_type=SourceType.NEWSROOM_HTML,
+            body=url.encode(),
+            retrieved_at=published,
+            published_at=published,
+            modified_at=published,
+            media_type="text/html",
+            collector_version="test",
+            extension="html",
+        )
+        evidence = SourceEvidence(
+            artifact.artifact_id,
+            artifact.source_url,
+            EvidenceKind.TEXT,
+            ExtractionMethod.DETERMINISTIC_PROSE,
+            text="Medium-Hard",
+        )
+        save_normalized_release(
+            target_archive,
+            meeting_key="1285",
+            release=PirelliRelease(
+                release_id=artifact.artifact_id,
+                source_url=url,
+                published_at=published,
+                modified_at=published,
+                retrieved_at=published,
+                content_hash=artifact.content_hash,
+                source_type=SourceType.NEWSROOM_HTML,
+                extraction_method=ExtractionMethod.DETERMINISTIC_PROSE,
+                normalizer_version=normalizer,
+                artifact_ids=(artifact.artifact_id,),
+                applicability=target_scope,
+                strategies=(
+                    StrategyOption(
+                        id=f"strategy-{normalizer}",
+                        rank=StrategyRank.FASTEST_PUBLISHED,
+                        stop_count=1,
+                        compounds=(Compound.MEDIUM, Compound.HARD),
+                        pit_windows=(PitWindow(20, 26),),
+                        source_evidence=(evidence,),
+                        applicability=target_scope,
+                    ),
+                ),
+            ),
+        )
+
+    race_start = datetime.fromisoformat(descriptor.date_start)
+    save_release(
+        "https://press.pirelli.com/canada-preview-old",
+        race_start - timedelta(days=1),
+        "slipstream-pirelli-v5-adapted.3",
+    )
+    save_release(
+        "https://press.pirelli.com/canada-postrace-current",
+        race_start + timedelta(hours=3),
+        NORMALIZER_VERSION,
+    )
+
+    coordinator = PirelliHistoricalCoordinator(
+        tmp_path, SimpleNamespace(), history_years=10
+    )
+
+    assert PirelliEvidenceStore(tmp_path).load(
+        meeting_key="1285",
+        target_session_key=descriptor.key,
+        evidence_cutoff=descriptor.date_start,
+        session_scope=SessionScope.RACE,
+    ).status == "PRESENT"
+    assert coordinator._covered(descriptor) is False
+
+    irrelevant_archive = PirelliArchive(tmp_path / "irrelevant-session")
+    sprint_scope = FactApplicability(
+        meeting_key="1285",
+        session_scope=SessionScope.SPRINT,
+        target_session_key="sprint-1285",
+    )
+    save_release(
+        "https://press.pirelli.com/canada-race-current",
+        race_start - timedelta(days=1),
+        NORMALIZER_VERSION,
+        target_archive=irrelevant_archive,
+        target_scope=scope,
+    )
+    save_release(
+        "https://press.pirelli.com/canada-sprint-old",
+        race_start - timedelta(days=2),
+        "slipstream-pirelli-v5-adapted.3",
+        target_archive=irrelevant_archive,
+        target_scope=sprint_scope,
+    )
+    current_race_coordinator = PirelliHistoricalCoordinator(
+        tmp_path / "irrelevant-session", SimpleNamespace(), history_years=10
+    )
+
+    assert current_race_coordinator._covered(descriptor) is True
 
 
 def test_event_archive_discards_unscoped_navigation_links() -> None:

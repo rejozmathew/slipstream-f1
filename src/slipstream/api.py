@@ -25,6 +25,7 @@ from .historical_download import HistoricalSessionDownloader
 from .library import ReplayLibrary, ReplayResource
 from .live import PublicLiveSession
 from .pirelli.backfill import PirelliHistoricalCoordinator
+from .pirelli.config import DEFAULT_PIRELLI_HISTORY_YEARS, validate_history_years
 from .pirelli.contracts import SessionScope
 from .pirelli.coordinator import PirelliRuntimeCoordinator
 from .pirelli.ingest import PirelliIngestionService
@@ -51,7 +52,7 @@ def create_app(
     web_dir: Path | None = None,
     public_live: bool | None = None,
     live_session: PublicLiveSession | None = None,
-    pirelli_history_years: int = 10,
+    pirelli_history_years: int = DEFAULT_PIRELLI_HISTORY_YEARS,
 ) -> FastAPI:
     clock = now or (lambda: datetime.now(UTC))
     live_enabled = (
@@ -120,7 +121,7 @@ def create_app(
         PirelliHistoricalCoordinator(
             recording_path,
             pirelli_ingestion,
-            history_years=max(1, pirelli_history_years),
+            history_years=validate_history_years(pirelli_history_years),
         )
         if pirelli_ingestion is not None and pirelli_backfill_enabled
         else None

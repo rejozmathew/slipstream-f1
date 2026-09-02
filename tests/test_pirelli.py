@@ -356,6 +356,54 @@ def test_one_nomination_triplet_can_apply_to_two_named_meetings():
     ]
 
 
+def test_exact_event_nomination_inherits_proven_event_scope():
+    scope = FactApplicability(
+        meeting_key="canada-2026",
+        source_meeting_name="Canadian Grand Prix",
+        session_scope=SessionScope.WEEKEND,
+        target_session_key="race-canada-2026",
+    )
+    result = extract_compound_nominations(
+        "The three compounds selected for the weekend are C3, C4 and C5.",
+        source_url="https://press.pirelli.com/the-first-sprint-in-montreal/",
+        artifact_id="canada-preview",
+        meeting_aliases={"Canadian Grand Prix": "canada-2026", "Canada": "canada-2026"},
+        default_applicability=scope,
+        exact_event_scope=True,
+    )
+
+    assert result.accepted
+    assert len(result.facts) == 1
+    assert result.facts[0].applicability == scope
+    assert (result.facts[0].hard, result.facts[0].medium, result.facts[0].soft) == (
+        "C3",
+        "C4",
+        "C5",
+    )
+
+
+def test_multi_event_nomination_accepts_target_clause_without_foreign_contamination():
+    result = extract_compound_nominations(
+        "The C2, C3 and C4 selection applies to the Dutch and Spanish Grands Prix. "
+        "For Monza, the chosen compounds are C1, C2 and C3.",
+        source_url="https://press.pirelli.com/tyre-compounds-selected-for-zandvoort-monza-and-madrid/",
+        artifact_id="multi-event-selection",
+        meeting_aliases={"Dutch": "dutch-2026", "Zandvoort": "dutch-2026"},
+        default_applicability=FactApplicability(
+            meeting_key="dutch-2026", session_scope=SessionScope.WEEKEND
+        ),
+    )
+
+    assert result.accepted
+    assert len(result.facts) == 1
+    assert result.facts[0].applicability.meeting_key == "dutch-2026"
+    assert (result.facts[0].hard, result.facts[0].medium, result.facts[0].soft) == (
+        "C2",
+        "C3",
+        "C4",
+    )
+
+
 def test_context_is_meeting_local_and_window_is_not_wind():
     scope = FactApplicability(
         meeting_key="nl", session_scope=SessionScope.WEEKEND
@@ -393,6 +441,49 @@ def test_context_is_meeting_local_and_window_is_not_wind():
         artifact_id="negated-outlook",
         applicability=scope,
     )
+
+
+def test_race_context_excludes_qualifying_weather_and_keeps_strategy_outlook():
+    facts = extract_context_facts(
+        "A few drops during qualifying led teams to bring forward their runs. "
+        "During qualifying, rain made the track slippery. "
+        "For the Grand Prix, a one-stop strategy could again be preferred. "
+        "Two-stop strategies can be competitive for cars running in clean air.",
+        source_url="https://press.pirelli.com/race-context",
+        artifact_id="race-context",
+        applicability=FactApplicability(
+            meeting_key="race", session_scope=SessionScope.RACE
+        ),
+    )
+
+    assert {fact.category for fact in facts} == {"STRATEGY_OUTLOOK"}
+    assert len(facts) == 2
+    assert all("qualifying" not in fact.statement.casefold() for fact in facts)
+
+
+def test_race_context_handles_presspage_hyphens_and_rejects_historical_context():
+    facts = extract_context_facts(
+        "As seen in Miami, teams tend to favour cautious choices in the race, where "
+        "a one‑stop strategy could again be preferred this year. "
+        "IN 2025 The two‑stop strategy proved to be the quickest. "
+        "The 2011 race was interrupted by torrential rain. "
+        "The Soft will offer optimal grip over a single lap.",
+        source_url="https://press.pirelli.com/the-first-sprint-in-montreal/",
+        artifact_id="canada-preview",
+        applicability=FactApplicability(
+            meeting_key="canada-2026", session_scope=SessionScope.RACE
+        ),
+    )
+
+    assert [(fact.category, fact.statement) for fact in facts] == [
+        (
+            "STRATEGY_OUTLOOK",
+            (
+                "As seen in Miami, teams tend to favour cautious choices in the race, "
+                "where a one‑stop strategy could again be preferred this year."
+            ),
+        )
+    ]
 
 
 def test_strategy_delta_range_conditions_and_caveats_are_source_local():

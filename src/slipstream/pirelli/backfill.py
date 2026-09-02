@@ -12,6 +12,11 @@ from typing import Any
 
 from ..catalog import recent_seasons
 from .archive import list_normalized_releases
+from .config import (
+    DEFAULT_PIRELLI_HISTORY_YEARS,
+    NORMALIZER_VERSION,
+    validate_history_years,
+)
 from .contracts import SessionScope
 from .coordinator import build_ingestion_target
 from .discovery import FeedEntry
@@ -25,6 +30,81 @@ from .store import PirelliEvidenceStore
 
 logger = logging.getLogger(__name__)
 BACKFILL_STATE_FORMAT = "slipstream.pirelli.backfill-state.v1"
+
+
+def _fact_applies_to_target(
+    fact: object,
+    *,
+    meeting_key: str,
+    session_scope: SessionScope,
+    target_session_key: str,
+) -> bool:
+    applicability = fact.applicability
+    if applicability.meeting_key != meeting_key:
+        return False
+    if applicability.session_scope == SessionScope.WEEKEND:
+        return True
+    if applicability.session_scope in {SessionScope.UNKNOWN, session_scope}:
+        return (
+            applicability.session_scope == session_scope
+            and applicability.target_session_key == target_session_key
+        )
+    return False
+
+
+def _release_applies_to_target(
+    release: object,
+    *,
+    meeting_key: str,
+    session_scope: SessionScope,
+    target_session_key: str,
+) -> bool:
+    facts = (
+        *release.compound_selections,
+        *release.strategies,
+        *release.tyre_bank_snapshots,
+        *release.context_facts,
+    )
+    return any(
+        _fact_applies_to_target(
+            fact,
+            meeting_key=meeting_key,
+            session_scope=session_scope,
+            target_session_key=target_session_key,
+        )
+        for fact in facts
+    )
+
+
+def _target_releases_use_current_normalizer(
+    store: PirelliEvidenceStore, descriptor: object, availability: object
+) -> bool:
+    """Check the cutoff-admitted releases backing this target, not the meeting."""
+
+    if getattr(availability, "status", None) != "PRESENT":
+        return False
+    meeting_key = str(descriptor.meeting_key)
+    if getattr(availability, "model_admissible", True):
+        releases = store.releases_as_of(
+            meeting_key, evidence_cutoff=descriptor.date_start
+        )
+    else:
+        releases = store.display_releases_as_of(
+            meeting_key, evidence_cutoff=descriptor.date_start
+        )
+    relevant = tuple(
+        release
+        for release in releases
+        if _release_applies_to_target(
+            release,
+            meeting_key=meeting_key,
+            session_scope=SessionScope.RACE,
+            target_session_key=str(descriptor.key),
+        )
+    )
+    return bool(relevant) and all(
+        release.normalizer_version == NORMALIZER_VERSION for release in relevant
+    )
 
 
 @dataclass(frozen=True)
@@ -102,19 +182,7 @@ async def sync_pirelli_backfill(
     ingestion = service or PirelliIngestionService(store.archive)
     retrieved_at = now or datetime.now(UTC)
     shared_feed: tuple[FeedEntry, ...] | None = None
-    needs_refresh = any(
-        force or not list_normalized_releases(store.archive, meeting_key)
-        for meeting_key in by_meeting
-    )
-    if (
-        isinstance(ingestion, PirelliIngestionService)
-        and not dry_run
-        and needs_refresh
-    ):
-        try:
-            shared_feed = await ingestion.discovery_entries(now=retrieved_at)
-        except Exception:  # noqa: BLE001 - every meeting gets isolated archive fallback
-            shared_feed = ()
+    shared_feed_loaded = False
     items: list[PirelliBackfillItem] = []
     for meeting_key, descriptor in by_meeting.items():
         if dry_run:
@@ -127,7 +195,14 @@ async def sync_pirelli_backfill(
             evidence_cutoff=descriptor.date_start,
             session_scope=SessionScope.RACE,
         )
-        attempted = force or existing_availability.status != "PRESENT"
+        current_normalizer = _target_releases_use_current_normalizer(
+            store, descriptor, existing_availability
+        )
+        attempted = (
+            force
+            or existing_availability.status != "PRESENT"
+            or not current_normalizer
+        )
         issue: str | None = None
         if attempted:
             inventory = sorted(
@@ -145,15 +220,47 @@ async def sync_pirelli_backfill(
                     inventory,
                     resource_loader,
                 )
-                if isinstance(ingestion, PirelliIngestionService):
-                    refresh = await ingestion.refresh(
-                        target,
-                        now=retrieved_at,
-                        feed_entries=shared_feed,
+                if (
+                    not current_normalizer
+                    and isinstance(ingestion, PirelliIngestionService)
+                ):
+                    repaired = await ingestion.renormalize_archived(target)
+                    if repaired.issues:
+                        issue = "; ".join(repaired.issues)
+                    existing_availability = store.load(
+                        meeting_key=meeting_key,
+                        target_session_key=str(descriptor.key),
+                        evidence_cutoff=descriptor.date_start,
+                        session_scope=SessionScope.RACE,
                     )
+                    current_normalizer = _target_releases_use_current_normalizer(
+                        store, descriptor, existing_availability
+                    )
+                needs_network = (
+                    force
+                    or not current_normalizer
+                    or existing_availability.status != "PRESENT"
+                )
+                if isinstance(ingestion, PirelliIngestionService):
+                    if needs_network:
+                        if not shared_feed_loaded:
+                            try:
+                                shared_feed = await ingestion.discovery_entries(
+                                    now=retrieved_at
+                                )
+                            except Exception:  # noqa: BLE001 - per-event fallback remains
+                                shared_feed = ()
+                            shared_feed_loaded = True
+                        refresh = await ingestion.refresh(
+                            target,
+                            now=retrieved_at,
+                            feed_entries=shared_feed,
+                        )
+                    else:
+                        refresh = None
                 else:
                     refresh = await ingestion.refresh(target, now=retrieved_at)
-                if refresh.issues:
+                if refresh is not None and refresh.issues:
                     issue = "; ".join(refresh.issues)
             except Exception as error:  # noqa: BLE001 - one meeting must not stop a sweep
                 items.append(
@@ -210,17 +317,15 @@ class PirelliHistoricalCoordinator:
         data_root: Path,
         service: PirelliIngestionService,
         *,
-        history_years: int = 10,
+        history_years: int = DEFAULT_PIRELLI_HISTORY_YEARS,
         interval: timedelta = timedelta(hours=6),
         retry_after: timedelta = timedelta(hours=24),
         metadata_sync: Any = sync_pirelli_metadata,
     ) -> None:
-        if history_years < 1:
-            raise ValueError("Pirelli history horizon must be at least one season")
         self.data_root = data_root
         self.store = PirelliEvidenceStore(data_root)
         self.service = service
-        self.history_years = history_years
+        self.history_years = validate_history_years(history_years)
         self.interval = interval
         self.retry_after = retry_after
         self.metadata_sync = metadata_sync
@@ -371,7 +476,9 @@ class PirelliHistoricalCoordinator:
             evidence_cutoff=descriptor.date_start,
             session_scope=SessionScope.RACE,
         )
-        return availability.status == "PRESENT"
+        return _target_releases_use_current_normalizer(
+            self.store, descriptor, availability
+        )
 
     def _record_attempt(
         self,
