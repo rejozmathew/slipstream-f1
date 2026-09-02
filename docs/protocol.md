@@ -25,13 +25,13 @@ Session control is deliberately split across factual axes. `session.status` is `
 
 ```text
 RaceState
-â”œâ”€â”€ schema_version
-â”œâ”€â”€ updated_at
-â”œâ”€â”€ session
-â”œâ”€â”€ circuit
-â”œâ”€â”€ weather
-â”œâ”€â”€ drivers[number]
-â””â”€â”€ race_control[]
+|-- schema_version
+|-- updated_at
+|-- session
+|-- circuit
+|-- weather
+|-- drivers[number]
+`-- race_control[]
 ```
 
 Normalized events preserve `source`, `occurred_at`, and optional `received_at`. Event ordering is determined by parsed timestamps, not JSON array order or textual timestamp formatting. Replay seeks and CLI `--at` snapshots include events occurring exactly at the target timestamp.
@@ -55,7 +55,7 @@ REST state responses and WebSocket snapshots use:
 }
 ```
 
-`seq` is the number of normalized events applied to the snapshot. `sessionTime` is the viewerâ€™s replay playhead. `sourceTime` currently follows the same clock and is reserved for distinguishing source receipt time later.
+`seq` is the number of normalized events applied to the snapshot. `sessionTime` is the viewer's replay playhead. `sourceTime` currently follows the same clock and is reserved for distinguishing source receipt time later.
 
 `analytics` is optional and additive. Replay and live WebSocket snapshots include it when the analytics service is available. It is always reconstructed at the same inclusive `seq` and `sessionTime` as `data`; it is not part of canonical `RaceState`.
 
@@ -155,6 +155,8 @@ Playback advances in clock batches and emits snapshots at the transport cadence 
 
 With `mode=live`, only `snapshot`, `delay`, and `reset`/`live` are accepted. Delay is clamped to 0–300 seconds and selects an inclusive cursor from the shared live event history. `reset`/`live` returns that viewer to delay zero. Live has no pause, backward seek, step, or speed command, and one viewer's delay never mutates another viewer.
 
+The protocol range is distinct from current browser affordances. The M3.5 Live UI offers 0, 5, 10, 15, and 30-second presets; API/WebSocket consumers may request any valid value in the 0–300-second range.
+
 ## Capability vocabulary
 
 Session/source descriptors use these boolean capabilities:
@@ -240,10 +242,13 @@ Every analytics snapshot contains `publishedStrategy`, even when no admissible P
 - `status`: `PRESENT` or `ABSENT`.
 - `lifecycle`: current strategy lifecycle.
 - `baseline`: source metadata, `evidenceCutoff`, ordered published options, physical compound nomination, optional native tyre bank, context facts, and absence reason.
+- `baseline.evidenceTier`, `baseline.modelAdmissible`, and `baseline.provenanceLabel`: distinguish `STRICT_MODEL`, `DISPLAY_ONLY_OFFICIAL_HISTORICAL`, and absent evidence.
 - `fieldFacts`: at most three cursor-valid race-context statements.
 - `drivers`: observed compound path, relation, every compatible option ID, published window states, and concise facts.
 - `modelVersion`: `pirelli-published-strategy-v1`.
 
 Driver relations are `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPARABLE`, `TERMINAL`, or `UNKNOWN`. Every compatible option/window is represented. Window states are `BEFORE`, `ACTIVE`, `PASSED`, `COMPLETED`, or `UNKNOWN`; an observed compound transition deterministically marks the corresponding window `COMPLETED`. Final state keeps the baseline but emits no live/future windows. `ANY_ORDER` remains published context but is not prefix-compared or rendered as a directional transition.
+
+A display-only official historical baseline can be rendered with provenance, but `modelAdmissible: false` forces model-comparable options to an empty set. It therefore cannot produce a matching/diverged model relation or future window state. Strict admission remains cutoff-safe and version-proven.
 
 Pirelli raw/normalized archives live below `/data/.slipstream/pirelli/<meeting_key>/` and are operational evidence, not API payloads. See [Published Pirelli strategy](pirelli-strategy.md) for admission and derivation semantics.

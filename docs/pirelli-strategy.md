@@ -8,17 +8,26 @@ This document is the normative description of Slipstream's published-strategy si
 2. Responses are archived immutably under `/data/.slipstream/pirelli/<meeting_key>/` with retrieval and source metadata.
 3. Deterministic HTML/prose and structured extractors normalize compound nominations, ranked or unranked strategy options, published pit windows, context facts, and optional native-text PDF tyre-bank rows.
 4. Validation requires source-backed evidence. Strategy purpose and target scope are explicit: Practice/Qualifying prose cannot populate Race, Sprint cannot populate Race, and Race cannot populate Sprint. WEEKEND compound nominations are reusable only inside their meeting; UNKNOWN applicability fails closed.
-5. Admission requires the selected `meeting_key`, target session, session scope, and `evidence_cutoff`. A release retrieved after the cutoff is rejected unless source metadata proves that exact version existed by the cutoff. Every contributing child artifact must independently pass the same cutoff test; it cannot inherit the parent HTML page's timestamp.
+5. Admission requires the selected `meeting_key`, target session, session scope, and `evidence_cutoff`. Strict model admission rejects a release retrieved after the cutoff unless source metadata proves that exact version existed by the cutoff. Every contributing child artifact must independently pass the same cutoff test; it cannot inherit the parent HTML page's timestamp.
 6. The admitted baseline is supplied to the cursor-synchronized analytics builder. No browser code fetches Pirelli data.
 
 OCR, image parsing, VLM/LLM extraction, and manual product transcription are deliberately absent. A missing machine-readable tyre bank is ordinary absence and never blocks Strategy.
+
+## Evidence tiers
+
+`PirelliEvidenceStore` tries the tiers in order:
+
+1. `STRICT_MODEL`: each contributing artifact version is independently proven to have existed by the replay cutoff. The resulting baseline is model-admissible.
+2. `DISPLAY_ONLY_OFFICIAL_HISTORICAL`: used only after strict admission is absent and only for approved official Pirelli hosts, correct meeting/session scope, and a known `published_at` no later than the cutoff. It is labelled `PUBLISHED PRE-RACE · ARCHIVED LATER` and sets `modelAdmissible: false`.
+
+Display-only evidence may preserve official options and context for retrospective presentation, but `published_strategy.py` supplies no model-comparable options from it. It therefore cannot silently become a matching/diverged model relation or produce future windows.
 
 ## Published contract
 
 `AnalyticsSnapshot.publishedStrategy` is authored in `src/slipstream/published_strategy.py` and uses model version `pirelli-published-strategy-v1`.
 
 - `status`, `lifecycle`, and `modelVersion` describe the sidecar.
-- `baseline` contains source/retrieval/cutoff metadata, all published `options` in source order, physical `compoundSelection`, optional `tyreBank`, context facts, and an absence reason.
+- `baseline` contains source/retrieval/cutoff metadata, `evidenceTier`, `modelAdmissible`, `provenanceLabel`, all published `options` in source order, physical `compoundSelection`, optional `tyreBank`, context facts, and an absence reason.
 - each option preserves `rank`, `order`, stop count, compounds, published windows/deltas, conditions, and caveats;
 - `drivers[number]` contains the factual observed distinct-compound path, its relationship to published options, all compatible option IDs, every relevant published window across compatible options, and at most three explanatory facts;
 - `fieldFacts` contains only cursor-valid contextual statements such as rainfall or an active SC/VSC overlapping a published window.
@@ -40,7 +49,13 @@ Every declared transition window for every compatible option remains in the cont
 
 `ANY_ORDER`, `PARTIALLY_ORDERED`, and `UNKNOWN` options remain visible as published context but are not prefix-compared. The UI uses a non-directional separator for `ANY_ORDER` and never silently selects the first option or first window when several remain compatible.
 
+A display-only baseline follows the same presentation/provenance contract but is deliberately excluded from the comparable option set. Current race facts remain authoritative regardless of Pirelli tier.
+
 Backward and forward seeks rebuild `RaceState`, session evidence, and this sidecar from the inclusive replay cursor. Request order and wall-clock time do not affect results.
+
+## Presentation semantics
+
+The shared compound-badge vocabulary is semantic across Pirelli, Driver, Race Now, and pit transitions: Soft is red, Medium yellow, Hard white, Intermediate green, and Wet blue. Directional arrows represent source-published or factually observed order; they are not an inferred preferred strategy.
 
 ## Parser corpus result
 

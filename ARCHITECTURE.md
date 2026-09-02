@@ -4,8 +4,26 @@ Slipstream is a historical replay, public live-timing, and deterministic race-in
 
 ## System shape
 
+```mermaid
+flowchart LR
+    Live[F1 public Live SignalR] --> LA[F1LiveAdapter]
+    Static[F1 official static archive] --> HA[F1HistoricalClient]
+    OpenF1[OpenF1 historical API] --> OA[OpenF1 adapter]
+    LA --> N[NormalizedEvent history]
+    HA --> N
+    OA --> N
+    N --> RS[RaceState]
+    N --> SE[SessionEvidence]
+    RS --> AN[AnalyticsSnapshot]
+    SE --> AN
+    P[Pirelli official evidence] --> AN
+    RS --> API[REST / WebSocket]
+    AN --> API
+    API --> UI[Browser / TV / terminal / future hardware]
+```
+
 ```text
-Historical timing path
+Direct OpenF1 CLI capture path
 
 OpenF1 HTTP responses
         |
@@ -110,6 +128,8 @@ Prior-season `HistoricalContext` and attributed `OfficialPreRaceContext` are opt
 
 One application-owned `PirelliRuntimeCoordinator` refreshes relevant meetings sparsely and never from a browser request path. Discovery uses the official event category (`<season> <canonical meeting name>`) rather than weakening alias-match acceptance. Planned pre-weekend, post-session, race-morning, final-pre-race, and post-race triggers are supplemented by startup recovery for missing/stale evidence; a failed attempt is logged, exposed in coordinator state, and retried after 30 minutes without advancing success time. Raw responses and normalized releases live below `/data/.slipstream/pirelli/<meeting_key>/`. Admission requires the exact meeting, target session, Race/Sprint scope, and evidence cutoff; WEEKEND nominations may be reused only within that meeting. Content retrieved after the cutoff is admitted only when source metadata proves that exact artifact version existed by the cutoff, and an attached child artifact cannot borrow its parent page's version proof. Missing publication, extraction, native-PDF tyre bank, or writable storage produces an explicit absent baseline and never blocks replay. The production image installs the native-text `pypdf` extra; OCR remains absent.
 
+`PirelliEvidenceStore` first attempts strict model admission. If exact version proof is unavailable, it may admit a separately labelled `DISPLAY_ONLY_OFFICIAL_HISTORICAL` baseline only when the artifact comes from an approved official Pirelli host, has correct meeting/session scope, and has a known pre-cutoff publication time. That tier is exposed as `PUBLISHED PRE-RACE · ARCHIVED LATER`, sets `modelAdmissible: false`, and cannot create model-comparable options or future windows.
+
 `publishedStrategy` is authored in `published_strategy.py`. It preserves every Pirelli option and its ranking/order, compares each factual distinct-compound path only with comparable ordered options, and returns `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPARABLE`, `TERMINAL`, or `UNKNOWN`. Every compatible published window is emitted: an observed compound transition marks its corresponding window `COMPLETED`; otherwise replay lap determines `BEFORE`, `ACTIVE`, `PASSED`, or `UNKNOWN`. Final snapshots retain the baseline but suppress live/future windows. React renders and compactly summarizes this complete contract, uses no transition arrows for `ANY_ORDER`, and never selects or calculates a strategy.
 
 The normative derivation reference is [docs/analytics.md](docs/analytics.md). It records the current formulas, evidence thresholds, quality rules, replay-time behavior, Battle Score weights, and limitations that require `UNKNOWN`.
@@ -138,6 +158,8 @@ The catalog and recordings solve different problems:
 `ReplayLibrary` overlays local recordings on catalog descriptors. It normalizes only the selected recording and caches only that selected resource. A catalog-only session produces a small placeholder state so the UI can show its date, circuit, download status, and live schedule window without inventing timing.
 
 When more than one local timing artifact exists for a session, selection is explicit and whole-session: finalized canonical Live (`f1-signalr-public`) precedes official static archive (`f1-static-public`), which precedes OpenF1. Filename order never selects a source and timing facts are never mixed. Catalog circuit geometry and Pirelli remain separately scoped durable inputs.
+
+Browser/API historical download attempts official F1 static reconstruction before OpenF1. The outer prefix of each F1 `.jsonStream` row is provider SessionTime, not elapsed time from the scheduled session start. `F1HistoricalClient` establishes stream zero from a consensus of provider UTC anchors in `ExtrapolatedClock` and `SessionData`, with a 10 ms cluster tolerance and at least 75% agreement. Missing or inconsistent anchors fail the official reconstruction closed, causing a whole-session OpenF1 fallback rather than a partial blend. Direct `slipstream fetch`, `fetch-weekend`, and `fetch-season` commands remain OpenF1-specific.
 
 Deleting a replay removes only rebuildable session timing/raw/context artifacts. It preserves catalog/session metadata, circuit geometry, immutable Pirelli evidence, and the small source manifest so the session stays visible and redownloadable.
 
@@ -176,7 +198,7 @@ Routes and message compatibility are defined in [docs/protocol.md](docs/protocol
 
 `PublicLiveSession` owns one reconnecting unauthenticated SignalR connection for the currently scheduled session. `F1LiveAdapter` keeps SignalR framing/session verification at the boundary and rejects a provider session whose `SessionInfo.Key` differs from the selected catalog session. Official static history owns index discovery and `.jsonStream` parsing separately; both paths call the same F1 TimingData normalizer. Browser clients receive canonical API v1 snapshots, never provider payloads.
 
-The proven public subset is `DriverList`, `TimingData`, `TimingAppData`, `PitLaneTimeCollection`, `LapCount`, `SessionInfo`, `SessionData`, `ExtrapolatedClock`, `SessionStatus`, `TrackStatus`, `RaceControlMessages`, and `WeatherData`. Timestamped `SessionData.StatusSeries` contributes cursor-safe session and marshal history; `SessionData` and `ExtrapolatedClock` also provide factual Qualifying segment/clock evidence where present. `PitLaneTimeCollection` contributes bounded factual pit-lane duration only; it never supplies or stands in for stationary pit-box time. Protected GPS, car data, team radio, and other enhanced topics are not requested. Because precise X/Y is absent from the public slice, `positionMode` is `unavailable`; the product renders the circuit but does not invent car locations.
+The public subscription allow-list is `DriverList`, `ExtrapolatedClock`, `Heartbeat`, `LapCount`, `RaceControlMessages`, `SessionData`, `SessionInfo`, `SessionStatus`, `TimingAppData`, `TimingData`, `PitLaneTimeCollection`, `TopThree`, `TrackStatus`, and `WeatherData`. A subscribed stream becomes product truth only where the adapter maps it to normalized events. Timestamped `SessionData.StatusSeries` contributes cursor-safe session and marshal history; `SessionData` and `ExtrapolatedClock` also provide factual Qualifying segment/clock evidence where present. `PitLaneTimeCollection` contributes bounded factual pit-lane duration only; it never supplies or stands in for stationary pit-box time. Protected GPS, car data, team radio, and other enhanced topics are not requested. Because precise X/Y is absent from the public slice and the Live product declares no car-position capability, `positionMode` is `unavailable`; the product renders the circuit but does not invent Live car locations.
 
 Sporting state, session-control state, and marshal state are independent canonical facts. `session.status` describes `SCHEDULED`, `RUNNING`, `SUSPENDED`, `FINISHED`, or `UNKNOWN`; `control_status` carries red flag, Safety Car, VSC, VSC ending, chequered, normal, or unknown; and `marshal_status` carries all-clear, yellow, red, or unknown. The server authors `display_status` using deterministic precedence, so React never reconstructs it. Public Live can persist a red sporting state because its `SessionData.StatusSeries` supplies both suspension and explicit restart; the Dutch restart at `2026-08-23T13:33:00.088Z` returns the session to `RUNNING`. Historical OpenF1 cannot reconstruct that same bounded suspension interval because it supplies the red-flag message but no explicit actual restart. On that source the red message remains history/current evidence only; after a later marshal update the global effective badge is omitted instead of fabricating green/yellow or latching red forever. `TRACK CLEAR`, lap progress, sectors, and gaps never stand in for sporting resumption.
 
@@ -184,7 +206,7 @@ Transport status (`OFFLINE`, `CONNECTING`, `LIVE`, `STALE`, `UNAVAILABLE`) is in
 
 At zero delay, `PublicLiveSession` serves its incrementally maintained `state` and `evidence`; it does not rebuild the full event history for every snapshot. Delayed viewers may reconstruct at their private cursor. The live WebSocket keeps one shared immutable event history and a private delay per viewer (0–300 seconds), and state plus analytics always share the same inclusive event sequence. A viewer can reset to live or select a compact delay but cannot pause, seek backward, or alter playback speed. `FINALIZING` retains the same session's last authoritative Live state while accepted late canonical events drain. When that session reaches `REPLAY_READY`, the socket sends the same session's finalized ReplayLibrary state and retires; the browser changes only its transport mode, retaining the selected session while any later live session is offered separately. The browser persists explicit session selection so a hard refresh resolves the same session across the transition. Raw versioned JSONL remains optional provider evidence and is not the replay artifact.
 
-Driver lifecycle, provider condition, and activity are independent. F1 `Retired=true` becomes current `RETIRED_INDICATED` and can be retracted by explicit false; it does not enter the irreversible terminal guard. `Stopped=true` becomes resumable `STOPPED`, never inferred retirement. Only final classification establishes FINISHED/DNF/DNS/DSQ, and that fact appears at its source cursor rather than moving backward. M3.5 deliberately has no lap-deficit or `NO_RECENT_PROGRESS` lifecycle derivation.
+Driver lifecycle, provider condition, and activity are independent. F1 `Retired=true` becomes current `RETIRED_INDICATED` and can be retracted by explicit false; it does not enter the irreversible terminal guard. `Stopped=true` becomes resumable `STOPPED`, never inferred retirement. Only final classification establishes FINISHED/DNF/DNS/DSQ or an authoritative RETIRED compatibility result, and that fact appears at its source cursor rather than moving backward. M3.5 deliberately has no lap-deficit or `NO_RECENT_PROGRESS` lifecycle derivation.
 
 ## Deployment
 

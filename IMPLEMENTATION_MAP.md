@@ -1,61 +1,126 @@
 # Implementation map
 
-This map describes the Milestone 3.5 clean-restart implementation based on commit `16fa0b5a65a9611a8a408516fa786611bff09bca`. It is an engineering map, not an acceptance claim.
+This map describes the Milestone 3.5 source-unification merge candidate. It maps current engineering ownership and does not override [Architecture](ARCHITECTURE.md) or the normative [Protocol](docs/protocol.md).
 
-## Canonical pipeline
+## Canonical path
 
 ```text
-OpenF1 replay or public live evidence
-  -> NormalizedEvent
-  -> RaceState (factual current state)
-  + SessionEvidence / WeekendContext (history sidecars, cursor-bounded)
-  -> AnalyticsSnapshot race-intelligence-v2.1 (deterministic derived state)
-  -> REST / WebSocket / React / TV
+F1 public Live / F1 static history / OpenF1 fallback
+    ↓
+provider adapter
+    ↓
+NormalizedEvent
+    ├──→ RaceState
+    ├──→ SessionEvidence
+    └──→ normalized replay
+
+RaceState + SessionEvidence + admitted context
+    ↓
+AnalyticsSnapshot
+    ↓
+REST / WebSocket / React / TV
 ```
 
-React renders canonical contracts and does not recreate analytics truth. Historical replay remains the regression harness. Missing evidence stays `UNKNOWN`; unavailable source/context and deliberately unimplemented models are labelled explicitly.
+React renders canonical contracts and does not recreate analytics or provider truth. Missing evidence remains unavailable or `UNKNOWN`; source and context absence are labelled explicitly.
 
 ## Backend ownership
 
 | Area | Primary implementation |
 | --- | --- |
-| Normalization and lifecycle | `src/slipstream/adapters/`, `state.py`, `replay.py` |
-| Replay/live session mode | `library.py`, `live.py`, `server.py`, `playback.py` |
-| Lap and session evidence | `evidence.py`, `weekend.py` |
-| Race intelligence | `analytics.py`, `race_intelligence.py`, `strategy_rules.py` |
-| Optional context contracts | `context_types.py`, `historical.py`, `pirelli.py` |
-| Backtest boundary | `backtest.py` — truthfully `NOT_IMPLEMENTED`; no metrics are published |
-| API contract | `server.py`, `docs/protocol.md` |
+| Catalog and session discovery | `catalog.py`, `library.py`, `session.py` |
+| Official historical timing | `adapters/f1_historical.py`, `historical_download.py` |
+| Shared F1 timing semantics | `f1_timing.py`, `live.py` |
+| OpenF1 fallback and CLI capture | `adapters/openf1.py` |
+| Canonical events and state | `events.py`, `state.py`, `lifecycle.py` |
+| Replay | `replay.py`, `playback.py` |
+| Live session and recording | `live.py`, `live_recording.py` |
+| Lap, pit, and session evidence | `evidence.py` |
+| Weekend context | `weekend.py`, `context_types.py` |
+| Analytics orchestration | `analytics.py` |
+| RaceRead and race intelligence | `race_intelligence.py`, `strategy_rules.py` |
+| Qualifying intelligence | `qualifying.py` |
+| Pirelli acquisition and storage | `pirelli/` |
+| Published Pirelli comparison | `published_strategy.py` |
+| Backtest boundary | `backtest.py` — explicitly `NOT_IMPLEMENTED` |
+| API and serialization | `api.py`, `serialization.py` |
+| Replay deletion | `storage.py` plus `WeekendContextCoordinator.forget` |
+| Browser | `web/` |
 
-`RaceState` remains factual and lightweight. Full lap history stays in `SessionEvidence`. `AnalyticsSnapshot` is independently versioned and cursor-safe.
+`RaceState` remains factual and lightweight. Full lap and pit history stays in `SessionEvidence`. `AnalyticsSnapshot` is independently versioned and cursor-safe.
+
+## Historical source precedence
+
+```text
+finalized normalized Live
+  > official F1 static reconstruction
+  > whole-session OpenF1 fallback
+```
+
+Selection is explicit for the whole timing session; provider fields are not spliced together. Direct `slipstream fetch`, `fetch-weekend`, and `fetch-season` remain OpenF1-specific CLI capture commands.
+
+Official F1 `.jsonStream` prefixes are SessionTime. Reconstruction establishes stream zero from a consensus of provider UTC anchors; it does not assume scheduled session start is stream zero. A missing or inconsistent timebase fails the official reconstruction closed.
+
+## F1 public/static topics
+
+The official static path requests the low-volume product topics:
+
+- `SessionInfo`, `DriverList`, and `TimingData`;
+- `TimingAppData`, `PitLaneTimeCollection`, and `LapCount`;
+- `SessionStatus`, `SessionData`, and `ExtrapolatedClock`;
+- `TrackStatus`, `RaceControlMessages`, and `WeatherData`.
+
+The public Live subscription allow-list also contains `Heartbeat` and `TopThree`. A subscribed provider stream becomes product truth only where the adapter maps it to normalized events. Protected telemetry, team radio, and authenticated GPS are excluded.
 
 ## Product surfaces
 
-| Surface | Ownership |
+| Surface | Main truth |
 | --- | --- |
-| Session / Timing | canonical `RaceState` |
-| Strategy | server `raceRead`, race/driver strategy, gates and provenance |
-| Driver | canonical driver facts plus server Driver Read and strategy |
-| Battle | server candidates, completed-lap history and stabilized recommendation |
-| TV Mode | authored rendering of the same contracts; no separate TV truth model |
+| Session and Timing Tower | `RaceState` |
+| Driver current state | `RaceState.drivers[number]` |
+| Driver lap and pit history | `SessionEvidence` through `/api/v1/driver-history` |
+| Strategy | server-authored `raceRead` plus admitted Pirelli context |
+| Qualifying | server-authored `qualifying` analytics |
+| Battle | server-authored completed-lap evidence and stabilization |
+| Track Map | circuit geometry plus capability- and lifecycle-filtered positions |
+| TV Mode | the same canonical state and analytics, with authored presentation |
 
-Strategy and Battle are Race/Sprint-only. Track markers use canonical team colours; focused maps de-emphasize non-target cars without hiding factual field context.
+Race and Sprint may expose Strategy and Battle. Qualifying uses its own timing and Driver Focus. Qualifying TV is Tower plus Track only when positions are renderable; Practice TV is Tower-only.
 
-## Context boundaries
+## Important implemented semantics
 
-- `WeekendContext` accepts only earlier sessions from the same `meeting_key` and before the evidence cutoff.
-- Prior-season same-circuit `HistoricalContext` is separately labelled context only and never blended into current-meeting truth. With no compatible ingested artifact it is `ABSENT`; 2025→2026 comparability is `LIMITED`.
-- `OfficialPreRaceContext` is a separately attributed artifact. Automated Pirelli parsing is not implemented; the legacy sample-returning spike now returns no context.
-- `NetPitLoss` and deterministic archive backtesting are `NOT_IMPLEMENTED`. Dependent rejoin/free-stop/quantified-undercut fields and quality metrics are not fabricated.
+- `STOPPED` and `RETIRED_INDICATED` are current source conditions and can recover when the provider retracts them.
+- Final `FINISHED`, `DNF`, `DNS`, `DSQ`, or authoritative `RETIRED` classification is cursor-safe and terminal.
+- Historical F1 SessionTime is anchored to provider UTC evidence, not scheduled start.
+- `PitLaneTimeCollection.Duration` supplies complete pit-lane transit only.
+- Pit-lane durations outside `0 < duration <= 300s` are rejected, not clamped.
+- Live delay reconstructs `RaceState` and `AnalyticsSnapshot` at one private delayed cursor.
+- The Live protocol accepts 0–300 seconds; the browser currently offers 0, 5, 10, 15, and 30-second presets.
+- Pirelli has strict-model and display-only official historical evidence tiers.
+- Display-only Pirelli evidence cannot produce model-comparable options or future windows.
+- Replay deletion preserves catalog/circuit/Pirelli/source manifests while removing replay timing, raw timing, and rebuildable Weekend Context.
+- `IN_PIT` may be omitted from a physical map marker but is never an `OUT / STOPPED` label.
 
-## Verification map
+## Verification focus
 
-Focused tests live in:
+Current coverage includes:
 
-- `tests/test_lifecycle.py`, `tests/test_live.py`
-- `tests/test_race_intelligence.py`
-- `tests/test_strategy_v21_contract.py`, `tests/test_strategy_v21_battle.py`
-- `tests/test_packet_e_contracts.py`
-- `web/tests/domain.test.mjs`, `web/tests/rendered-html.test.mjs`
+- F1 source unification and authentic Dutch Race/Qualifying/Practice fixtures;
+- live normalization, lifecycle, and 0/30/120-second delay coherence;
+- official static SessionTime-to-UTC reconstruction and whole-source fallback;
+- final-classification cursor boundaries;
+- Qualifying cursor truth and cross-session behavior;
+- Pirelli runtime, backfill, evidence tiers, and published strategy;
+- replay deletion and durable-context preservation;
+- Race intelligence and frontend semantic/render contracts.
 
-See `docs/analytics/race-intelligence-v2.1.md` for normative formulas and evidence gates, `docs/protocol.md` for wire contracts, and `ROADMAP.md` for later milestones. M4 authentication/control-plane work remains out of scope.
+See the current `tests/` and `web/tests/` trees rather than older milestone-specific test lists.
+
+## Explicitly deferred
+
+- authentication and the persistent control plane;
+- Sync Groups and device pairing;
+- Net Pit Loss and stationary pit-box duration without a defensible source;
+- deterministic archived-session backtesting;
+- protected/authenticated telemetry by default;
+- precise live X/Y and hardware clients;
+- broad visual redesign after the M3.5 factual baseline.
