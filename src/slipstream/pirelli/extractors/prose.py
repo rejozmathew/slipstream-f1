@@ -620,6 +620,30 @@ def extract_strategy_prose(
                 )
             )
 
+    # Some official guidance states an explicitly valid compound pairing without
+    # using a transition verb. The route is deterministic even when a following
+    # coded-start sentence does not provide enough local evidence to bind its window.
+    valid_combination = re.compile(
+        rf"\b({_COMPOUND})\s+could\s+be\s+a\s+valid\s+option[^.]*?"
+        rf"(?:used\s+)?in\s+combination\s+with\s+(?:the\s+)?({_COMPOUND})\b",
+        re.IGNORECASE,
+    )
+    for match in valid_combination.finditer(text):
+        first = _compound(match.group(1))
+        second = _compound(match.group(2))
+        if first is not None and second is not None:
+            options.append(
+                _make(
+                    source_url=source_url,
+                    artifact_id=artifact_id,
+                    compounds=(first, second),
+                    windows=(None,),
+                    evidence_text=match.group(0),
+                    rank_text=match.group(0),
+                    applicability=applicability,
+                )
+            )
+
     # Some releases state an alternative as a complete start/window/finish
     # sentence rather than using "switch" or "stop". All four facts are
     # explicit, so this remains deterministic and does not infer a chain.
@@ -734,10 +758,6 @@ def extract_strategy_prose(
     # article is PARTIAL until these claim scopes are resolved or disproved.
     unresolved_patterns = (
         ("ANAPHORIC_OPTION", r"could\s+instead\s+use\s+it\s+at\s+the\s+start"),
-        (
-            "CROSS_SENTENCE_COMBINATION",
-            rf"(?:{_COMPOUND})\s+could\s+be\s+a\s+valid\s+option[^.]*?combination\s+with\s+(?:the\s+)?(?:{_COMPOUND})",
-        ),
         (
             "ALTERNATIVE_MIDDLE_STINT",
             r"Alternatively,[^.]*middle\s+stint[^.]*towards\s+the\s+end",

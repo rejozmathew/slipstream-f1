@@ -112,7 +112,14 @@ def test_seed_build_is_deterministic_and_import_is_idempotent(tmp_path):
     assert report.meetings == 1
     assert report.releases == 1
     assert b"This raw evidence sentence" not in gzip.decompress(first.read_bytes())
-    assert validate_pirelli_seed(first)["integrity"]["digest"] == report.digest
+    payload = validate_pirelli_seed(first)
+    assert payload["integrity"]["digest"] == report.digest
+    assert payload["horizon"] == payload["coverage"]
+    assert payload["materialized"] == {
+        "meetingCount": 1,
+        "releaseCount": 1,
+        "meetingKeys": ["100"],
+    }
 
     imported = import_pirelli_seed(first, destination)
     repeated = import_pirelli_seed(first, destination)

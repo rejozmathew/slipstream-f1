@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { slipstreamApi } from "../api/client";
 import { connectReplaySocket, type ReplaySocket } from "../api/replaySocket";
+import { shouldPollAnalytics } from "../domain/analyticsPolling.mjs";
 import {
   EMPTY_RACE_STATE,
   type AnalyticsSnapshot,
@@ -289,7 +290,12 @@ export function useSlipstreamSession() {
     commandAvailable && socketRef.current?.send(command) === true;
 
   useEffect(() => {
-    if (viewingMode !== "replay" || !selectedSessionKey || analytics?.context.status !== "preparing") return;
+    if (!selectedSessionKey || !shouldPollAnalytics(
+      viewingMode,
+      selectedSessionKey,
+      analytics?.context.status,
+      analytics?.publishedStrategy.baseline.status,
+    )) return;
     let active = true;
     const timer = window.setInterval(() => {
       void slipstreamApi.analytics(selectedSessionKey, sequence).then((result) => {
@@ -302,7 +308,7 @@ export function useSlipstreamSession() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [analytics?.context.status, selectedSessionKey, sequence, viewingMode]);
+  }, [analytics?.context.status, analytics?.publishedStrategy.baseline.status, selectedSessionKey, sequence, viewingMode]);
 
   return {
     state,

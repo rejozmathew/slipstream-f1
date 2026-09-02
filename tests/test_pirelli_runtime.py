@@ -282,6 +282,59 @@ def test_china_qualifying_day_article_admits_race_strategy_despite_sprint_langua
     )
 
 
+def test_miami_qualifying_article_admits_explicit_grand_prix_guidance(tmp_path):
+    availability, published = _run_race_article_pipeline(
+        tmp_path,
+        meeting_key="1284",
+        meeting_name="Miami Grand Prix",
+        title="Sprint victory for Norris and pole position for Antonelli",
+        published_at=datetime(2026, 5, 2, 23, 7, tzinfo=UTC),
+        race_start=datetime(2026, 5, 3, 17, tzinfo=UTC),
+        current_lap=24,
+        article=(
+            "<p>Kimi Antonelli secured pole position in today's qualifying session. "
+            "Lando Norris claimed victory in this morning's Sprint. During the Sprint "
+            "all Pirelli compounds were used.</p><p>The one-stop strategy is confirmed as "
+            "the fastest option for tomorrow, as expected ahead of the race weekend. "
+            "The compounds selected for Miami have proven consistent and with low "
+            "degradation. By contrast, a two-stop strategy would be penalised by around "
+            "10 seconds compared to a single stop.</p><p>On paper, the Medium-Hard solution, "
+            "with a pit window between laps 22 and 28, is the quickest. The Soft could "
+            "be a valid option, exploiting its higher grip, when used in combination "
+            "with the Hard. Starting on the C5, the pit stop should be made between laps "
+            "16 and 22. Less effective in terms of lap time is the Medium-Soft pairing, "
+            "which would have a pit window between laps 32 and 38.</p><p>The weather forecast "
+            "could even lead to a wet race.</p>"
+        ),
+    )
+
+    assert availability.status == "PRESENT"
+    assert published["baseline"]["status"] == "PRESENT"
+    assert _published_option(
+        published,
+        ["MEDIUM", "HARD"],
+        [{"startLap": 22, "endLap": 28}],
+    )
+    assert _published_option(
+        published,
+        ["MEDIUM", "SOFT"],
+        [{"startLap": 32, "endLap": 38}],
+    )
+    assert any(
+        option["compounds"] == ["SOFT", "HARD"]
+        and option["pitWindows"] == [None]
+        for option in published["baseline"]["options"]
+    )
+    categories = {
+        fact["category"] for fact in published["baseline"]["contextFacts"]
+    }
+    assert {"STRATEGY_OUTLOOK", "DEGRADATION", "WEATHER"} <= categories
+    assert any(
+        "around 10 seconds" in fact["statement"]
+        for fact in published["baseline"]["contextFacts"]
+    )
+
+
 def test_hungary_qualifying_day_article_admits_grand_prix_strategy_before_support_sprints(
     tmp_path,
 ):

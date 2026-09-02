@@ -2,6 +2,7 @@ import asyncio
 import gzip
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from slipstream.pirelli.archive import PirelliArchive
 from slipstream.pirelli.backfill import PirelliHistoricalCoordinator
 from slipstream.pirelli.config import NORMALIZER_VERSION
 from slipstream.pirelli.contracts import SessionScope, SourceType
+from slipstream.pirelli.discovery import PIRELLI_F1_RSS_URL
 from slipstream.pirelli.ingest import PirelliIngestionService
 from slipstream.pirelli.seed import (
     PIRELLI_SEED_NAME,
@@ -59,6 +61,16 @@ class _FakePublicClient:
 
 def _write_audited_replays(data_root):
     sessions = (
+        {
+            "session_key": 11280,
+            "meeting_key": 1284,
+            "meeting_name": "Miami Grand Prix",
+            "country_name": "United States",
+            "location": "Miami Gardens",
+            "circuit_short_name": "Miami",
+            "date_start": "2026-05-03T17:00:00+00:00",
+            "date_end": "2026-05-03T19:00:00+00:00",
+        },
         {
             "session_key": 11291,
             "meeting_key": 1285,
@@ -149,7 +161,7 @@ def _option(baseline, compounds, start_lap, end_lap):
     )
 
 
-def test_bundled_seed_is_real_current_and_records_ten_season_coverage():
+def test_bundled_seed_records_horizon_and_exact_materialized_contents():
     seed_path = (
         Path(__file__).parents[1]
         / "src"
@@ -162,6 +174,12 @@ def test_bundled_seed_is_real_current_and_records_ten_season_coverage():
     assert payload["normalizerVersion"] == NORMALIZER_VERSION
     assert payload["coverage"]["fromSeason"] == 2017
     assert payload["coverage"]["throughSeason"] == 2026
+    assert payload["horizon"] == payload["coverage"]
+    assert payload["materialized"] == {
+        "meetingCount": 2,
+        "releaseCount": 5,
+        "meetingKeys": ["1285", "1292"],
+    }
     assert {item["meetingKey"] for item in payload["meetings"]} == {"1285", "1292"}
     assert sum(len(item["releases"]) for item in payload["meetings"]) == 5
 
@@ -240,6 +258,196 @@ def test_bundled_seed_import_is_idempotent_on_an_empty_runtime(tmp_path):
     assert second.releases_preserved == 5
 
 
+def test_miami_api_self_backfills_from_production_seed_without_restart(
+    tmp_path, monkeypatch
+):
+    _write_audited_replays(tmp_path)
+    monkeypatch.delenv("SLIPSTREAM_PIRELLI_SEED_PATH", raising=False)
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    nomination_url = (
+        "https://press.pirelli.com/"
+        "the-softest-trio-for-the-challenges-of-miami-and-montreal/"
+    )
+    strategy_url = (
+        "https://press.pirelli.com/"
+        "sprint-victory-for-norris-and-pole-position-for-antonelli/"
+    )
+    feed = (
+        "<rss><channel>"
+        "<item><title>The softest trio for the challenges of Miami and Montreal</title>"
+        f"<link>{nomination_url}</link>"
+        "<pubDate>Mon, 27 Apr 2026 10:00:00 GMT</pubDate>"
+        "<category>2026 Miami Grand Prix</category>"
+        "<description>Official Miami compound selection</description></item>"
+        "<item><title>Sprint victory for Norris and pole position for Antonelli</title>"
+        f"<link>{strategy_url}</link>"
+        "<pubDate>Sat, 02 May 2026 23:07:00 GMT</pubDate>"
+        "<category>2026 Miami Grand Prix</category>"
+        "<description>Official guidance for tomorrow's Grand Prix</description></item>"
+        "</channel></rss>"
+    ).encode()
+    nomination = (
+        b"<html><main><p>The C3, C4 and C5 selection applies to the Miami Grand "
+        b"Prix and Canadian Grand Prix.</p><p>In Miami degradation is mainly "
+        b"thermal because of the high temperatures.</p></main></html>"
+    )
+    strategy = (
+        b"<html><main><p>Kimi Antonelli secured pole position in today's qualifying "
+        b"session. Lando Norris claimed victory in this morning's Sprint.</p>"
+        b"<p>The one-stop strategy is confirmed as the fastest option for tomorrow, "
+        b"as expected ahead of the race weekend. The compounds selected for Miami "
+        b"have proven consistent and with low degradation. By contrast, a two-stop "
+        b"strategy would be penalised by around 10 seconds compared to a single stop.</p>"
+        b"<p>On paper, the Medium-Hard solution, with a pit window between laps 22 "
+        b"and 28, is the quickest. The Soft could be a valid option, exploiting its "
+        b"higher grip, when used in combination with the Hard. Starting on the C5, "
+        b"the pit stop should be made between laps 16 and 22. Less effective in terms "
+        b"of lap time is the Medium-Soft pairing, which would have a pit window between "
+        b"laps 32 and 38.</p><p>The weather forecast could even lead to a wet race.</p>"
+        b"</main></html>"
+    )
+    fake_client = _FakePublicClient(
+        {
+            PIRELLI_F1_RSS_URL: _Payload(
+                feed, SourceType.RSS, media_type="application/rss+xml"
+            ),
+            nomination_url: _Payload(
+                nomination,
+                SourceType.NEWSROOM_HTML,
+                datetime(2026, 4, 27, 10, tzinfo=UTC),
+            ),
+            strategy_url: _Payload(
+                strategy,
+                SourceType.NEWSROOM_HTML,
+                datetime(2026, 5, 2, 23, 7, tzinfo=UTC),
+            ),
+        }
+    )
+    descriptor = SimpleNamespace(
+        key="11280",
+        session_kind="race",
+        meeting_key="1284",
+        date_start="2026-05-03T17:00:00+00:00",
+        date_end="2026-05-03T19:00:00+00:00",
+        year=2026,
+        meeting_name="Miami Grand Prix",
+        location="Miami Gardens",
+        circuit="Miami",
+        country="United States",
+    )
+
+    def metadata_sync(*_args, **_kwargs):
+        return {
+            "format": "slipstream.pirelli.metadata.v1",
+            "updatedAt": "2026-09-02T00:00:00+00:00",
+            "years": [2026],
+            "meetings": {
+                "1284": {
+                    "meetingKey": "1284",
+                    "meetingName": "Miami Grand Prix",
+                    "year": 2026,
+                }
+            },
+            "sessions": [
+                {
+                    "sessionKey": "11280",
+                    "meetingKey": "1284",
+                    "sessionName": "Race",
+                    "sessionType": "Race",
+                    "dateStart": descriptor.date_start,
+                    "dateEnd": descriptor.date_end,
+                    "year": 2026,
+                }
+            ],
+        }
+
+    coordinator = PirelliHistoricalCoordinator(
+        tmp_path,
+        PirelliIngestionService(PirelliArchive(tmp_path), fake_client),
+        metadata_sync=metadata_sync,
+    )
+    app = create_app(
+        tmp_path,
+        now=lambda: datetime(2026, 9, 2, tzinfo=UTC),
+        public_live=False,
+        prepare_weekend_context=lambda **_kwargs: {},
+        pirelli_historical_coordinator=coordinator,
+        pirelli_backfill_initial_delay=3_600,
+    )
+    before = PirelliEvidenceStore(tmp_path).load(
+        meeting_key="1284",
+        target_session_key="11280",
+        evidence_cutoff=descriptor.date_start,
+        session_scope=SessionScope.RACE,
+    )
+
+    with TestClient(app) as client:
+        first = client.get("/api/v1/analytics?session_key=11280")
+        assert first.status_code == 200
+        assert first.json()["officialPreRace"]["status"] == "FETCHING"
+        present = None
+        for _ in range(100):
+            response = client.get("/api/v1/analytics?session_key=11280")
+            baseline = response.json()["officialPreRace"]
+            if baseline["status"] == "PRESENT":
+                present = baseline
+                break
+            time.sleep(0.01)
+
+    assert before.status == "ABSENT"
+    assert present is not None
+    assert present["compoundSelection"] == {
+        "hard": "C3",
+        "medium": "C4",
+        "soft": "C5",
+    }
+    _option(present, ["MEDIUM", "HARD"], 22, 28)
+    _option(present, ["MEDIUM", "SOFT"], 32, 38)
+    assert any(
+        option["compounds"] == ["SOFT", "HARD"]
+        for option in present["options"]
+    )
+    categories = {fact["category"] for fact in present["contextFacts"]}
+    assert {"STRATEGY_OUTLOOK", "DEGRADATION", "WEATHER"} <= categories
+    assert any(
+        "around 10 seconds" in fact["statement"]
+        for fact in present["contextFacts"]
+    )
+    assert fake_client.calls[0] == PIRELLI_F1_RSS_URL
+    assert {nomination_url, strategy_url} <= set(fake_client.calls)
+
+
+def test_miami_api_reports_metadata_backoff_as_retrying(tmp_path, monkeypatch):
+    _write_audited_replays(tmp_path)
+    monkeypatch.delenv("SLIPSTREAM_PIRELLI_SEED_PATH", raising=False)
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    clock = datetime(2026, 9, 2, tzinfo=UTC)
+
+    def fail_metadata(*_args, **_kwargs):
+        raise RuntimeError("fixture metadata unavailable")
+
+    coordinator = PirelliHistoricalCoordinator(
+        tmp_path,
+        PirelliIngestionService(PirelliArchive(tmp_path), _FakePublicClient({})),
+        metadata_sync=fail_metadata,
+    )
+    assert asyncio.run(coordinator.run_once(now=clock)).status == "FAILURE"
+    app = create_app(
+        tmp_path,
+        now=lambda: clock,
+        public_live=False,
+        prepare_weekend_context=lambda **_kwargs: {},
+        pirelli_historical_coordinator=coordinator,
+        pirelli_backfill_initial_delay=3_600,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/analytics?session_key=11280")
+
+    assert response.status_code == 200
+    assert response.json()["officialPreRace"]["status"] == "RETRYING"
+
+
 def test_missing_canada_is_prioritized_and_self_backfills_without_restart(tmp_path):
     seed_path = (
         Path(__file__).parents[1]
@@ -252,6 +460,15 @@ def test_missing_canada_is_prioritized_and_self_backfills_without_restart(tmp_pa
     payload["meetings"] = [
         item for item in payload["meetings"] if item["meetingKey"] != "1285"
     ]
+    payload["materialized"] = {
+        "meetingCount": len(payload["meetings"]),
+        "releaseCount": sum(
+            len(item["releases"]) for item in payload["meetings"]
+        ),
+        "meetingKeys": sorted(
+            item["meetingKey"] for item in payload["meetings"]
+        ),
+    }
     base = {key: value for key, value in payload.items() if key != "integrity"}
     payload["integrity"] = {
         "algorithm": "sha256",

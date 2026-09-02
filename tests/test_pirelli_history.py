@@ -141,6 +141,7 @@ def test_quiet_backfill_is_single_concurrency_and_skips_covered_meetings(tmp_pat
     service = _SlowService()
     coordinator = PirelliHistoricalCoordinator(tmp_path, service, history_years=10)
     coordinator.prioritize("missing")
+    coordinator.prioritize("missing")
 
     async def exercise():
         first = asyncio.create_task(
@@ -150,6 +151,8 @@ def test_quiet_backfill_is_single_concurrency_and_skips_covered_meetings(tmp_pat
             )
         )
         await service.started.wait()
+        coordinator.prioritize("missing")
+        coordinator.prioritize("missing")
         concurrent = await coordinator.run_once(
             now=datetime(2026, 9, 2, tzinfo=UTC),
             descriptors=(covered, missing),
@@ -168,6 +171,7 @@ def test_catchup_failure_is_returned_and_persisted_without_raising(tmp_path):
     service = _SlowService(fail=True)
     service.release.set()
     coordinator = PirelliHistoricalCoordinator(tmp_path, service)
+    coordinator.prioritize("failure")
 
     result = asyncio.run(
         coordinator.run_once(
@@ -182,6 +186,63 @@ def test_catchup_failure_is_returned_and_persisted_without_raising(tmp_path):
     )
     assert state["meetings"]["failure"]["status"] == "FAILURE"
     assert state["meetings"]["failure"]["nextAttemptAt"]
+    assert coordinator.availability_status(
+        "failure", now=datetime(2026, 9, 2, 0, 5, tzinfo=UTC)
+    ) == "RETRYING"
+
+
+def test_priority_interrupts_the_normal_initial_backfill_delay(tmp_path):
+    selected = _descriptor(2025, "miami")
+    service = _ImmediateService()
+
+    def metadata_sync(*_args, **_kwargs):
+        return {
+            "format": PIRELLI_METADATA_FORMAT,
+            "updatedAt": "2026-09-02T00:00:00+00:00",
+            "years": [2025],
+            "meetings": {
+                selected.meeting_key: {
+                    "meetingKey": selected.meeting_key,
+                    "meetingName": selected.meeting_name,
+                    "year": selected.year,
+                }
+            },
+            "sessions": [
+                {
+                    "sessionKey": selected.key,
+                    "meetingKey": selected.meeting_key,
+                    "sessionName": "Race",
+                    "sessionType": "Race",
+                    "dateStart": selected.date_start,
+                    "dateEnd": selected.date_end,
+                    "year": selected.year,
+                }
+            ],
+        }
+
+    coordinator = PirelliHistoricalCoordinator(
+        tmp_path, service, metadata_sync=metadata_sync
+    )
+
+    async def exercise():
+        task = asyncio.create_task(
+            coordinator.run_forever(
+                lambda: datetime(2026, 9, 2, tzinfo=UTC),
+                initial_delay=3_600,
+            )
+        )
+        await asyncio.sleep(0)
+        coordinator.prioritize("miami")
+        while not service.calls:
+            await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(asyncio.wait_for(exercise(), timeout=2))
+    assert [call.meeting.meeting_key for call in service.calls] == ["miami"]
 
 
 def test_metadata_failure_is_persisted_and_not_retried_in_a_restart_loop(tmp_path):
@@ -206,6 +267,10 @@ def test_metadata_failure_is_persisted_and_not_retried_in_a_restart_loop(tmp_pat
         (tmp_path / ".slipstream" / "pirelli-backfill-state.json").read_text()
     )
     assert state["meetings"]["__metadata__"]["status"] == "FAILURE"
+    coordinator.prioritize("miami")
+    assert coordinator.availability_status(
+        "miami", now=clock + timedelta(minutes=5)
+    ) == "RETRYING"
 
 
 def test_selected_missing_meeting_wakes_low_frequency_backfill(tmp_path):

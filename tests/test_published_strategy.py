@@ -6,6 +6,7 @@ from slipstream.pirelli.contracts import (
     Compound,
     CompoundCount,
     CompoundSelection,
+    ContextFact,
     DriverTyreBank,
     EvidenceKind,
     ExtractionMethod,
@@ -58,7 +59,10 @@ def _option(
 
 
 def _availability(
-    *options: StrategyOption, selection: bool = False, bank: bool = False
+    *options: StrategyOption,
+    selection: bool = False,
+    bank: bool = False,
+    context: bool = False,
 ):
     published = datetime(2026, 7, 25, tzinfo=UTC)
     snapshot = PirelliEvidenceSnapshot(
@@ -107,7 +111,18 @@ def _availability(
         )
         if bank
         else (),
-        context_facts=(),
+        context_facts=(
+            ContextFact(
+                "WEATHER",
+                "The weather forecast could lead to a wet race.",
+                (_evidence(),),
+                FactApplicability(
+                    meeting_key="30", session_scope=SessionScope.RACE
+                ),
+            ),
+        )
+        if context
+        else (),
     )
     return PirelliAvailability("PRESENT", snapshot)
 
@@ -167,6 +182,38 @@ def test_published_baseline_preserves_physical_nomination_and_missing_bank():
     }
     assert result["baseline"]["tyreBank"]["status"] == "ABSENT"
     assert result["baseline"]["options"][0]["rank"] == "FASTEST_PUBLISHED"
+
+
+def test_context_only_baseline_is_present_with_zero_strategy_options():
+    result = _build(_availability(context=True), _state())
+
+    assert result["baseline"]["status"] == "PRESENT"
+    assert result["baseline"]["options"] == []
+    assert result["baseline"]["sourceUrl"] == "https://press.pirelli.com/race"
+    assert result["baseline"]["contextFacts"] == [
+        {
+            "category": "WEATHER",
+            "statement": "The weather forecast could lead to a wet race.",
+        }
+    ]
+
+
+def test_fetching_and_retrying_availability_remain_truthful_non_present_states():
+    fetching = _build(
+        PirelliAvailability("FETCHING", error="official_pirelli_context_queued"),
+        _state(),
+    )
+    retrying = _build(
+        PirelliAvailability(
+            "RETRYING", error="official_pirelli_context_retry_scheduled"
+        ),
+        _state(),
+    )
+
+    assert fetching["baseline"]["status"] == "FETCHING"
+    assert retrying["baseline"]["status"] == "RETRYING"
+    assert fetching["status"] == "ABSENT"
+    assert retrying["status"] == "ABSENT"
 
 
 def test_ordered_prefix_matching_and_window_state_are_server_authored():

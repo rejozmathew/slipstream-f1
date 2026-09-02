@@ -41,6 +41,7 @@ def _archived_dutch_source(data_root):
     <html><head><meta property="og:title" content="Norris to start from the front at Zandvoort"></head>
     <main>
       <p>A few drops during qualifying led teams to bring forward their runs.</p>
+      <p>Pirelli will supply C2 as Hard, C3 as Medium and C4 as Soft.</p>
       <p>The quickest strategy is therefore a one-stop, starting on the Medium and
       running until laps 27-33 before switching to the Hard for the remainder of the race.</p>
       <p>An alternative, around one second slower, involves starting on the Soft,
@@ -88,7 +89,7 @@ def _archived_dutch_source(data_root):
             content_hash=artifact.content_hash,
             source_type=SourceType.NEWSROOM_HTML,
             extraction_method=ExtractionMethod.DETERMINISTIC_PROSE,
-            normalizer_version="slipstream-pirelli-v5-adapted.3",
+            normalizer_version="slipstream-pirelli-v5-adapted.4",
             artifact_ids=(artifact.artifact_id,),
             applicability=scope,
             strategies=(
@@ -135,7 +136,7 @@ def _metadata():
     }
 
 
-def test_refresh_seed_upgrades_archives_offline_and_preserves_old_derivation(tmp_path):
+def test_refresh_seed_upgrades_adapted4_archives_and_preserves_old_derivation(tmp_path):
     _archived_dutch_source(tmp_path)
     metadata_calls = []
 
@@ -168,10 +169,15 @@ def test_refresh_seed_upgrades_archives_offline_and_preserves_old_derivation(tmp
     assert report.seed.meetings == 1
     assert report.seed.releases == 1
     assert {release.normalizer_version for release in derivations} == {
-        "slipstream-pirelli-v5-adapted.3",
+        "slipstream-pirelli-v5-adapted.4",
         NORMALIZER_VERSION,
     }
     assert current[0].normalizer_version == NORMALIZER_VERSION
+    assert current[0].compound_selections[0].code_map() == {
+        "C2": Compound.HARD,
+        "C3": Compound.MEDIUM,
+        "C4": Compound.SOFT,
+    }
     assert [(item.sequence, item.pit_windows) for item in current[0].strategies] == [
         ("M-H", (PitWindow(27, 33),)),
         ("S-H", (PitWindow(26, 32),)),

@@ -7,7 +7,7 @@ import logging
 import os
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -53,6 +53,8 @@ def create_app(
     public_live: bool | None = None,
     live_session: PublicLiveSession | None = None,
     pirelli_history_years: int = DEFAULT_PIRELLI_HISTORY_YEARS,
+    pirelli_historical_coordinator: PirelliHistoricalCoordinator | None = None,
+    pirelli_backfill_initial_delay: float = 60.0,
 ) -> FastAPI:
     clock = now or (lambda: datetime.now(UTC))
     live_enabled = (
@@ -118,7 +120,9 @@ def create_app(
         "SLIPSTREAM_PIRELLI_BACKFILL", "1"
     ).strip().lower() not in {"0", "false", "no", "off"}
     pirelli_historical = (
-        PirelliHistoricalCoordinator(
+        pirelli_historical_coordinator
+        if downloads_enabled and pirelli_historical_coordinator is not None
+        else PirelliHistoricalCoordinator(
             recording_path,
             pirelli_ingestion,
             history_years=validate_history_years(pirelli_history_years),
@@ -188,6 +192,19 @@ def create_app(
         )
         if availability.status != "PRESENT" and pirelli_historical is not None:
             pirelli_historical.prioritize(selected.descriptor.meeting_key)
+            refresh_status = pirelli_historical.availability_status(
+                selected.descriptor.meeting_key, now=clock()
+            )
+            if refresh_status is not None:
+                availability = replace(
+                    availability,
+                    status=refresh_status,
+                    error=(
+                        "official_pirelli_context_retry_scheduled"
+                        if refresh_status == "RETRYING"
+                        else "official_pirelli_context_queued"
+                    ),
+                )
         return availability
 
     def current_live_descriptor():
@@ -308,7 +325,9 @@ def create_app(
             )
         if pirelli_historical is not None:
             pirelli_backfill_task[0] = asyncio.create_task(
-                pirelli_historical.run_forever(clock)
+                pirelli_historical.run_forever(
+                    clock, initial_delay=pirelli_backfill_initial_delay
+                )
             )
 
     @app.on_event("shutdown")

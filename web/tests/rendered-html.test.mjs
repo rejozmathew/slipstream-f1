@@ -95,6 +95,9 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.doesNotMatch(sessionHook, /setAnalytics\(null\).*viewingMode === "live"/s);
   assert.match(sessionHook, /envelope = await slipstreamApi\.state\(selectedSessionKey, viewingMode\)/);
   assert.match(sessionHook, /Promise\.allSettled/);
+  assert.match(sessionHook, /shouldPollAnalytics/);
+  assert.match(sessionHook, /analytics\?\.context\.status/);
+  assert.match(sessionHook, /analytics\?\.publishedStrategy\.baseline\.status/);
   assert.ok(sessionHook.indexOf("envelope = await slipstreamApi.state") < sessionHook.indexOf("Promise.allSettled"), "canonical state must bootstrap before auxiliary metadata");
   assert.match(raceView, /\["standard", "timing", "strategy"\]/);
   assert.match(preferences, /slipstream\.device-preferences\.v1/);

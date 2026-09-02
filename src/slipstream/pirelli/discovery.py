@@ -238,6 +238,12 @@ def _explicit_race_strategy(text: str) -> bool:
             return True
         if re.search(
             r"\b(?:one|two|three)[ -]stop strateg(?:y|ies)\b[^.]{0,180}"
+            r"\b(?:fastest|quickest)(?: option)? for tomorrow\b",
+            sentence,
+        ):
+            return True
+        if re.search(
+            r"\b(?:one|two|three)[ -]stop strateg(?:y|ies)\b[^.]{0,180}"
             r"\b(?:fastest for tomorrow|for (?:tomorrow's |tomorrow’s )?(?:the )?"
             r"[a-z0-9 -]*grand prix|complete the race|pit stop window)\b",
             sentence,
@@ -273,12 +279,20 @@ def classify_release_purpose(title: str, summary: str = "") -> ReleasePurpose:
         for marker in ("grand prix", "remainder of the race", "complete the race")
     ):
         return ReleasePurpose.RACE_STRATEGY
+    # An explicitly Sprint-strategy title scopes an otherwise ambiguous "tomorrow"
+    # sentence to the Sprint. A Sprint result recap (as in the Miami release) does
+    # not trigger this veto, so stronger prospective Grand Prix guidance still wins.
+    if _explicit_sprint_strategy(title_lower):
+        return ReleasePurpose.SPRINT
+    # A single official release can recap Sprint/Qualifying before giving explicit
+    # prospective Grand Prix guidance. That sentence-local Race evidence is stronger
+    # than incidental nomination wording elsewhere in the article.
+    if _explicit_race_strategy(lower):
+        return ReleasePurpose.RACE_STRATEGY
     if "compound" in lower and any(
         word in lower for word in ("selected", "selection", "choices")
     ):
         return ReleasePurpose.COMPOUND_NOMINATION
-    if _explicit_sprint_strategy(title_lower):
-        return ReleasePurpose.SPRINT
     if any(word in title_lower for word in ("friday", "practice", "fp1", "fp2", "fp3")):
         return ReleasePurpose.PRACTICE
     if any(

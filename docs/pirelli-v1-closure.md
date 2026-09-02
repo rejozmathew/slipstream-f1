@@ -235,6 +235,16 @@ Prefer one small compressed atomic file, approximately:
     "throughSeason": 2026,
     "throughPublishedAt": "..."
   },
+  "horizon": {
+    "fromSeason": 2017,
+    "throughSeason": 2026,
+    "throughPublishedAt": "..."
+  },
+  "materialized": {
+    "meetingCount": 2,
+    "releaseCount": 5,
+    "meetingKeys": ["1285", "1292"]
+  },
   "meetings": {
     "1292": {
       "season": 2026,
@@ -282,10 +292,10 @@ Add focused tests for at least:
 13. Pirelli backfill can cover years outside the browser catalog horizon without expanding the user-facing catalog;
 14. current-weekend runtime refresh remains functional and independent;
 15. no OCR/image/VLM path is introduced;
-16. the checked-in seed is non-empty and records its current normalizer and exact coverage;
+16. the checked-in seed is non-empty and distinguishes its historical horizon from exact materialized meeting/release contents;
 17. seed-only API acceptance proves Dutch 2026 and Canada 2026 facts on an empty runtime;
 18. missing Canada is prioritized and becomes PRESENT through one bounded self-backfill without restart;
-19. adapted.3 source archives re-normalize offline to adapted.4 while preserving old output.
+19. adapted.4 source archives re-normalize offline to adapted.5 while preserving old output.
 
 Use the known modern corpus cases already documented in `docs/pirelli-strategy.md` (including Austria/Hungary recall limitations) plus bounded new regression fixtures for the nomination/context bugs. Do not commit the user's raw `.slipstream` archive.
 

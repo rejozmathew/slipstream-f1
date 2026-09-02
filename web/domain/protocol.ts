@@ -426,7 +426,7 @@ export type PublishedTyreBank = {
   drivers: Record<string, PublishedTyreBankDriver>;
 };
 export type PublishedStrategyBaseline = {
-  status: "PRESENT" | "ABSENT";
+  status: "PRESENT" | "FETCHING" | "RETRYING" | "ABSENT";
   source: "PIRELLI" | null;
   publishedAt: string | null;
   retrievedAt: string | null;

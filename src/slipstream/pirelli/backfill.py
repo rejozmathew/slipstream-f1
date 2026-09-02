@@ -334,12 +334,37 @@ class PirelliHistoricalCoordinator:
         self._priority_revision = 0
         self._wake: asyncio.Event | None = None
         self._wake_loop: asyncio.AbstractEventLoop | None = None
+        self._active_meeting: str | None = None
 
     def prioritize(self, meeting_key: str) -> None:
-        self._priority = str(meeting_key)
-        self._priority_revision += 1
+        key = str(meeting_key)
+        if self._priority != key:
+            self._priority = key
+            self._priority_revision += 1
         if self._wake is not None and self._wake_loop is not None:
             self._wake_loop.call_soon_threadsafe(self._wake.set)
+
+    def availability_status(
+        self, meeting_key: str, *, now: datetime | None = None
+    ) -> str | None:
+        """Expose only the product-level state for one requested meeting."""
+
+        key = str(meeting_key)
+        if self._active_meeting == key:
+            return "FETCHING"
+        clock = (now or datetime.now(UTC)).astimezone(UTC)
+        rows = _read_backfill_state(self.data_root).get("meetings", {})
+        for row in (rows.get(key, {}), rows.get("__metadata__", {})):
+            retry_at = _optional_utc(row.get("nextAttemptAt"))
+            if (
+                row.get("status") not in {None, "PRESENT"}
+                and retry_at is not None
+                and retry_at > clock
+            ):
+                return "RETRYING"
+        if self._priority == key:
+            return "FETCHING"
+        return None
 
     async def run_once(
         self,
@@ -351,6 +376,7 @@ class PirelliHistoricalCoordinator:
             return HistoricalBackfillResult("BUSY")
         async with self._lock:
             clock = (now or datetime.now(UTC)).astimezone(UTC)
+            priority_revision = self._priority_revision
             years = tuple(recent_seasons(self.history_years, now=clock))
             if descriptors is None and _retry_pending(
                 self.data_root, "__metadata__", clock
@@ -373,6 +399,7 @@ class PirelliHistoricalCoordinator:
                     return HistoricalBackfillResult("IDLE")
                 meeting_key = str(selected.meeting_key)
                 priority_revision = self._priority_revision
+                self._active_meeting = meeting_key
                 self._record_attempt(meeting_key, clock, status="RUNNING")
                 report = await sync_pirelli_backfill(
                     self.data_root,
@@ -408,6 +435,8 @@ class PirelliHistoricalCoordinator:
                 )
                 logger.warning("Historical Pirelli catch-up failed: %s", issue)
                 return HistoricalBackfillResult("FAILURE", meeting_key, issue)
+            finally:
+                self._active_meeting = None
 
     async def run_forever(
         self,
@@ -418,8 +447,11 @@ class PirelliHistoricalCoordinator:
         self._wake_loop = asyncio.get_running_loop()
         self._wake = asyncio.Event()
         try:
-            if initial_delay > 0:
-                await asyncio.sleep(initial_delay)
+            if initial_delay > 0 and self._priority is None:
+                try:
+                    await asyncio.wait_for(self._wake.wait(), timeout=initial_delay)
+                except TimeoutError:
+                    pass
             while True:
                 self._wake.clear()
                 await self.run_once(now=clock())

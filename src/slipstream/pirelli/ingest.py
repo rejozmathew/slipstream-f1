@@ -358,7 +358,19 @@ class PirelliIngestionService:
             artifact_id=artifact_version.artifact_id,
             meeting_aliases=aliases,
             default_applicability=weekend_scope,
-            exact_event_scope="exact_event_tag" in candidate.match_reason,
+            exact_event_scope=(
+                "exact_event_tag" in candidate.match_reason
+                or (
+                    candidate.match_reason
+                    in {
+                        "meeting_alias_in_title",
+                        "meeting_alias_in_archived_source",
+                    }
+                    and not is_multi_event_nomination_article(
+                        f"{document.title}. {document.article_text}"
+                    )
+                )
+            ),
         )
         nomination_result = validate_result_against_artifacts(
             nomination_result,

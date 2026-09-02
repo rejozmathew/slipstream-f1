@@ -127,17 +127,27 @@ def build_pirelli_seed(
             if latest_source_time is None or timestamp > latest_source_time:
                 latest_source_time = timestamp
 
+    horizon = {
+        "fromSeason": from_year,
+        "throughSeason": through_year,
+        "throughPublishedAt": (
+            latest_source_time.astimezone(UTC).isoformat()
+            if latest_source_time is not None
+            else None
+        ),
+    }
+    meeting_keys = sorted(item["meetingKey"] for item in meetings)
     base: dict[str, Any] = {
         "format": PIRELLI_SEED_FORMAT,
         "normalizerVersion": NORMALIZER_VERSION,
-        "coverage": {
-            "fromSeason": from_year,
-            "throughSeason": through_year,
-            "throughPublishedAt": (
-                latest_source_time.astimezone(UTC).isoformat()
-                if latest_source_time is not None
-                else None
-            ),
+        # ``coverage`` remains as a v1 compatibility alias. It describes the
+        # requested historical horizon, not a claim that every meeting is embedded.
+        "coverage": horizon,
+        "horizon": horizon,
+        "materialized": {
+            "meetingCount": len(meetings),
+            "releaseCount": release_count,
+            "meetingKeys": meeting_keys,
         },
         "meetings": sorted(meetings, key=lambda item: item["meetingKey"]),
     }
@@ -196,6 +206,9 @@ def validate_pirelli_seed_bytes(data: bytes) -> dict[str, Any]:
     start, end = coverage.get("fromSeason"), coverage.get("throughSeason")
     if not isinstance(start, int) or not isinstance(end, int) or start > end:
         raise ValueError("Pirelli seed coverage bounds are invalid")
+    horizon = payload.get("horizon")
+    if horizon is not None and horizon != coverage:
+        raise ValueError("Pirelli seed horizon must match v1 coverage metadata")
 
     meetings = payload.get("meetings")
     if not isinstance(meetings, list):
@@ -261,6 +274,17 @@ def validate_pirelli_seed_bytes(data: bytes) -> dict[str, Any]:
                     for evidence in fact.source_evidence
                 ):
                     raise ValueError("Pirelli seed fact provenance URL does not match")
+    materialized = payload.get("materialized")
+    if materialized is not None:
+        expected_releases = sum(
+            len(meeting["releases"]) for meeting in meetings
+        )
+        if materialized != {
+            "meetingCount": len(meetings),
+            "releaseCount": expected_releases,
+            "meetingKeys": sorted(seen_meetings),
+        }:
+            raise ValueError("Pirelli seed materialized contents metadata is invalid")
     return payload
 
 

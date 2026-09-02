@@ -757,6 +757,50 @@ def test_race_guidance_title_outranks_incidental_compound_selection_text() -> No
     assert purpose == ReleasePurpose.RACE_STRATEGY
 
 
+def test_miami_body_race_guidance_outranks_sprint_title_and_nomination_text() -> None:
+    purpose = classify_release_purpose(
+        "Sprint victory for Norris and pole position for Antonelli",
+        "All compounds were used in the Sprint. The one-stop strategy is confirmed "
+        "as the fastest option for tomorrow. The compounds selected for Miami have "
+        "shown low degradation.",
+    )
+
+    assert purpose == ReleasePurpose.RACE_STRATEGY
+
+
+def test_non_race_strategy_language_cannot_populate_race_purpose() -> None:
+    cases = (
+        (
+            "Qualifying strategy and pole position",
+            "The one-stop tyre strategy was quickest during qualifying.",
+        ),
+        (
+            "Sprint strategy for the Miami weekend",
+            "The fastest Sprint strategy is Soft-Medium.",
+        ),
+        (
+            "Friday practice review",
+            "The long-run tyre strategy was tested during FP2.",
+        ),
+        (
+            "History of the Miami Grand Prix",
+            "Last year's one-stop strategy was the fastest option for tomorrow.",
+        ),
+    )
+
+    for title, summary in cases:
+        assert classify_release_purpose(title, summary) != ReleasePurpose.RACE_STRATEGY
+
+
+def test_sprint_strategy_title_scopes_ambiguous_tomorrow_guidance_to_sprint() -> None:
+    purpose = classify_release_purpose(
+        "Sprint strategy preview",
+        "The one-stop strategy is the fastest option for tomorrow.",
+    )
+
+    assert purpose == ReleasePurpose.SPRINT
+
+
 def test_truncated_article_reuses_only_complete_same_url_archived_version(
     tmp_path,
 ) -> None:

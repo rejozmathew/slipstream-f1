@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { shouldPollAnalytics } from "../domain/analyticsPolling.mjs";
 import { isCriticalTrackStatus, nextAuthoredState } from "../domain/tvMode.mjs";
 import {
   battleFactorPresentation,
@@ -30,6 +31,15 @@ test("TV rotation follows the authored preference order", () => {
   assert.equal(nextAuthoredState(authored, "tower"), "battle");
   assert.equal(nextAuthoredState(authored, "driver"), "tower");
   assert.equal(nextAuthoredState(authored, "strategy"), "battle");
+});
+
+test("analytics polling stops when Pirelli reaches a stable state", () => {
+  assert.equal(shouldPollAnalytics("replay", "11280", "ready", "FETCHING"), true);
+  assert.equal(shouldPollAnalytics("replay", "11280", "preparing", "ABSENT"), true);
+  for (const status of ["PRESENT", "RETRYING", "ABSENT"]) {
+    assert.equal(shouldPollAnalytics("replay", "11280", "ready", status), false);
+  }
+  assert.equal(shouldPollAnalytics("live", "11280", "ready", "FETCHING"), false);
 });
 
 test("TV alerts distinguish critical track states from normal running", () => {

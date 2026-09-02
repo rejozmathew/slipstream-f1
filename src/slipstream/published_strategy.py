@@ -75,9 +75,15 @@ def _baseline(
 ) -> tuple[dict[str, Any], tuple[StrategyOption, ...]]:
     snapshot = availability.snapshot if availability is not None else None
     if availability is None or availability.status != "PRESENT" or snapshot is None:
+        status = (
+            availability.status
+            if availability is not None
+            and availability.status in {"FETCHING", "RETRYING"}
+            else "ABSENT"
+        )
         return (
             {
-                "status": "ABSENT",
+                "status": status,
                 "source": None,
                 "publishedAt": None,
                 "retrievedAt": None,
@@ -103,6 +109,14 @@ def _baseline(
     options = latest.strategies if latest is not None else ()
     model_options = options if availability.model_admissible else ()
     selection = snapshot.compound_selections[-1] if snapshot.compound_selections else None
+    context_source_url = next(
+        (
+            evidence.source_url
+            for fact in reversed(snapshot.context_facts)
+            for evidence in fact.source_evidence
+        ),
+        None,
+    )
     useful = bool(options or selection or snapshot.context_facts)
     if not useful:
         status = "ABSENT"
@@ -116,7 +130,7 @@ def _baseline(
             "source": "PIRELLI" if useful else None,
             "publishedAt": _iso(latest.published_at) if latest else None,
             "retrievedAt": _iso(latest.retrieved_at) if latest else None,
-            "sourceUrl": latest.source_url if latest else None,
+            "sourceUrl": latest.source_url if latest else context_source_url,
             "evidenceCutoff": evidence_cutoff,
             "evidenceTier": availability.evidence_tier,
             "modelAdmissible": availability.model_admissible,

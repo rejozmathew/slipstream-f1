@@ -8,6 +8,7 @@ from slipstream.pirelli.archive import (
 )
 from slipstream.pirelli.contracts import (
     Compound,
+    ContextFact,
     EvidenceKind,
     ExtractionMethod,
     FactApplicability,
@@ -94,11 +95,22 @@ def _save_release(archive: PirelliArchive, *, meeting: str, release: PirelliRele
         )
         for option in release.strategies
     )
+    context_facts = tuple(
+        replace(
+            fact,
+            source_evidence=tuple(
+                replace(evidence, artifact_id=artifact.artifact_id)
+                for evidence in fact.source_evidence
+            ),
+        )
+        for fact in release.context_facts
+    )
     saved = replace(
         release,
         release_id=artifact.artifact_id,
         artifact_ids=(artifact.artifact_id,),
         strategies=strategies,
+        context_facts=context_facts,
     )
     save_normalized_release(archive, meeting_key=meeting, release=saved)
     return saved
@@ -137,6 +149,89 @@ def test_store_is_meeting_scoped_and_cursor_safe(tmp_path):
         evidence_cutoff="2026-07-26T12:00:00Z",
     )
     assert wrong_target.status == "ABSENT"
+
+
+def test_context_only_race_baseline_is_present_but_remains_target_scoped(tmp_path):
+    release = _release(
+        meeting="miami", retrieved=datetime(2026, 7, 25, tzinfo=UTC)
+    )
+    evidence = release.strategies[0].source_evidence[0]
+    context_only = replace(
+        release,
+        strategies=(),
+        context_facts=(
+            ContextFact(
+                "STRATEGY_OUTLOOK",
+                "The one-stop strategy is the fastest option for tomorrow.",
+                (evidence,),
+                FactApplicability(
+                    meeting_key="miami",
+                    session_scope=SessionScope.RACE,
+                    target_session_key="race-miami",
+                ),
+            ),
+        ),
+    )
+    _save_release(
+        PirelliArchive(tmp_path), meeting="miami", release=context_only
+    )
+    store = PirelliEvidenceStore(tmp_path)
+
+    present = store.load(
+        meeting_key="miami",
+        target_session_key="race-miami",
+        evidence_cutoff="2026-07-26T17:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+    wrong_session = store.load(
+        meeting_key="miami",
+        target_session_key="other-race",
+        evidence_cutoff="2026-07-26T17:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+    wrong_meeting = store.load(
+        meeting_key="montreal",
+        target_session_key="race-miami",
+        evidence_cutoff="2026-07-26T17:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+    session_only = replace(
+        context_only,
+        release_id="session-only",
+        applicability=FactApplicability(
+            meeting_key="session-only", session_scope=SessionScope.WEEKEND
+        ),
+        context_facts=tuple(
+            replace(
+                context_only.context_facts[0],
+                applicability=FactApplicability(
+                    meeting_key="session-only",
+                    session_scope=scope,
+                    target_session_key=f"{scope.value.casefold()}-session",
+                ),
+            )
+            for scope in (SessionScope.QUALIFYING, SessionScope.PRACTICE)
+        ),
+    )
+    _save_release(
+        PirelliArchive(tmp_path), meeting="session-only", release=session_only
+    )
+    race_from_other_sessions = store.load(
+        meeting_key="session-only",
+        target_session_key="race-session",
+        evidence_cutoff="2026-07-26T17:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+
+    assert present.status == "PRESENT"
+    assert present.snapshot is not None
+    assert present.snapshot.latest_strategy_release is None
+    assert [fact.category for fact in present.snapshot.context_facts] == [
+        "STRATEGY_OUTLOOK"
+    ]
+    assert wrong_session.status == "ABSENT"
+    assert wrong_meeting.status == "ABSENT"
+    assert race_from_other_sessions.status == "ABSENT"
 
 
 def test_post_cutoff_official_pre_race_content_is_display_only(tmp_path):

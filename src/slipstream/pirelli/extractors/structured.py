@@ -269,7 +269,8 @@ def extract_context_facts(
                 re.compile(
                     r"\b(?:one|two|three)[ \-‐‑‒–—]stop\s+strateg(?:y|ies)\b"
                     r"[^.!?]{0,100}\b(?:preferred|competitive|viable|likely|"
-                    r"favou?red|best\s+option)\b",
+                    r"favou?red|best\s+option|fastest\s+option|quickest\s+option|"
+                    r"penali[sz]ed|slower)\b",
                     re.IGNORECASE,
                 ),
                 re.compile(
