@@ -11,6 +11,7 @@ from slipstream.pirelli.contracts import (
     DriverTyreBank,
     EvidenceKind,
     ExtractionMethod,
+    ExtractionStatus,
     FactApplicability,
     PirelliRelease,
     PitWindow,
@@ -26,6 +27,8 @@ from slipstream.pirelli.coordinator import PirelliRuntimeCoordinator
 from slipstream.pirelli.discovery import (
     PIRELLI_F1_RSS_URL,
     MeetingDiscoveryTarget,
+    discover_for_meeting,
+    parse_formula1_feed,
     pirelli_event_tag,
 )
 from slipstream.pirelli.ingest import (
@@ -78,6 +81,40 @@ def _feed(*entries: tuple[str, str, str, str]) -> bytes:
 
 def _page(text: str) -> bytes:
     return f"<html><main>{text}</main></html>".encode()
+
+
+def test_production_presspage_category_list_exposes_exact_event_tag():
+    feed = _feed(
+        (
+            "Sprint victory for Norris and pole position for Antonelli",
+            "https://press.pirelli.com/miami-strategy",
+            "Sat, 02 May 2026 23:07:38 GMT",
+            "2026 Season,2026 Infographics,2026 Miami Grand Prix,news,Formula 1",
+        )
+    )
+
+    [entry] = parse_formula1_feed(feed.decode())
+
+    assert entry.categories == (
+        "2026 Season",
+        "2026 Infographics",
+        "2026 Miami Grand Prix",
+        "news",
+        "Formula 1",
+    )
+    [candidate] = discover_for_meeting(
+        (entry,),
+        MeetingDiscoveryTarget(
+            meeting_key="1284",
+            canonical_name="Miami Grand Prix",
+            season=2026,
+            weekend_start=datetime(2026, 5, 1, tzinfo=UTC),
+            weekend_end=datetime(2026, 5, 3, 23, tzinfo=UTC),
+            aliases=("Miami", "Miami Gardens"),
+        ),
+    )
+    assert candidate.status == ExtractionStatus.ACCEPTED
+    assert candidate.match_reason == "exact_event_tag"
 
 
 def _meeting(name: str = "Hungarian Grand Prix") -> MeetingDiscoveryTarget:

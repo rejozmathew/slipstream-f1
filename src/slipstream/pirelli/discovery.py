@@ -190,7 +190,13 @@ def parse_formula1_feed(xml_text: str) -> tuple[FeedEntry, ...]:
             elif name in {"pubdate", "published", "updated"} and published is None:
                 published = _parse_dt(text)
             elif name == "category" and text:
-                categories.append(text)
+                # PressPage's production Formula 1 feed serializes its complete
+                # tag list in one comma-separated category element.  Preserve
+                # normal RSS category elements while exposing each real tag to
+                # exact-event matching.
+                categories.extend(
+                    category.strip() for category in text.split(",") if category.strip()
+                )
             elif name in {"description", "summary"}:
                 summary = text
         if title and url:
