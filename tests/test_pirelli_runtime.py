@@ -698,3 +698,21 @@ def test_failed_refresh_is_observable_and_retries_without_twelve_hour_suppressio
     assert state.last_success_at is None
     assert state.last_reason == "retry_after_failure"
     assert state.last_error == "OSError: newsroom unavailable"
+
+
+def test_current_coordinator_does_not_refresh_an_old_default_replay():
+    service = _FailingService()
+    coordinator = PirelliRuntimeCoordinator(service)  # type: ignore[arg-type]
+    descriptor = _descriptor()
+
+    asyncio.run(
+        coordinator.refresh_relevant(
+            {descriptor.key: descriptor},
+            default_key=descriptor.key,
+            resource_loader=lambda _key: _resource(),
+            now=datetime(2026, 9, 2, tzinfo=UTC),
+        )
+    )
+
+    assert service.attempts == 0
+    assert coordinator.states == {}

@@ -4,14 +4,28 @@ This document is the normative description of Slipstream's published-strategy si
 
 ## Evidence pipeline
 
-1. The single server-owned coordinator uses the official Pirelli Formula 1 RSS feed as an optional fast path and the exact event archive page as the per-meeting fallback. A malformed shared RSS response cannot poison a sweep; one event-page failure belongs only to that meeting. Runtime refresh and historical backfill call this same discovery/ingestion core. It follows sparse pre-weekend, post-session, race-morning, final-pre-race, and post-race triggers, plus startup recovery for missing/stale evidence. A failed attempt is observable and retries after 30 minutes; it is not recorded as success.
+1. The current-weekend server-owned coordinator uses the official Pirelli Formula 1 RSS feed as an optional fast path and the exact event archive page as the per-meeting fallback. A malformed shared RSS response cannot poison a sweep; one event-page failure belongs only to that meeting. It follows sparse pre-weekend, post-session, race-morning, final-pre-race, and post-race triggers, plus startup recovery for missing/stale evidence. A failed attempt is observable and retries after 30 minutes; it is not recorded as success.
 2. Responses are archived immutably under `/data/.slipstream/pirelli/<meeting_key>/` with retrieval and source metadata.
-3. Deterministic HTML/prose and structured extractors normalize compound nominations, ranked or unranked strategy options, published pit windows, context facts, and optional native-text PDF tyre-bank rows.
+3. Deterministic HTML/prose and structured extractors normalize compound nominations, ranked or unranked strategy options, published pit windows, explicit delta seconds/ranges, source-local conditions/caveats, concise compound outlook, other context facts, and optional native-text PDF tyre-bank rows. Multi-event articles retain section boundaries and fail closed when the target meeting cannot be proven.
 4. Validation requires source-backed evidence. Strategy purpose and target scope are explicit: Practice/Qualifying prose cannot populate Race, Sprint cannot populate Race, and Race cannot populate Sprint. WEEKEND compound nominations are reusable only inside their meeting; UNKNOWN applicability fails closed.
 5. Admission requires the selected `meeting_key`, target session, session scope, and `evidence_cutoff`. Strict model admission rejects a release retrieved after the cutoff unless source metadata proves that exact version existed by the cutoff. Every contributing child artifact must independently pass the same cutoff test; it cannot inherit the parent HTML page's timestamp.
 6. The admitted baseline is supplied to the cursor-synchronized analytics builder. No browser code fetches Pirelli data.
 
 OCR, image parsing, VLM/LLM extraction, and manual product transcription are deliberately absent. A missing machine-readable tyre bank is ordinary absence and never blocks Strategy.
+
+## Bundled seed and historical catch-up
+
+`slipstream.pirelli.seed.v1` is a deterministic gzip-compressed distribution artifact containing validated normalized releases plus the minimal artifact provenance required by existing admission. It contains no raw HTML, PDF, image, article body, evidence excerpt, or text offsets. The builder uses the runtime normalized contract and can be run with:
+
+```sh
+slipstream build-pirelli-seed --data-root recordings --from-year 2017 --through-year 2026 --output pirelli-seed-v1.json.gz
+```
+
+The years are configurable; they are examples rather than a hard-coded first Pirelli season. Build output is canonical, integrity-hashed, and deterministic. Writable application startup validates the complete seed before import, writes individual immutable normalized records atomically, is idempotent after interruption/retry, and preserves an equal-source local release when its normalizer/fact/retrieval quality is newer or better. Seed failure is logged and startup continues.
+
+After import, `PirelliHistoricalCoordinator` uses the same discovery → acquisition → normalization → validation → evidence-store path as runtime ingestion. It has one lock, attempts at most one historical Race meeting per low-frequency pass, skips PRESENT coverage, persists attempt/failure/next-retry state, and prioritizes a selected missing meeting when available. Its default horizon is the current season plus nine preceding seasons. Meeting/session discovery uses a separate small `.slipstream/pirelli-metadata.json` cache, so ten-season Pirelli discovery neither expands the browser catalog nor requires historical timing downloads. Meetings ending within the current two-day window are left to the faster current-weekend coordinator. Late acquisition retains the existing cutoff rules and cannot manufacture strict provenance.
+
+The optional overtaking-difficulty, track-position-cost, and generic undercut context requested for evaluation remains deferred. The modern examples did not justify a compact high-precision pattern without broader language interpretation or source-specific rules. Explicit VSC conditions attached directly to an option are supported; no wider strategic implication is inferred.
 
 ## Evidence tiers
 

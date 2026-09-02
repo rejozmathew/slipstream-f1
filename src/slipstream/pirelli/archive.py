@@ -85,6 +85,14 @@ def _atomic_json(path: Path, payload: object) -> None:
     tmp.replace(path)
 
 
+def _replace_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(encoded, encoding="utf-8")
+    tmp.replace(path)
+
+
 class PirelliArchive:
     """Content-addressed immutable archive beneath `.slipstream/pirelli/<meeting>/`."""
 
@@ -140,7 +148,29 @@ class PirelliArchive:
             "localRelpath": asset_rel,
             "collectorVersion": collector_version,
         }
-        _atomic_json(release_dir / f"{artifact_id}.json", metadata)
+        metadata_path = release_dir / f"{artifact_id}.json"
+        if metadata_path.exists():
+            try:
+                existing = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = None
+            if (
+                isinstance(existing, dict)
+                and existing.get("contentHash") == content_hash
+                and existing.get("sourceUrl") == source_url
+                and not existing.get("localRelpath")
+            ):
+                # A normalized seed intentionally carries provenance without raw
+                # bytes. Exact later reacquisition hydrates only its path: replacing
+                # its timestamps could erase the original replay-cutoff proof.
+                _replace_json(metadata_path, {**existing, "localRelpath": asset_rel})
+                hydrated = self.get_version(meeting_key, artifact_id)
+                if hydrated is not None:
+                    return hydrated
+            else:
+                _atomic_json(metadata_path, metadata)
+        else:
+            _atomic_json(metadata_path, metadata)
         return ArtifactVersion(
             artifact_id=artifact_id,
             source_url=source_url,
@@ -153,6 +183,34 @@ class PirelliArchive:
             local_relpath=asset_rel,
             collector_version=collector_version,
         )
+
+    def save_artifact_metadata(
+        self, *, meeting_key: str, artifact: ArtifactVersion
+    ) -> Path:
+        """Install provenance-only metadata without copying the source artifact."""
+
+        path = (
+            self.meeting_root(meeting_key)
+            / "releases"
+            / f"{artifact.artifact_id}.json"
+        )
+        _atomic_json(
+            path,
+            {
+                "format": ARCHIVE_FORMAT,
+                "artifactId": artifact.artifact_id,
+                "sourceUrl": artifact.source_url,
+                "sourceType": artifact.source_type.value,
+                "publishedAt": _iso(artifact.published_at),
+                "modifiedAt": _iso(artifact.modified_at),
+                "retrievedAt": _iso(artifact.retrieved_at),
+                "contentHash": artifact.content_hash,
+                "mediaType": artifact.media_type,
+                "localRelpath": None,
+                "collectorVersion": artifact.collector_version,
+            },
+        )
+        return path
 
     def list_versions(self, meeting_key: str) -> tuple[ArtifactVersion, ...]:
         release_dir = self.meeting_root(meeting_key) / "releases"
@@ -352,7 +410,7 @@ def _app(raw: object) -> FactApplicability:
     )
 
 
-def _release_from_payload(raw: dict[str, object]) -> PirelliRelease:
+def release_from_payload(raw: dict[str, object]) -> PirelliRelease:
     strategies: list[StrategyOption] = []
     for item_raw in cast(list[object], raw.get("strategies", [])):
         if not isinstance(item_raw, dict):
@@ -545,7 +603,7 @@ def list_normalized_releases(
             raw = json.loads(path.read_text(encoding="utf-8"))
             if raw.get("format") != NORMALIZED_FORMAT:
                 continue
-            releases.append(_release_from_payload(raw))
+            releases.append(release_from_payload(raw))
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
     # Normalized outputs remain immutable on disk, but one exact source artifact

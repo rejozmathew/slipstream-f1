@@ -39,6 +39,13 @@ Use this path for development or when you want to build an unmerged checkout. No
 | `SLIPSTREAM_PORT` | `3444` | Host-side port used by the repository Compose file |
 | `SLIPSTREAM_RECORDINGS_DIR` | Docker volume | Optional host directory mounted at `/data` by Compose |
 | `SLIPSTREAM_MODE` | `full` | `full` serves browser and API; `api-only` omits browser routes |
+| `SLIPSTREAM_PIRELLI_HISTORY_YEARS` | `10` | Private seed/backfill horizon; independent of the browser catalog years |
+| `SLIPSTREAM_PIRELLI_SEED` | `1` | Validate and idempotently import the bundled normalized Pirelli seed on writable startup |
+| `SLIPSTREAM_PIRELLI_SEED_PATH` | bundled artifact | Optional replacement normalized seed path |
+| `SLIPSTREAM_PIRELLI_BACKFILL` | `1` | Quietly attempt one missing historical Pirelli meeting at a time |
+| `SLIPSTREAM_PIRELLI_REFRESH` | `1` | Keep the sparse current-weekend Pirelli acquisition path enabled |
+
+The seed is application distribution data copied with the Python package, not a runtime recording. Import and historical catch-up write only to the mounted `/data` volume. A seed validation/import or catch-up failure is logged but does not block application startup, the API, live timing, or replay. Historical discovery uses a private lightweight metadata cache and does not expand the browser's three-season catalog.
 
 Choose another host port by changing only the published side:
 

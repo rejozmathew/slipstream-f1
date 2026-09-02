@@ -22,7 +22,7 @@ Milestone 3.5 is the source/live/replay correctness merge candidate. It establis
 | Qualifying | Server-authored Q1/Q2/Q3 or SQ1/SQ2/SQ3 phase, benchmark, advancement, and final facts |
 | Track Map | Cached circuit geometry plus capability-gated car placement |
 | Race intelligence | Cursor-safe RaceRead, pace/stint evidence, Driver, Strategy, and Battle context |
-| Pirelli | Official pre-race archive, deterministic extraction, and explicit evidence tiers |
+| Pirelli | Bundled normalized seed, official pre-race archive, quiet historical catch-up, deterministic extraction, and explicit evidence tiers |
 | TV Mode | Authored session-aware rendering of the same canonical contracts |
 | Deployment | One container, one runtime process, and one HTTP/WebSocket origin |
 
@@ -172,13 +172,16 @@ Open `http://127.0.0.1:3344`. Vite is fixed to port 3344 and proxies API/WebSock
 
 ## Pirelli sync
 
-Pirelli is an attributed sidecar, not part of timing-source precedence. Server-owned runtime refresh uses RSS as an optional fast path and exact event archive pages as a meeting-scoped fallback. Historical backfill uses the same ingestion core.
+Pirelli is an attributed sidecar, not part of timing-source precedence. Server-owned current-weekend refresh uses RSS as an optional fast path and exact event archive pages as a meeting-scoped fallback. A separate quiet historical coordinator uses the same ingestion core with concurrency one and one meeting per pass.
 
 ```sh
-slipstream sync-pirelli --years 3 --data-root recordings
+slipstream sync-pirelli --years 10 --data-root recordings
+slipstream build-pirelli-seed --data-root recordings --from-year 2017 --through-year 2026 --output pirelli-seed-v1.json.gz
 ```
 
-Artifacts and normalized releases are retained under `.slipstream/pirelli/<meeting_key>/` below the data root. Set `SLIPSTREAM_PIRELLI_REFRESH=0` to disable runtime acquisition.
+The application validates and idempotently imports its bundled normalized seed on writable startup. The seed contains no raw Pirelli HTML, PDF, image, or article body. Historical catch-up defaults to the current season plus nine preceding seasons, uses a private lightweight metadata cache rather than the three-season browser catalog, persists retry state, and never downloads timing replay data. Set `SLIPSTREAM_PIRELLI_HISTORY_YEARS` to change that horizon, `SLIPSTREAM_PIRELLI_SEED=0` to disable seed import, `SLIPSTREAM_PIRELLI_BACKFILL=0` to disable catch-up, or `SLIPSTREAM_PIRELLI_REFRESH=0` to disable current-weekend acquisition.
+
+Artifacts and normalized releases are retained under `.slipstream/pirelli/<meeting_key>/` below the data root. The builder consumes that normalized store and emits the versioned `slipstream.pirelli.seed.v1` distribution artifact; it does not copy raw archive directories.
 
 Strict model evidence requires proof that the exact artifact version existed by the replay cutoff. Display-only official historical evidence may be shown when official host, event/session scope, and pre-race publication time are proven, but it is labelled `PUBLISHED PRE-RACE · ARCHIVED LATER` and cannot produce model-comparable options or windows.
 

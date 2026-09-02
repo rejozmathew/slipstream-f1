@@ -13,6 +13,17 @@ function rankLabel(rank: PublishedStrategyOption["rank"]) {
   return rank.replaceAll("_", " ");
 }
 
+const contextPriority = ["COMPOUND_OUTLOOK", "WEATHER", "TRACK_EVOLUTION", "DEGRADATION", "TYRE_STRESS", "GRIP"] as const;
+
+function prioritizedContextFacts(facts: PublishedStrategyBaseline["contextFacts"]) {
+  const priority = new Map<string, number>(contextPriority.map((category, index) => [category, index]));
+  return facts
+    .map((fact, index) => ({ fact, index }))
+    .sort((left, right) => (priority.get(left.fact.category) ?? contextPriority.length) - (priority.get(right.fact.category) ?? contextPriority.length) || left.index - right.index)
+    .slice(0, 3)
+    .map(({ fact }) => fact);
+}
+
 function path(compounds: string[], empty = "—", ordered = true) {
   if (!compounds.length) return <span className="published-path-empty">{empty}</span>;
   return <span className="published-path">{compounds.map((compound, index) => <span key={`${compound}-${index}`}>{index > 0 && <i>{ordered ? "→" : "+"}</i>}<CompoundBadge compound={compound} compact /></span>)}</span>;
@@ -60,7 +71,7 @@ export function PirelliBaseline({ baseline, compact = false, action }: { baselin
       <div className="pirelli-source-row"><span>PIRELLI · PRE-RACE PUBLICATION</span>{baseline.publishedAt && <small>{new Date(baseline.publishedAt).toLocaleString()}</small>}{baseline.sourceUrl && <a href={baseline.sourceUrl} target="_blank" rel="noreferrer">SOURCE ↗</a>}</div>
       {baseline.compoundSelection && <div className="physical-nomination"><span>WEEKEND NOMINATION</span><strong><CompoundBadge compound="HARD" compact />{baseline.compoundSelection.hard}<CompoundBadge compound="MEDIUM" compact />{baseline.compoundSelection.medium}<CompoundBadge compound="SOFT" compact />{baseline.compoundSelection.soft}</strong></div>}
       <div className="published-options">{baseline.options.length ? baseline.options.map((option) => <PublishedOptionCard key={option.id} option={option} compact={compact} />) : <div className="pirelli-no-options">NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED</div>}</div>
-      {!compact && baseline.contextFacts.length > 0 && <div className="pirelli-context-facts">{baseline.contextFacts.slice(0, 3).map((fact) => <p key={`${fact.category}-${fact.statement}`}><span>{fact.category.replaceAll("_", " ")}</span>{fact.statement}</p>)}</div>}
+      {!compact && baseline.contextFacts.length > 0 && <div className="pirelli-context-facts">{prioritizedContextFacts(baseline.contextFacts).map((fact) => <p key={`${fact.category}-${fact.statement}`}><span>{fact.category.replaceAll("_", " ")}</span>{fact.statement}</p>)}</div>}
     </div>}
   </Panel>;
 }

@@ -20,8 +20,12 @@ from slipstream.pirelli.contracts import (
     StrategyOrder,
     StrategyRank,
 )
+from slipstream.pirelli.extractors.html import parse_html
 from slipstream.pirelli.extractors.prose import extract_strategy_prose
-from slipstream.pirelli.extractors.structured import extract_compound_nominations
+from slipstream.pirelli.extractors.structured import (
+    extract_compound_nominations,
+    extract_context_facts,
+)
 from slipstream.pirelli.store import PirelliEvidenceStore
 
 
@@ -312,6 +316,7 @@ def test_exact_dutch_soft_hard_option_is_source_ranked_alternative():
     )
     assert option.rank == StrategyRank.ALTERNATIVE
     assert option.pit_windows == (PitWindow(26, 32),)
+    assert option.published_delta_seconds == 1.0
 
 
 def test_multi_event_nomination_keeps_each_meeting_binding():
@@ -330,6 +335,130 @@ def test_multi_event_nomination_keeps_each_meeting_binding():
         "C4": Compound.MEDIUM,
         "C5": Compound.SOFT,
     }
+
+
+def test_one_nomination_triplet_can_apply_to_two_named_meetings():
+    result = extract_compound_nominations(
+        "The C2, C3 and C4 selection applies to the Dutch Grand Prix and Spanish Grand Prix.",
+        source_url="https://press.pirelli.com/shared-selection",
+        artifact_id="shared-selection",
+        meeting_aliases={
+            "Dutch Grand Prix": "nl",
+            "Spanish Grand Prix": "es",
+        },
+    )
+
+    assert result.accepted
+    assert [fact.applicability.meeting_key for fact in result.facts] == ["nl", "es"]
+    assert [(fact.hard, fact.medium, fact.soft) for fact in result.facts] == [
+        ("C2", "C3", "C4"),
+        ("C2", "C3", "C4"),
+    ]
+
+
+def test_context_is_meeting_local_and_window_is_not_wind():
+    scope = FactApplicability(
+        meeting_key="nl", session_scope=SessionScope.WEEKEND
+    )
+    sections = (
+        "DUTCH GRAND PRIX",
+        "All three compounds are in play and degradation is expected to be low.",
+        "SPANISH GRAND PRIX",
+        "Strong wind and high tyre stress are forecast for the race.",
+        "The pit window should open around lap 20.",
+    )
+    facts = extract_context_facts(
+        "\n\n".join(sections),
+        source_url="https://press.pirelli.com/multi-event-preview",
+        artifact_id="multi-event-preview",
+        applicability=scope,
+        meeting_aliases={"Dutch Grand Prix": "nl"},
+        sections=sections,
+    )
+
+    assert {fact.category for fact in facts} == {
+        "COMPOUND_OUTLOOK",
+        "DEGRADATION",
+    }
+    assert all("Spanish" not in fact.statement for fact in facts)
+    assert not extract_context_facts(
+        "The pit window should open around lap 20.",
+        source_url="https://press.pirelli.com/window",
+        artifact_id="window",
+        applicability=scope,
+    )
+    assert not extract_context_facts(
+        "All three compounds are not viable race options.",
+        source_url="https://press.pirelli.com/negated-outlook",
+        artifact_id="negated-outlook",
+        applicability=scope,
+    )
+
+
+def test_strategy_delta_range_conditions_and_caveats_are_source_local():
+    exact = extract_strategy_prose(
+        "The alternative Medium-Hard race strategy is around one second slower in clean air.",
+        source_url="https://press.pirelli.com/exact",
+        artifact_id="exact",
+    )
+    ranged = extract_strategy_prose(
+        "The alternative Soft-Hard strategy is between 1.5 and 2 seconds slower "
+        "in traffic, but traffic might make the stop less effective.",
+        source_url="https://press.pirelli.com/range",
+        artifact_id="range",
+    )
+
+    exact_option = exact.facts[0]
+    range_option = ranged.facts[0]
+    assert exact_option.published_delta_seconds == 1.0
+    assert exact_option.published_delta_seconds_range is None
+    assert exact_option.conditions == ("In clean air",)
+    assert range_option.published_delta_seconds is None
+    assert range_option.published_delta_seconds_range == (1.5, 2.0)
+    assert range_option.conditions == ("In traffic",)
+    assert range_option.caveats == ("But traffic might make the stop less effective",)
+
+
+def test_strategy_annotations_reject_nearer_pit_stop_subject():
+    result = extract_strategy_prose(
+        "The Medium-Hard race strategy is quickest, but a pit stop under green is "
+        "around 12 seconds slower than under a VSC.",
+        source_url="https://press.pirelli.com/vsc-pit-loss",
+        artifact_id="vsc-pit-loss",
+    )
+
+    option = result.facts[0]
+    assert option.published_delta_seconds is None
+    assert option.published_delta_seconds_range is None
+    assert option.conditions == ()
+    assert option.caveats == ()
+
+
+def test_json_ld_article_body_owns_context_sections_over_dom_shell():
+    document = parse_html(
+        """
+        <main><p>Strong wind and high tyre stress are forecast.</p></main>
+        <script type="application/ld+json">
+          {"@type":"NewsArticle","headline":"Race preview",
+           "articleBody":"All three compounds are in play and viable."}
+        </script>
+        """,
+        "https://press.pirelli.com/race-preview",
+    )
+    facts = extract_context_facts(
+        document.article_text,
+        source_url="https://press.pirelli.com/race-preview",
+        artifact_id="json-ld",
+        applicability=FactApplicability(
+            meeting_key="100", session_scope=SessionScope.WEEKEND
+        ),
+        sections=document.article_sections,
+    )
+
+    assert document.article_sections == (
+        "All three compounds are in play and viable.",
+    )
+    assert {fact.category for fact in facts} == {"COMPOUND_OUTLOOK"}
 
 
 def test_sprint_and_race_strategy_releases_remain_isolated(tmp_path):

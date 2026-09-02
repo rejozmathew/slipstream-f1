@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlparse
 
 from .acquisition import PirelliPublicClient
 from .archive import PirelliArchive, save_normalized_release
@@ -45,6 +47,7 @@ from .extractors.tyre_bank import parse_tyre_bank_text
 from .validation import validate_result_against_artifacts
 
 NORMALIZER_VERSION = "slipstream-pirelli-v5-adapted.3"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -189,7 +192,7 @@ class PirelliIngestionService:
         artifact_version = acquired.artifact
         body = acquired.body
         document = parse_html(body.decode("utf-8", errors="replace"), url)
-        if not body.rstrip().lower().endswith(b"</html>"):
+        if _article_body_incomplete(document, candidate.entry.title):
             archived = self._complete_archived_html(
                 target.meeting.meeting_key,
                 source_url=artifact_version.source_url,
@@ -197,6 +200,19 @@ class PirelliIngestionService:
             )
             if archived is not None:
                 artifact_version, _archived_body, document = archived
+            else:
+                recovered = await self._recover_from_event_archive(
+                    target,
+                    candidate,
+                    retrieved_at=retrieved_at,
+                    excluded_url=artifact_version.source_url,
+                )
+                if recovered is not None:
+                    artifact_version, _recovered_body, document = recovered
+        if _index_like_source(artifact_version.source_url) or _article_body_incomplete(
+            document, candidate.entry.title
+        ):
+            return None
         purpose = classify_release_purpose(
             candidate.entry.title,
             f"{candidate.entry.summary} {document.article_text}",
@@ -328,6 +344,8 @@ class PirelliIngestionService:
                 source_url=artifact_version.source_url,
                 artifact_id=artifact_version.artifact_id,
                 applicability=context_scope,
+                meeting_aliases=aliases,
+                sections=document.article_sections,
             )
             if context_scope is not None
             else ()
@@ -383,12 +401,63 @@ class PirelliIngestionService:
             title = " ".join(document.title.casefold().split())
             if expected and title != expected:
                 continue
+            if _article_body_incomplete(document, expected_title):
+                continue
             candidates.append((version, body, document))
         return max(
             candidates,
             key=lambda item: (item[0].retrieved_at, len(item[1])),
             default=None,
         )
+
+    async def _recover_from_event_archive(
+        self,
+        target: PirelliIngestionTarget,
+        candidate: ReleaseCandidate,
+        *,
+        retrieved_at: datetime,
+        excluded_url: str,
+    ) -> tuple[ArtifactVersion, bytes, HtmlDocument] | None:
+        """Try one exact-title alternate from the supported official event archive."""
+
+        try:
+            entries = await self.event_archive_entries(
+                target.meeting, now=retrieved_at
+            )
+        except Exception:  # noqa: BLE001 - bounded recovery is optional
+            return None
+        expected = _normalized_title(candidate.entry.title)
+        attempted = False
+        for entry in entries:
+            if entry.url.rstrip("/") == excluded_url.rstrip("/"):
+                continue
+            if expected and _normalized_title(entry.title) != expected:
+                continue
+            if attempted:
+                break
+            attempted = True
+            try:
+                acquired = await self.client.acquire(
+                    archive=self.archive,
+                    meeting_key=target.meeting.meeting_key,
+                    url=entry.url,
+                    now=retrieved_at,
+                )
+            except Exception as error:  # noqa: BLE001 - one alternate is isolated
+                logger.debug("Pirelli article recovery alternate failed: %s", error)
+                continue
+            if acquired.artifact.source_type != SourceType.NEWSROOM_HTML:
+                continue
+            document = parse_html(
+                acquired.body.decode("utf-8", errors="replace"),
+                acquired.artifact.source_url,
+            )
+            if _index_like_source(
+                acquired.artifact.source_url
+            ) or _article_body_incomplete(document, entry.title):
+                continue
+            return acquired.artifact, acquired.body, document
+        return None
 
 
 def _strategy_scope(purpose: ReleasePurpose) -> SessionScope:
@@ -397,3 +466,33 @@ def _strategy_scope(purpose: ReleasePurpose) -> SessionScope:
     if purpose == ReleasePurpose.SPRINT:
         return SessionScope.SPRINT
     return SessionScope.UNKNOWN
+
+
+def _normalized_title(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def _article_body_incomplete(document: HtmlDocument, expected_title: str) -> bool:
+    body = " ".join(document.article_text.split())
+    if len(body) < 20 or len(body.split()) < 5:
+        return True
+    expected = _normalized_title(expected_title)
+    normalized_body = _normalized_title(body)
+    return bool(
+        expected
+        and (
+            normalized_body == expected
+            or (expected in normalized_body and len(normalized_body) - len(expected) < 100)
+        )
+    )
+
+
+def _index_like_source(source_url: str) -> bool:
+    parsed = urlparse(source_url)
+    path = parsed.path.rstrip("/").casefold()
+    query = parse_qs(parsed.query)
+    if not path:
+        return True
+    if {"h", "t"}.issubset(query):
+        return True
+    return path in {"/news", "/newsroom", "/archive", "/formula-1"}

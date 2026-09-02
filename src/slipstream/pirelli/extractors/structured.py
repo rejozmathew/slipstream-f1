@@ -97,23 +97,31 @@ def extract_compound_nominations(
             if alias.casefold() in lower
         ]
         if aliases:
-            if len(matched_aliases) != 1:
+            matched_meetings: dict[str, str] = {}
+            for alias, meeting_key in sorted(
+                matched_aliases,
+                key=lambda item: (lower.find(item[0].casefold()), -len(item[0])),
+            ):
+                matched_meetings.setdefault(meeting_key, alias)
+            if not matched_meetings:
                 issues.append(
                     ExtractionIssue(
                         "compound_nomination_meeting_ambiguous",
-                        f"cannot uniquely bind nomination clause to meeting: {clause}",
+                        f"cannot bind nomination clause to a named meeting: {clause}",
                         artifact_id,
                     )
                 )
                 continue
-            alias, meeting_key = matched_aliases[0]
-            applicability = FactApplicability(
-                meeting_key=meeting_key,
-                source_meeting_name=alias,
-                session_scope=SessionScope.WEEKEND,
+            applicabilities = tuple(
+                FactApplicability(
+                    meeting_key=meeting_key,
+                    source_meeting_name=alias,
+                    session_scope=SessionScope.WEEKEND,
+                )
+                for meeting_key, alias in matched_meetings.items()
             )
         else:
-            applicability = default_applicability
+            applicabilities = (default_applicability,)
 
         # One local clause must identify exactly one triplet. Six codes without local
         # event separation are ambiguous and fail closed.
@@ -135,8 +143,17 @@ def extract_compound_nominations(
             text=clause,
             confidence=1.0,
         )
-        selection = _selection(codes, evidence=evidence, applicability=applicability)
-        if selection is None:
+        selections = tuple(
+            selection
+            for applicability in applicabilities
+            if (
+                selection := _selection(
+                    codes, evidence=evidence, applicability=applicability
+                )
+            )
+            is not None
+        )
+        if not selections:
             issues.append(
                 ExtractionIssue(
                     "compound_nomination_order_invalid",
@@ -145,7 +162,7 @@ def extract_compound_nominations(
                 )
             )
             continue
-        facts.append(selection)
+        facts.extend(selections)
 
     if facts and not issues:
         return ExtractionResult(
@@ -211,19 +228,73 @@ def extract_context_facts(
     source_url: str,
     artifact_id: str,
     applicability: FactApplicability = _UNKNOWN_APPLICABILITY,
+    meeting_aliases: Mapping[str, str] | None = None,
+    sections: tuple[str, ...] = (),
 ) -> tuple[ContextFact, ...]:
-    categories = {
-        "DEGRADATION": ("degradation",),
-        "GRIP": ("grip",),
-        "TRACK_EVOLUTION": ("track evolution", "track has evolved", "track evolved"),
-        "WEATHER": ("rain", "wet race", "weather forecast", "wind"),
-        "TYRE_STRESS": ("tyre stress", "tire stress"),
-    }
+    categories = (
+        (
+            "COMPOUND_OUTLOOK",
+            (
+                re.compile(
+                    r"\ball\s+three\s+compounds?\b[^.!?]{0,60}"
+                    r"\b(?:in\s+play|viable|valid\s+options?)\b",
+                    re.IGNORECASE,
+                ),
+                re.compile(
+                    r"\b(?:hard\s+and\s+medium|medium\s+and\s+hard)\b"
+                    r"[^.!?]{0,60}\b(?:common|usual|main)\s+race\s+choices?\b",
+                    re.IGNORECASE,
+                ),
+                re.compile(
+                    r"\bsoft\b[^.!?]{0,45}\b(?:is|remains?|could\s+be|will\s+be)\b"
+                    r"[^.!?]{0,25}\b(?:a\s+)?viable\s+(?:race\s+)?option\b",
+                    re.IGNORECASE,
+                ),
+            ),
+        ),
+        ("DEGRADATION", (re.compile(r"\bdegradation\b", re.IGNORECASE),)),
+        ("GRIP", (re.compile(r"\bgrip\b", re.IGNORECASE),)),
+        (
+            "TRACK_EVOLUTION",
+            (
+                re.compile(r"\btrack\s+evolution\b", re.IGNORECASE),
+                re.compile(r"\btrack\s+(?:has\s+)?evolved\b", re.IGNORECASE),
+            ),
+        ),
+        (
+            "WEATHER",
+            (
+                re.compile(r"\brain\b", re.IGNORECASE),
+                re.compile(r"\bwet\s+race\b", re.IGNORECASE),
+                re.compile(r"\bweather\s+forecast\b", re.IGNORECASE),
+                re.compile(r"\bwind\b", re.IGNORECASE),
+            ),
+        ),
+        (
+            "TYRE_STRESS",
+            (re.compile(r"\b(?:tyre|tire)\s+stress\b", re.IGNORECASE),),
+        ),
+    )
+    aliases = meeting_aliases or {}
+    target_key = applicability.meeting_key
+    scoped_sections = _meeting_scoped_sections(
+        sections or _paragraphs(text), aliases=aliases, target_key=target_key
+    )
     out: list[ContextFact] = []
-    for sentence in re.split(r"(?<=[.!?])\s+", text):
-        lower = sentence.casefold()
-        for category, words in categories.items():
-            if any(word in lower for word in words):
+    for section in scoped_sections:
+        for sentence in re.split(r"(?<=[.!?])\s+", section):
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            for category, patterns in categories:
+                if not any(pattern.search(sentence) for pattern in patterns):
+                    continue
+                if category == "COMPOUND_OUTLOOK" and re.search(
+                    r"\b(?:not|no|neither|unlikely|cannot|can't|won't)\b",
+                    sentence,
+                    re.IGNORECASE,
+                ):
+                    continue
                 ev = SourceEvidence(
                     artifact_id=artifact_id,
                     source_url=source_url,
@@ -235,5 +306,76 @@ def extract_context_facts(
                 out.append(
                     ContextFact(category, sentence.strip(), (ev,), applicability)
                 )
-                break
     return tuple(out)
+
+
+_NAMED_GRAND_PRIX = re.compile(
+    r"\b([A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’\-]*(?:\s+[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’\-]*){0,3}"
+    r"\s+Grand\s+Prix)\b",
+    re.IGNORECASE,
+)
+
+
+def _paragraphs(text: str) -> tuple[str, ...]:
+    paragraphs = tuple(
+        part.strip() for part in re.split(r"(?:\r?\n){2,}", text) if part.strip()
+    )
+    if len(paragraphs) > 1:
+        return paragraphs
+    return tuple(
+        part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()
+    )
+
+
+def _meeting_scoped_sections(
+    sections: tuple[str, ...], *, aliases: Mapping[str, str], target_key: str | None
+) -> tuple[str, ...]:
+    """Keep only the target meeting's local section when an article is multi-event.
+
+    Named meetings outside the supplied alias map are treated as explicit foreign
+    section markers. Unlabelled prose is accepted only for a single-event article or
+    while an unambiguous target section is active.
+    """
+
+    if not aliases or target_key is None:
+        return sections
+    normalized_aliases = tuple(
+        (alias.casefold(), str(meeting_key))
+        for alias, meeting_key in aliases.items()
+        if alias.strip()
+    )
+
+    markers: list[set[str]] = []
+    has_foreign = False
+    has_target = False
+    for section in sections:
+        lower = section.casefold()
+        keys = {
+            meeting_key
+            for alias, meeting_key in normalized_aliases
+            if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", lower)
+        }
+        for name in _NAMED_GRAND_PRIX.findall(section):
+            folded = name.casefold()
+            if not any(
+                re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", folded)
+                for alias, _meeting_key in normalized_aliases
+            ):
+                keys.add("__foreign__")
+        has_foreign = has_foreign or any(key != target_key for key in keys)
+        has_target = has_target or target_key in keys
+        markers.append(keys)
+
+    if not has_foreign:
+        return sections
+    if not has_target:
+        return ()
+
+    selected: list[str] = []
+    active: str | None = None
+    for section, keys in zip(sections, markers, strict=True):
+        if keys:
+            active = next(iter(keys)) if len(keys) == 1 else None
+        if active == target_key:
+            selected.append(section)
+    return tuple(selected)

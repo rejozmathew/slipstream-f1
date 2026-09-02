@@ -82,13 +82,23 @@ def main() -> None:
         "--year", type=int, action="append", help="Sync one explicit season"
     )
     pirelli_seasons.add_argument(
-        "--years", type=int, default=3, help="Number of recent seasons to sync"
+        "--years", type=int, default=10, help="Number of recent seasons to sync"
     )
     pirelli_command.add_argument(
         "--meeting-key", action="append", default=[], help="Limit to a meeting key"
     )
     pirelli_command.add_argument("--force", action="store_true")
     pirelli_command.add_argument("--dry-run", action="store_true")
+    seed_command = commands.add_parser(
+        "build-pirelli-seed",
+        help="Build a deterministic normalized Pirelli distribution seed",
+    )
+    seed_command.add_argument(
+        "--data-root", type=Path, default=Path("recordings")
+    )
+    seed_command.add_argument("--from-year", type=int, required=True)
+    seed_command.add_argument("--through-year", type=int, required=True)
+    seed_command.add_argument("--output", type=Path, required=True)
     serve_command = commands.add_parser(
         "serve", help="Serve one replay or a recording directory over API v1"
     )
@@ -113,6 +123,12 @@ def main() -> None:
         help="Refresh this many recent seasons before serving a directory",
     )
     serve_command.add_argument("--catalog-max-age-hours", type=float, default=24.0)
+    serve_command.add_argument(
+        "--pirelli-history-years",
+        type=int,
+        default=int(os.environ.get("SLIPSTREAM_PIRELLI_HISTORY_YEARS", "10")),
+        help="Private Pirelli seed/backfill horizon; does not expand the UI catalog",
+    )
     live_command = commands.add_parser(
         "live", help="Record the unauthenticated public F1 live stream"
     )
@@ -181,6 +197,23 @@ def main() -> None:
         if report.count("FAILURE"):
             parser.exit(1)
         return
+    if args.command == "build-pirelli-seed":
+        from .pirelli.seed import build_pirelli_seed
+
+        try:
+            report = build_pirelli_seed(
+                args.data_root,
+                from_year=args.from_year,
+                through_year=args.through_year,
+                output=args.output,
+            )
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"Pirelli seed build unavailable: {error}\n")
+        print(
+            f"Built {report.meetings} meetings / {report.releases} releases "
+            f"({report.bytes_written} bytes, sha256 {report.digest}) in {args.output}"
+        )
+        return
     if args.command == "serve":
         import uvicorn
 
@@ -201,7 +234,11 @@ def main() -> None:
 
         web_dir = args.web_dir if args.mode == "full" else None
         uvicorn.run(
-            create_app(args.path, web_dir=web_dir),
+            create_app(
+                args.path,
+                web_dir=web_dir,
+                pirelli_history_years=args.pirelli_history_years,
+            ),
             host=args.host,
             port=args.port,
         )

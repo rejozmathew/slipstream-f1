@@ -643,3 +643,116 @@ def test_needs_review_rss_match_still_uses_exact_event_archive(tmp_path) -> None
     assert report.normalized_release_ids
     assert pirelli_event_archive_url(target) in client.calls
     assert rss_url not in client.calls
+
+
+def test_newsroom_home_page_keywords_never_become_race_context(tmp_path) -> None:
+    target = MeetingDiscoveryTarget(
+        meeting_key="30",
+        canonical_name="Dutch Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 8, 21, tzinfo=UTC),
+        weekend_end=datetime(2026, 8, 23, tzinfo=UTC),
+        exact_tag="2026 Dutch Grand Prix",
+    )
+    home = "https://press.pirelli.com/"
+    body = _page(
+        "The fastest race strategy is Medium-Hard and all three compounds are in play."
+    )
+    service = PirelliIngestionService(
+        PirelliArchive(tmp_path),
+        _FakeClient(
+            {
+                home: _Payload(
+                    body,
+                    SourceType.NEWSROOM_HTML,
+                    datetime(2026, 8, 22, tzinfo=UTC),
+                    datetime(2026, 8, 22, tzinfo=UTC),
+                )
+            }
+        ),
+    )
+
+    report = asyncio.run(
+        service.refresh(
+            PirelliIngestionTarget(target, "race-30", SessionScope.RACE),
+            now=datetime(2026, 8, 22, 12, tzinfo=UTC),
+            feed_entries=(
+                FeedEntry(
+                    "Race strategies for 2026 Dutch Grand Prix",
+                    home,
+                    datetime(2026, 8, 22, tzinfo=UTC),
+                    ("2026 Dutch Grand Prix",),
+                    "Official race strategy",
+                ),
+            ),
+        )
+    )
+
+    assert report.normalized_release_ids == ()
+    assert list_normalized_releases(PirelliArchive(tmp_path), "30") == ()
+
+
+def test_title_only_article_recovers_exact_alternate_from_event_archive(
+    tmp_path,
+) -> None:
+    target = MeetingDiscoveryTarget(
+        meeting_key="30",
+        canonical_name="Dutch Grand Prix",
+        season=2026,
+        weekend_start=datetime(2026, 8, 21, tzinfo=UTC),
+        weekend_end=datetime(2026, 8, 23, tzinfo=UTC),
+        exact_tag="2026 Dutch Grand Prix",
+    )
+    title = "Race strategies for 2026 Dutch Grand Prix"
+    thin_url = "https://press.pirelli.com/dutch-shell"
+    article_url = "https://press.pirelli.com/dutch-complete"
+    archive_url = pirelli_event_archive_url(target)
+    published = datetime(2026, 8, 22, 17, tzinfo=UTC)
+    payloads = {
+        thin_url: _Payload(
+            f'<html><meta property="og:title" content="{title}"><main>{title}</main></html>'.encode(),
+            SourceType.NEWSROOM_HTML,
+            published,
+            published,
+        ),
+        archive_url: _Payload(
+            (
+                f'<html><main><a class="text_latestnews_more" href="{article_url}">'
+                f"{title}</a></main></html>"
+            ).encode(),
+            SourceType.NEWSROOM_HTML,
+        ),
+        article_url: _Payload(
+            _page(
+                "The quickest race strategy is Medium-Hard, with the stop between "
+                "laps 20 and 26."
+            ),
+            SourceType.NEWSROOM_HTML,
+            published,
+            published,
+        ),
+    }
+    client = _FakeClient(payloads)
+    service = PirelliIngestionService(PirelliArchive(tmp_path), client)
+
+    report = asyncio.run(
+        service.refresh(
+            PirelliIngestionTarget(target, "race-30", SessionScope.RACE),
+            now=published,
+            feed_entries=(
+                FeedEntry(
+                    title,
+                    thin_url,
+                    published,
+                    ("2026 Dutch Grand Prix",),
+                    "Official race strategy",
+                ),
+            ),
+        )
+    )
+
+    assert report.normalized_release_ids
+    assert archive_url in client.calls
+    assert article_url in client.calls
+    release = list_normalized_releases(PirelliArchive(tmp_path), "30")[-1]
+    assert [option.sequence for option in release.strategies] == ["M-H"]
