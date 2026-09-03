@@ -561,7 +561,7 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .timing-race { grid-template-columns: 38px minmax(160px,1.35fr) minmax(76px,.64fr) 48px 44px minmax(84px,.72fr) 38px; }
 .timing-race-timing { grid-template-columns: 38px minmax(150px,1.25fr) minmax(72px,.6fr) 46px repeat(5,minmax(58px,.52fr)); }
 .timing-race-strategy { grid-template-columns: 38px minmax(150px,1.25fr) minmax(72px,.6fr) 46px 44px 52px 38px; }
-.timing-race-strategy.timing-race-strategy-published { grid-template-columns: 38px minmax(150px,1.25fr) minmax(72px,.6fr) 46px 44px 52px 38px minmax(76px,.68fr) minmax(78px,.7fr); }
+.timing-race-strategy.timing-race-strategy-detail { grid-template-columns: 38px minmax(150px,1.25fr) minmax(72px,.6fr) 46px 44px 52px 38px minmax(110px,.85fr) minmax(64px,.5fr); }
 .timing-row > .compound-badge, .timing-row > .compound-transition { padding: 0 8px; }
 .car-marker circle { stroke: #05080b; stroke-width: 3; vector-effect: non-scaling-stroke; filter: drop-shadow(0 3px 5px #000); }.car-marker text { fill: #05080b; font: 800 8px var(--mono); pointer-events: none; }.car-markers { pointer-events: none; }
 
@@ -1038,6 +1038,7 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .session-strategy-zones header b { color: var(--accent); }
 .session-strategy-zones section > p { margin: 0; padding: 10px; color: var(--muted); font-size: 9px; line-height: 1.35; }
 .session-published-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.session-pirelli-more { display: block; padding: 5px 9px; border-top: 1px solid var(--line-soft); color: var(--muted); font: 700 8px/1 var(--mono); letter-spacing: .07em; }
 .session-pirelli-context-only { display: grid; gap: 7px; padding: 9px 10px; }
 .session-pirelli-context-only > strong { font: 750 10px/1.25 var(--mono); }
 .session-pirelli-context-only .physical-nomination { min-height: 0; padding: 5px 0; border: 0; }
@@ -1060,6 +1061,9 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .driver-strategy-current span, .driver-pirelli-routes header span, .driver-pirelli-routes small, .driver-pirelli-context-only p span { color: var(--quiet); font: 700 8px/1 var(--mono); letter-spacing: .08em; }
 .driver-strategy-current strong { display: flex; align-items: center; gap: 5px; font: 760 13px/1 var(--mono); }
 .driver-strategy-relationship { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: 650 9px/1.35 var(--sans); }
+.driver-dry-rule { margin: 0; padding: 7px 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: 700 8px/1.2 var(--mono); letter-spacing: .05em; }
+.driver-dry-rule-unsatisfied { color: var(--amber); background: color-mix(in srgb, var(--amber), transparent 93%); }
+.strategy-pirelli-options { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .driver-pirelli-routes { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); }
 .driver-pirelli-routes article { display: grid; align-content: start; gap: 7px; padding: 10px 12px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
 .driver-pirelli-routes header { display: flex; justify-content: space-between; gap: 8px; }

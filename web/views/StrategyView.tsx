@@ -2,17 +2,18 @@ import { useMemo } from "react";
 
 import { Conditions } from "../components/analysis/Conditions";
 import { PirelliBaseline, RaceNow } from "../components/analysis/PublishedStrategy";
-import { CompoundBadge } from "../components/shared/CompoundBadge";
+import { CompoundBadge, CompoundSequence } from "../components/shared/CompoundBadge";
 import { Panel } from "../components/shared/Panel";
 import { driverLifecycle, lifecycleClassName } from "../domain/lifecycle";
-import { driverPublishedRoutesText, driverPublishedWindowsText } from "../domain/pirelliPresentation.mjs";
+import { actualStrategyCompounds, driverPirelliReferenceRows, driverPirelliStopWindowsText, dryTyreRequirementText, NO_SPECIFIC_PIRELLI_STRATEGY } from "../domain/pirelliPresentation.mjs";
 import type { AnalyticsSnapshot, RaceState } from "../domain/protocol";
 
 type StrategyViewProps = { state: RaceState; analytics: AnalyticsSnapshot | null; onSelectDriver: (driverNumber: string) => void };
 
-function observedPath(values: string[] | undefined) {
-  if (!values?.length) return "—";
-  return <span className="published-path">{values.map((value, index) => <span key={`${value}-${index}`}>{index > 0 && <i aria-hidden="true">→</i>}<CompoundBadge compound={value} compact /></span>)}</span>;
+function pirelliStrategies(baseline: AnalyticsSnapshot["publishedStrategy"]["baseline"] | undefined, published: AnalyticsSnapshot["publishedStrategy"]["drivers"][string] | undefined) {
+  const references = driverPirelliReferenceRows(baseline, published);
+  if (!references.length) return <span>{NO_SPECIFIC_PIRELLI_STRATEGY}</span>;
+  return <span className="strategy-pirelli-options">{references.map((reference) => <CompoundSequence key={reference.id} compounds={reference.compounds} ordered={reference.ordered} />)}</span>;
 }
 
 export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewProps) {
@@ -30,10 +31,10 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
     </section>
 
     <Panel eyebrow="CURRENT RACE" title="Driver landscape" className="driver-strategy-panel">
-      <div className="driver-strategy-scroll"><table className="driver-strategy-table"><thead><tr><th>P</th><th>DRIVER</th><th>TYRE</th><th>AGE</th><th>STOPS</th><th>OBSERVED PATH</th>{showPublished && <><th>PUBLISHED ROUTE</th><th>STOP WINDOW</th></>}</tr></thead><tbody>{drivers.map((driver) => {
+      <div className="driver-strategy-scroll"><table className="driver-strategy-table"><thead><tr><th>P</th><th>DRIVER</th><th>TYRE</th><th>AGE</th><th>STOPS</th><th>ACTUAL TYRE STRATEGY</th><th>DRY RULE</th>{showPublished && <><th>PIRELLI TYRE STRATEGY</th><th>PUBLISHED STOP WINDOW</th></>}</tr></thead><tbody>{drivers.map((driver) => {
         const lifecycle = driverLifecycle(driver);
         const published = analytics?.publishedStrategy?.drivers[driver.number];
-        return <tr key={driver.number} onClick={() => onSelectDriver(driver.number)} className={`clickable ${lifecycleClassName(driver)}`}><td>{driver.position ?? "—"}</td><td><strong>{driver.code ?? driver.number}</strong>{lifecycle.label && <small>{lifecycle.label}</small>}</td><td><CompoundBadge compound={driver.compound} compact /></td><td>{driver.tyre_age ?? "—"}</td><td>{driver.pit_count}</td><td>{observedPath(published?.observedCompounds)}</td>{showPublished && <><td>{driverPublishedRoutesText(baseline, published)}</td><td>{driverPublishedWindowsText(baseline, published, final)}</td></>}</tr>;
+        return <tr key={driver.number} onClick={() => onSelectDriver(driver.number)} className={`clickable ${lifecycleClassName(driver)}`}><td>{driver.position ?? "—"}</td><td><strong>{driver.code ?? driver.number}</strong>{lifecycle.label && <small>{lifecycle.label}</small>}</td><td><CompoundBadge compound={driver.compound} compact /></td><td>{driver.tyre_age ?? "—"}</td><td>{driver.pit_count}</td><td><CompoundSequence compounds={actualStrategyCompounds(published)} /></td><td>{dryTyreRequirementText(published) ?? "—"}</td>{showPublished && <><td>{pirelliStrategies(baseline, published)}</td><td>{driverPirelliStopWindowsText(baseline, published, final)}</td></>}</tr>;
       })}</tbody></table></div>
     </Panel>
   </div>;

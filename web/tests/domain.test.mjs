@@ -20,10 +20,12 @@ import {
 } from "../domain/replayControls.mjs";
 import { preferredWeekendSession } from "../domain/sessionSelection.mjs";
 import {
-  driverPublishedRouteRows,
-  driverPublishedRoutesText,
-  driverPublishedWindowsText,
+  actualStrategyText,
+  driverPirelliReferenceRows,
+  driverPirelliStopWindowsText,
+  driverPirelliStrategiesText,
   driverStrategyRelationship,
+  dryTyreRequirementText,
   NO_SPECIFIC_PIRELLI_STRATEGY,
   nominationSummary,
   optionDeltaText,
@@ -63,7 +65,7 @@ test("analytics polling stops when Pirelli reaches a stable state", () => {
   assert.equal(shouldPollAnalytics("live", "11280", "ready", "FETCHING"), false);
 });
 
-test("Australia and Canada context-only publications stay present without inventing routes", () => {
+test("Australia and Canada context-only publications stay present without inventing strategies", () => {
   const australia = pirelliBaseline({
     compoundSelection: { hard: "C3", medium: "C4", soft: "C5" },
     contextFacts: [{ category: "COMPOUND_OUTLOOK", statement: "The softest three compounds are nominated." }],
@@ -75,40 +77,70 @@ test("Australia and Canada context-only publications stay present without invent
 
   assert.equal(nominationSummary(australia.compoundSelection), "C3 HARD · C4 MEDIUM · C5 SOFT");
   assert.equal(driverStrategyRelationship(australia), NO_SPECIFIC_PIRELLI_STRATEGY);
-  assert.equal(driverPublishedRoutesText(australia), "No specific route published");
+  assert.equal(driverPirelliStrategiesText(australia), NO_SPECIFIC_PIRELLI_STRATEGY);
   assert.equal(driverStrategyRelationship(canada), NO_SPECIFIC_PIRELLI_STRATEGY);
   assert.equal(prioritizedPirelliContextFacts(canada.contextFacts, 1)[0].category, "STRATEGY_OUTLOOK");
 });
 
-test("Miami driver presentation resolves the actual route and window without exposing option ids", () => {
+test("Miami driver presentation resolves actual strategy and aligned stop timing", () => {
   const miami = pirelliBaseline({ options: [{ id: "option-1", rank: "FASTEST_PUBLISHED", order: "ORDERED", stopCount: 1, compounds: ["MEDIUM", "HARD"], pitWindows: [{ startLap: 22, endLap: 28 }] }] });
-  const driver = { relation: "MATCHING_ONE", compatibleOptionIds: ["option-1"], observedCompounds: ["MEDIUM"], windows: [{ optionId: "option-1", stopIndex: 0, startLap: 22, endLap: 28, state: "COMPLETED" }] };
-  const rows = driverPublishedRouteRows(miami, driver, [{ ordinal: 1, lap: 24 }]);
+  const driver = { relation: "MATCHING_ONE", compatibleOptionIds: ["option-1"], observedCompounds: ["MEDIUM", "HARD"], actualStrategy: { compounds: ["MEDIUM", "HARD"], stopLaps: [24], completedStops: 1, observedStops: 1, evidenceComplete: true }, pirelliAssessment: "ALIGNED", pirelliSummary: "Actual tyre strategy and stop timing align with a published Pirelli strategy.", pirelliReferences: [{ optionId: "option-1", status: "ALIGNED", stopComparisons: [{ stopIndex: 0, actualLap: 24, publishedStartLap: 22, publishedEndLap: 28, status: "INSIDE" }] }], windows: [] };
+  const rows = driverPirelliReferenceRows(miami, driver);
 
-  assert.equal(driverPublishedRoutesText(miami, driver), "M → H");
-  assert.equal(driverPublishedWindowsText(miami, driver), "L22–28");
-  assert.match(driverStrategyRelationship(miami, driver), /M → H tyre strategy/);
-  assert.equal(rows[0].windows[0].state, "Observed stop L24");
-  assert.doesNotMatch(`${driverPublishedRoutesText(miami, driver)} ${driverPublishedWindowsText(miami, driver)}`, /option-1|MATCHING_ONE|COMPLETED/);
+  assert.equal(actualStrategyText(driver), "M → H");
+  assert.equal(driverPirelliStrategiesText(miami, driver), "M → H");
+  assert.equal(driverPirelliStopWindowsText(miami, driver), "Actual L24 · Pirelli L22–28");
+  assert.match(driverStrategyRelationship(miami, driver), /strategy and stop timing align/);
+  assert.equal(rows[0].windows[0].state, "ALIGNED");
+  assert.doesNotMatch(`${driverPirelliStrategiesText(miami, driver)} ${driverPirelliStopWindowsText(miami, driver)}`, /option-1|MATCHING_ONE|COMPLETED/);
 });
 
-test("Dutch presentation preserves distinct routes, windows, and non-directional compound orders", () => {
+test("Dutch presentation distinguishes no-stop applicability and different timing", () => {
   const dutch = pirelliBaseline({ options: [
     { id: "mh", rank: "FASTEST_PUBLISHED", order: "ORDERED", stopCount: 1, compounds: ["MEDIUM", "HARD"], pitWindows: [{ startLap: 27, endLap: 33 }] },
     { id: "sh", rank: "ALTERNATIVE", order: "ORDERED", stopCount: 1, compounds: ["SOFT", "HARD"], pitWindows: [{ startLap: 26, endLap: 32 }], publishedDeltaSeconds: 1.0 },
   ] });
-  const driver = { relation: "MATCHING_MULTIPLE", compatibleOptionIds: ["mh", "sh"], observedCompounds: ["MEDIUM"], windows: [] };
-  assert.equal(driverPublishedRoutesText(dutch, driver), "M → H / S → H");
-  assert.equal(driverPublishedWindowsText(dutch, driver), "M → H: L27–33 · S → H: L26–32");
-  assert.equal(driverStrategyRelationship(dutch, driver), "Current path remains compatible with 2 published tyre strategies.");
+  const noStop = { actualStrategy: { compounds: ["MEDIUM"], stopLaps: [], completedStops: 0, observedStops: 0, evidenceComplete: true }, pirelliAssessment: "STILL_APPLICABLE", pirelliSummary: "A published Pirelli tyre strategy is still applicable.", pirelliReferences: [{ optionId: "mh", status: "STILL_APPLICABLE", stopComparisons: [{ stopIndex: 0, actualLap: null, publishedStartLap: 27, publishedEndLap: 33, status: "NOT_OCCURRED" }] }, { optionId: "sh", status: "NO_MATCH", stopComparisons: [{ stopIndex: 0, actualLap: null, publishedStartLap: 26, publishedEndLap: 32, status: "NOT_OCCURRED" }] }], compatibleOptionIds: ["mh"], observedCompounds: ["MEDIUM"], windows: [] };
+  const earlyStop = { ...noStop, actualStrategy: { compounds: ["MEDIUM", "HARD"], stopLaps: [2], completedStops: 1, observedStops: 1, evidenceComplete: true }, pirelliAssessment: "SAME_COMPOUNDS_DIFFERENT_TIMING", pirelliSummary: "Actual compounds match a published Pirelli strategy, but the stop timing differs.", pirelliReferences: [{ optionId: "mh", status: "SAME_COMPOUNDS_DIFFERENT_TIMING", stopComparisons: [{ stopIndex: 0, actualLap: 2, publishedStartLap: 27, publishedEndLap: 33, status: "OUTSIDE" }] }, { optionId: "sh", status: "NO_MATCH", stopComparisons: [] }] };
+  assert.equal(actualStrategyText(noStop), "M");
+  assert.equal(driverPirelliStrategiesText(dutch, noStop), "M → H");
+  assert.equal(driverStrategyRelationship(dutch, noStop), "A published Pirelli tyre strategy is still applicable.");
+  assert.equal(driverPirelliStopWindowsText(dutch, earlyStop), "Actual L2 · Pirelli L27–33");
+  assert.match(driverStrategyRelationship(dutch, earlyStop), /stop timing differs/);
   assert.equal(optionDeltaText(dutch.options[1]), "Published delta · +1.0s");
   assert.equal(optionOrderNote({ order: "ANY_ORDER", compounds: ["MEDIUM", "HARD"] }), "Compounds may be used in either order.");
 });
 
-test("a diverged driver gets neutral wording instead of an internal relation label", () => {
+test("a non-matching driver gets neutral wording instead of an internal relation label", () => {
   const baseline = pirelliBaseline({ options: [{ id: "mh", rank: "FASTEST_PUBLISHED", order: "ORDERED", stopCount: 1, compounds: ["MEDIUM", "HARD"], pitWindows: [{ startLap: 22, endLap: 28 }] }] });
   const driver = { relation: "DIVERGED", compatibleOptionIds: [], observedCompounds: ["SOFT", "MEDIUM"], windows: [] };
-  assert.equal(driverStrategyRelationship(baseline, driver), "No published Pirelli tyre strategy matches the current path.");
+  assert.equal(driverStrategyRelationship(baseline, driver), "No published Pirelli tyre strategy matches the actual tyre strategy.");
+});
+
+test("dry tyre requirement text warns only for a server-authored actionable state", () => {
+  assert.equal(dryTyreRequirementText({ dryTyreRequirement: "UNSATISFIED" }), "Another dry compound required");
+  assert.equal(dryTyreRequirementText({ dryTyreRequirement: "SATISFIED" }), "Dry tyre requirement satisfied");
+  assert.equal(dryTyreRequirementText({ dryTyreRequirement: "NOT_APPLICABLE" }), null);
+  assert.equal(dryTyreRequirementText({ dryTyreRequirement: "UNKNOWN" }), null);
+});
+
+test("driver Pirelli badges retain non-directional compound order", () => {
+  const baseline = pirelliBaseline({ options: [{ id: "any", rank: "UNRANKED", order: "ANY_ORDER", stopCount: 1, compounds: ["MEDIUM", "HARD"], pitWindows: [null] }] });
+  const driver = { pirelliAssessment: "NOT_COMPARABLE", pirelliSummary: "Published Pirelli compounds are available as pre-race reference.", pirelliReferences: [{ optionId: "any", status: "NOT_COMPARABLE", stopComparisons: [{ stopIndex: 0, actualLap: null, publishedStartLap: null, publishedEndLap: null, status: "NO_PUBLISHED_LAP" }] }] };
+  const row = driverPirelliReferenceRows(baseline, driver)[0];
+
+  assert.equal(row.ordered, false);
+  assert.equal(row.sequence, "M + H");
+});
+
+test("display-only Pirelli references never expose a timing verdict", () => {
+  const baseline = pirelliBaseline({ options: [{ id: "mh", rank: "FASTEST_PUBLISHED", order: "ORDERED", stopCount: 1, compounds: ["MEDIUM", "HARD"], pitWindows: [{ startLap: 22, endLap: 28 }] }] });
+  const driver = { pirelliAssessment: "REFERENCE_ONLY", pirelliReferences: [{ optionId: "mh", status: "REFERENCE_ONLY", stopComparisons: [{ stopIndex: 0, actualLap: 24, publishedStartLap: 22, publishedEndLap: 28, status: "INSIDE" }] }] };
+  const row = driverPirelliReferenceRows(baseline, driver)[0];
+
+  assert.equal(row.assessmentText, "Pre-race reference");
+  assert.equal(row.windows[0].range, "Actual L24 · Pirelli L22–28");
+  assert.equal(row.windows[0].state, null);
 });
 
 test("Pirelli context selection keeps up to five distinct useful categories", () => {
@@ -116,7 +148,7 @@ test("Pirelli context selection keeps up to five distinct useful categories", ()
     { category: "WEATHER", statement: "Rain is possible." },
     { category: "COMPOUND_OUTLOOK", statement: "C4 offers the widest working range." },
     { category: "WEATHER", statement: "A shower may arrive late." },
-    { category: "STRATEGY_OUTLOOK", statement: "A one-stop route is preferred." },
+    { category: "STRATEGY_OUTLOOK", statement: "A one-stop strategy is preferred." },
     { category: "DEGRADATION", statement: "Thermal degradation is expected." },
     { category: "TRACK_EVOLUTION", statement: "Grip should improve." },
     { category: "GRIP", statement: "Rear grip is limited." },

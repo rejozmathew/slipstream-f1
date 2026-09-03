@@ -1,4 +1,4 @@
-import type { DriverPublishedStrategy, PitEvent, PublishedStrategyBaseline, PublishedStrategyOption } from "./protocol";
+import type { DriverPublishedStrategy, PublishedStrategyBaseline, PublishedStrategyOption } from "./protocol";
 
 export const NO_SPECIFIC_PIRELLI_STRATEGY: string;
 export function compoundCode(compound: string | null | undefined): string;
@@ -10,12 +10,22 @@ export function optionWindowText(option: PublishedStrategyOption): string;
 export function optionDeltaText(option: PublishedStrategyOption): string | null;
 export function relevantPublishedOptions(baseline: PublishedStrategyBaseline | null | undefined, driver: DriverPublishedStrategy | undefined): PublishedStrategyOption[];
 export function driverStrategyRelationship(baseline: PublishedStrategyBaseline | null | undefined, driver: DriverPublishedStrategy | undefined): string | null;
-export function driverPublishedRouteRows(baseline: PublishedStrategyBaseline | null | undefined, driver: DriverPublishedStrategy | undefined, pitEvents?: PitEvent[]): Array<{
+export function actualStrategyCompounds(driver: DriverPublishedStrategy | undefined): Array<string | null>;
+export function actualStrategyText(driver: DriverPublishedStrategy | undefined): string;
+export function dryTyreRequirementText(driver: DriverPublishedStrategy | undefined): string | null;
+export function driverPirelliReferenceRows(baseline: PublishedStrategyBaseline | null | undefined, driver: DriverPublishedStrategy | undefined): Array<{
   id: string;
   rank: PublishedStrategyOption["rank"];
-  route: string;
+  compounds: string[];
+  sequence: string;
+  ordered: boolean;
   orderNote: string | null;
+  assessment: DriverPublishedStrategy["pirelliAssessment"];
+  assessmentText: string | null;
   windows: Array<{ stopIndex: number; range: string; state: string | null }>;
 }>;
-export function driverPublishedRoutesText(baseline: PublishedStrategyBaseline | null | undefined, driver: DriverPublishedStrategy | undefined): string;
-export function driverPublishedWindowsText(baseline: PublishedStrategyBaseline | null | undefined, driver: DriverPublishedStrategy | undefined, final?: boolean, pitEvents?: PitEvent[]): string;
+export function driverPirelliStrategiesText(baseline: PublishedStrategyBaseline | null | undefined, driver: DriverPublishedStrategy | undefined): string;
+export function driverPirelliStopWindowsText(baseline: PublishedStrategyBaseline | null | undefined, driver: DriverPublishedStrategy | undefined, final?: boolean): string;
+export const driverPublishedRouteRows: typeof driverPirelliReferenceRows;
+export const driverPublishedRoutesText: typeof driverPirelliStrategiesText;
+export const driverPublishedWindowsText: typeof driverPirelliStopWindowsText;

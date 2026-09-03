@@ -128,12 +128,14 @@ def build_analytics_snapshot(
         number: resource.evidence.laps_for_driver(number, event_limit=sequence)
         for number in state.drivers
     }
-    pit_events = tuple(
-        event
-        for number in state.drivers
-        for event in resource.evidence.pit_events_for_driver(
+    pit_events_by_driver = {
+        number: resource.evidence.pit_events_for_driver(
             number, event_limit=sequence
         )
+        for number in state.drivers
+    }
+    pit_events = tuple(
+        event for events in pit_events_by_driver.values() for event in events
     )
     context_payload = context.context if context.status == "ready" else None
     context_laps = _context_laps(context_payload)
@@ -154,9 +156,7 @@ def build_analytics_snapshot(
         weekend_degradation = _weekend_driver_degradation(
             driver.number, context_payload
         )
-        events = tuple(
-            item for item in pit_events if item.driver_number == driver.number
-        )
+        events = pit_events_by_driver.get(driver.number, ())
         driver_models[driver.number] = {
             "driverNumber": driver.number,
             "ahead": _driver_context(ordered[index - 1], driver, "ahead")
@@ -256,6 +256,11 @@ def build_analytics_snapshot(
         state=state,
         evidence_by_driver=evidence_by_driver,
         lifecycle=strategy_lifecycle,
+        pit_events_by_driver=pit_events_by_driver,
+        dry_tyre_by_driver={
+            number: model["strategy"]["dryTyreRequirement"]
+            for number, model in driver_models.items()
+        },
     )
     return {
         "v": 1,

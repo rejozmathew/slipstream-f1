@@ -443,6 +443,26 @@ export type PublishedStrategyBaseline = {
 };
 export type PublishedWindowState = "BEFORE" | "ACTIVE" | "PASSED" | "COMPLETED" | "UNKNOWN";
 export type PublishedDriverRelation = "MATCHING_ONE" | "MATCHING_MULTIPLE" | "DIVERGED" | "NOT_COMPARABLE" | "TERMINAL" | "UNKNOWN";
+export type PirelliAssessment = "STILL_APPLICABLE" | "ALIGNED" | "SAME_COMPOUNDS_DIFFERENT_TIMING" | "SAME_COMPOUNDS_TIMING_UNKNOWN" | "EXTRA_SAME_COMPOUND_STOP" | "NO_MATCH" | "NOT_COMPARABLE" | "REFERENCE_ONLY" | "UNKNOWN";
+export type ActualTyreStrategy = {
+  compounds: Array<string | null>;
+  stopLaps: Array<number | null>;
+  completedStops: number;
+  observedStops: number;
+  evidenceComplete: boolean;
+};
+export type PirelliStopComparison = {
+  stopIndex: number;
+  actualLap: number | null;
+  publishedStartLap: number | null;
+  publishedEndLap: number | null;
+  status: "INSIDE" | "OUTSIDE" | "NOT_OCCURRED" | "NO_PUBLISHED_LAP";
+};
+export type DriverPirelliReference = {
+  optionId: string;
+  status: PirelliAssessment;
+  stopComparisons: PirelliStopComparison[];
+};
 export type DriverPublishedStrategy = {
   driverNumber: string;
   observedCompounds: string[];
@@ -450,6 +470,11 @@ export type DriverPublishedStrategy = {
   compatibleOptionIds: string[];
   windows: Array<{ optionId: string; stopIndex: number; startLap: number; endLap: number; state: PublishedWindowState }>;
   facts: string[];
+  actualStrategy: ActualTyreStrategy;
+  dryTyreRequirement: DryTyreRequirementState;
+  pirelliAssessment: PirelliAssessment;
+  pirelliSummary: string;
+  pirelliReferences: DriverPirelliReference[];
 };
 export type PublishedStrategyIntelligence = {
   status: "PRESENT" | "ABSENT";

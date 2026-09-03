@@ -34,6 +34,11 @@ export function CompoundTransition({ from, to, compact = false }: { from?: strin
   </span>;
 }
 
+export function CompoundSequence({ compounds, compact = true, empty = "—", ordered = true }: { compounds?: Array<string | null>; compact?: boolean; empty?: string; ordered?: boolean }) {
+  if (!compounds?.length) return <span className="published-path-empty">{empty}</span>;
+  return <span className="published-path">{compounds.map((compound, index) => <span key={`${compound ?? "unknown"}-${index}`}>{index > 0 && <i aria-hidden="true">{ordered ? "→" : "+"}</i>}<CompoundBadge compound={compound} compact={compact} /></span>)}</span>;
+}
+
 export function StrategyCompoundTransition({ value, compact = false }: { value?: string | null; compact?: boolean }) {
   const parts = value?.split(/\s*(?:→|->)\s*/);
   if (!parts || parts.length !== 2) return <span className="compound-transition">—</span>;

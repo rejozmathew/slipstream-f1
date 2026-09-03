@@ -32,7 +32,7 @@ test("builds the replay-driven desktop shell as static files", async () => {
   assert.match(bundle, /PIRELLI TYRE STRATEGY/);
   assert.match(bundle, /RACE NOW/);
   assert.match(bundle, /No specific Pirelli tyre strategy published/);
-  assert.doesNotMatch(bundle, /PIRELLI FIT|NOT SEQUENCE-COMPARABLE|NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED|PIRELLI CONTEXT NOT AVAILABLE|NO PENDING COMPARABLE WINDOW/);
+  assert.doesNotMatch(bundle, /PIRELLI FIT|NOT SEQUENCE-COMPARABLE|NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED|PIRELLI CONTEXT NOT AVAILABLE|NO PENDING COMPARABLE WINDOW|OBSERVED PATH|PUBLISHED ROUTE|WEEKEND NOMINATION/);
   assert.doesNotMatch(bundle, /Strategy Outlook/);
   assert.doesNotMatch(bundle, /NET PIT LOSS/);
   assert.match(bundle, /PACE DELTA/);
@@ -190,17 +190,17 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.match(protocol, /publishedStrategy: PublishedStrategyIntelligence/);
   assert.doesNotMatch(tvMode, /UNDERCUT/);
   assert.doesNotMatch(tvMode, /STRATEGY · DISPOSITION/);
-  assert.match(publishedStrategy, /ordered \? "→" : "\+"/);
-  assert.match(publishedStrategy, /driverPublishedWindowsText/);
+  assert.match(publishedStrategy, /CompoundSequence/);
+  assert.match(publishedStrategy, /driverPirelliStopWindowsText/);
   assert.match(publishedStrategy, /optionDeltaText/);
   assert.match(publishedStrategy, /compoundCounts/);
   assert.match(publishedStrategy, /race-now-sequences/);
-  assert.match(publishedStrategy, /Active running \/ in-pit compound paths/);
+  assert.match(publishedStrategy, /consecutive repeats summarized/);
   assert.match(publishedStrategy, /CompoundBadge compound="HARD" compact/);
   assert.match(styles, /\.strategy-stage > strong/);
   assert.doesNotMatch(styles, /\.strategy-stage strong/);
   assert.match(publishedStrategy, /drivers still need another dry compound/);
-  assert.match(strategyView, /published-path/);
+  assert.match(strategyView, /actualStrategyCompounds/);
   for (const source of [publishedStrategy, battleCard, timingTower, strategyView, tvMode]) {
     assert.doesNotMatch(source, /windows\[0\]/);
   }
@@ -255,7 +255,8 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(timingTower, /"Q STATUS"/);
   assert.match(timingTower, /qualifying\.final === true/);
   assert.match(timingTower, /segmentResults/);
-  assert.match(timingTower, /"PUBLISHED ROUTE", "STOP WINDOW"/);
+  assert.match(timingTower, /"TYRE STRATEGY", "LAST STOP"/);
+  assert.match(timingTower, /actualStrategyCompounds/);
   assert.match(timingTower, /driver\.gap_to_leader/);
   assert.doesNotMatch(timingTower, /interval_to_ahead|NO RECENT PROGRESS|TO AHEAD|TO LEADER/);
   assert.match(lifecycle, /RETIRED: "RET"/);
@@ -286,7 +287,7 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(battleView, /PINNED BATTLE UNAVAILABLE/);
 
   for (const source of [timingTower, strategyView, sessionSnapshot, driverFocus, battleView, tvMode]) {
-    assert.doesNotMatch(source, /PIRELLI FIT|NOT SEQUENCE-COMPARABLE|NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED|PIRELLI CONTEXT NOT AVAILABLE|relation\.replaceAll/);
+    assert.doesNotMatch(source, /PIRELLI FIT|NOT SEQUENCE-COMPARABLE|NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED|PIRELLI CONTEXT NOT AVAILABLE|OBSERVED PATH|PUBLISHED ROUTE|WEEKEND NOMINATION|relation\.replaceAll/);
   }
 
   assert.match(qualifyingView, /title="SESSION"/);

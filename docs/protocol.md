@@ -247,10 +247,12 @@ Every analytics snapshot contains `publishedStrategy`, even when no admissible P
 - `baseline`: source metadata, `evidenceCutoff`, ordered published options, physical compound nomination, optional native tyre bank, context facts, and availability reason. `baseline.status` is `PRESENT`, `FETCHING`, `RETRYING`, or `ABSENT`; transient states expose no worker or retry-file internals.
 - `baseline.evidenceTier`, `baseline.modelAdmissible`, and `baseline.provenanceLabel`: distinguish `STRICT_MODEL`, `DISPLAY_ONLY_OFFICIAL_HISTORICAL`, and absent evidence.
 - `fieldFacts`: at most three cursor-valid race-context statements.
-- `drivers`: observed compound path, relation, every compatible option ID, published window states, and concise facts.
-- `modelVersion`: `pirelli-published-strategy-v1`.
+- `drivers`: legacy observed distinct-compound relation/window fields plus `actualStrategy`, `dryTyreRequirement`, `pirelliAssessment`, `pirelliSummary`, and per-option `pirelliReferences`.
+- `modelVersion`: `pirelli-published-strategy-v2`.
 
 Driver relations are `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPARABLE`, `TERMINAL`, or `UNKNOWN`. Every compatible option/window is represented. Window states are `BEFORE`, `ACTIVE`, `PASSED`, `COMPLETED`, or `UNKNOWN`; an observed compound transition deterministically marks the corresponding window `COMPLETED`. Final state keeps the baseline but emits no live/future windows. `ANY_ORDER` remains published context but is not prefix-compared or rendered as a directional transition.
+
+`actualStrategy.compounds` is a stop-preserving sequence derived from cursor-scoped normalized pit events; repeated compounds are significant. `stopLaps` contains the corresponding factual stop laps, `completedStops` mirrors canonical state, `observedStops` counts available normalized events, and `evidenceComplete` is false when those facts cannot be reconciled without invention. Each model-admissible comparable Pirelli reference carries stop comparisons with factual and published laps plus `INSIDE`, `OUTSIDE`, `NOT_OCCURRED`, or `NO_PUBLISHED_LAP`. A `REFERENCE_ONLY` entry deliberately carries no timing comparison or verdict. The authored assessment is one of `STILL_APPLICABLE`, `ALIGNED`, `SAME_COMPOUNDS_DIFFERENT_TIMING`, `SAME_COMPOUNDS_TIMING_UNKNOWN`, `EXTRA_SAME_COMPOUND_STOP`, `NO_MATCH`, `NOT_COMPARABLE`, `REFERENCE_ONLY`, or `UNKNOWN`.
 
 A display-only official historical baseline can be rendered with provenance, but `modelAdmissible: false` forces model-comparable options to an empty set. It therefore cannot produce a matching/diverged model relation or future window state. Strict admission remains cutoff-safe and version-proven.
 

@@ -5,14 +5,26 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .evidence import LapObservation
+from .evidence import LapObservation, PitEvent
 from .lifecycle import is_retired_indicated, terminal_state
 from .pirelli.contracts import StrategyOption, StrategyOrder
 from .pirelli.snapshot import PirelliEvidenceSnapshot
 from .pirelli.store import PirelliAvailability
 from .state import DriverState, RaceState
 
-PUBLISHED_STRATEGY_MODEL_VERSION = "pirelli-published-strategy-v1"
+PUBLISHED_STRATEGY_MODEL_VERSION = "pirelli-published-strategy-v2"
+
+_REFERENCE_PRIORITY = {
+    "ALIGNED": 0,
+    "SAME_COMPOUNDS_DIFFERENT_TIMING": 1,
+    "SAME_COMPOUNDS_TIMING_UNKNOWN": 2,
+    "EXTRA_SAME_COMPOUND_STOP": 3,
+    "STILL_APPLICABLE": 4,
+    "NOT_COMPARABLE": 5,
+    "REFERENCE_ONLY": 6,
+    "UNKNOWN": 7,
+    "NO_MATCH": 8,
+}
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -72,7 +84,9 @@ def _tyre_bank(snapshot: PirelliEvidenceSnapshot) -> dict[str, Any]:
 def _baseline(
     availability: PirelliAvailability | None,
     evidence_cutoff: str,
-) -> tuple[dict[str, Any], tuple[StrategyOption, ...]]:
+) -> tuple[
+    dict[str, Any], tuple[StrategyOption, ...], tuple[StrategyOption, ...]
+]:
     snapshot = availability.snapshot if availability is not None else None
     if availability is None or availability.status != "PRESENT" or snapshot is None:
         status = (
@@ -103,6 +117,7 @@ def _baseline(
                 "contextFacts": [],
                 "reason": availability.error if availability else "pirelli_context_unavailable",
             },
+            (),
             (),
         )
     latest = snapshot.latest_strategy_release
@@ -151,6 +166,7 @@ def _baseline(
             "reason": reason,
         },
         model_options,
+        options,
     )
 
 
@@ -166,6 +182,166 @@ def observed_compounds(
         if not sequence or sequence[-1] != compound:
             sequence.append(compound)
     return sequence
+
+
+def _compound(value: object) -> str | None:
+    compound = str(value or "").upper()
+    if compound in {"", "UNKNOWN", "UNAVAILABLE", "NONE", "NULL", "—", "-"}:
+        return None
+    return compound
+
+
+def _actual_strategy(
+    driver: DriverState,
+    observations: tuple[LapObservation, ...],
+    pit_events: tuple[PitEvent, ...],
+) -> dict[str, Any]:
+    events = tuple(sorted(pit_events, key=lambda item: item.sequence))
+    first_event_lap = events[0].lap if events else None
+    observed = next(
+        (
+            _compound(item.compound)
+            for item in observations
+            if _compound(item.compound)
+            and (first_event_lap is None or item.lap < first_event_lap)
+        ),
+        None,
+    )
+    if events:
+        initial = _compound(events[0].previous_compound) or observed
+    else:
+        initial = observed or _compound(driver.compound)
+    compounds: list[str | None] = [initial] if initial is not None or events else []
+    for event in events:
+        compounds.append(_compound(event.new_compound))
+    if events and compounds and compounds[-1] is None:
+        compounds[-1] = _compound(driver.compound)
+    completed_stops = max(int(driver.pit_count or 0), 0)
+    evidence_complete = (
+        len(events) == completed_stops
+        and len(compounds) == len(events) + 1
+        and all(compound is not None for compound in compounds)
+    )
+    return {
+        "compounds": compounds,
+        "stopLaps": [event.lap for event in events],
+        "completedStops": completed_stops,
+        "observedStops": len(events),
+        "evidenceComplete": evidence_complete,
+    }
+
+
+def _stop_comparisons(
+    option: StrategyOption,
+    actual: dict[str, Any],
+) -> list[dict[str, Any]]:
+    stop_laps = actual["stopLaps"]
+    actual_compounds = actual["compounds"]
+    distinct_compounds: list[str | None] = []
+    transition_laps: list[int | None] = []
+    for index, compound in enumerate(actual_compounds):
+        if not distinct_compounds:
+            distinct_compounds.append(compound)
+        elif compound != distinct_compounds[-1]:
+            distinct_compounds.append(compound)
+            transition_laps.append(stop_laps[index - 1] if index - 1 < len(stop_laps) else None)
+    published_compounds = [compound.value for compound in option.compounds]
+    comparisons: list[dict[str, Any]] = []
+    for stop_index, window in enumerate(option.pit_windows):
+        transition_matches = (
+            len(distinct_compounds) > stop_index + 1
+            and distinct_compounds[: stop_index + 2]
+            == published_compounds[: stop_index + 2]
+        )
+        actual_lap = (
+            transition_laps[stop_index]
+            if transition_matches and stop_index < len(transition_laps)
+            else None
+        )
+        if window is None:
+            status = "NO_PUBLISHED_LAP"
+        elif actual_lap is None:
+            status = "NOT_OCCURRED"
+        elif window.start_lap <= actual_lap <= window.end_lap:
+            status = "INSIDE"
+        else:
+            status = "OUTSIDE"
+        comparisons.append(
+            {
+                "stopIndex": stop_index,
+                "actualLap": actual_lap,
+                "publishedStartLap": window.start_lap if window is not None else None,
+                "publishedEndLap": window.end_lap if window is not None else None,
+                "status": status,
+            }
+        )
+    return comparisons
+
+
+def _reference_status(
+    option: StrategyOption,
+    actual: dict[str, Any],
+    *,
+    baseline_present: bool,
+    current_lap: int | None,
+    terminal: str | None,
+    final: bool,
+) -> tuple[str, list[dict[str, Any]]]:
+    if not baseline_present:
+        return "REFERENCE_ONLY", []
+    comparisons = _stop_comparisons(option, actual)
+    if option.order != StrategyOrder.ORDERED:
+        return "NOT_COMPARABLE", comparisons
+    compounds = actual["compounds"]
+    if not actual["evidenceComplete"] or not compounds:
+        return "UNKNOWN", comparisons
+    published = [compound.value for compound in option.compounds]
+    if compounds == published:
+        timing = [item["status"] for item in comparisons]
+        if "OUTSIDE" in timing:
+            return "SAME_COMPOUNDS_DIFFERENT_TIMING", comparisons
+        if timing and all(item == "INSIDE" for item in timing):
+            return "ALIGNED", comparisons
+        return "SAME_COMPOUNDS_TIMING_UNKNOWN", comparisons
+    without_repeats = [
+        compound
+        for index, compound in enumerate(compounds)
+        if index == 0 or compound != compounds[index - 1]
+    ]
+    if len(without_repeats) < len(compounds) and (
+        without_repeats == published
+        or without_repeats == published[: len(without_repeats)]
+    ):
+        return "EXTRA_SAME_COMPOUND_STOP", comparisons
+    if compounds == published[: len(compounds)] and len(compounds) < len(published):
+        completed_comparisons = comparisons[: max(len(compounds) - 1, 0)]
+        if any(item["status"] == "OUTSIDE" for item in completed_comparisons):
+            return "SAME_COMPOUNDS_DIFFERENT_TIMING", comparisons
+        if terminal is not None or final:
+            return "REFERENCE_ONLY", comparisons
+        next_window = option.pit_windows[len(compounds) - 1]
+        if (
+            next_window is not None
+            and current_lap is not None
+            and current_lap > next_window.end_lap
+        ):
+            return "NO_MATCH", comparisons
+        return "STILL_APPLICABLE", comparisons
+    return "NO_MATCH", comparisons
+
+
+def _assessment_summary(status: str) -> str:
+    return {
+        "STILL_APPLICABLE": "A published Pirelli tyre strategy is still applicable.",
+        "ALIGNED": "Actual tyre strategy and stop timing align with a published Pirelli strategy.",
+        "SAME_COMPOUNDS_DIFFERENT_TIMING": "Actual compounds match a published Pirelli strategy, but the stop timing differs.",
+        "SAME_COMPOUNDS_TIMING_UNKNOWN": "Actual compounds match a published Pirelli strategy; stop timing cannot be compared.",
+        "EXTRA_SAME_COMPOUND_STOP": "Actual tyre strategy includes an additional same-compound stop.",
+        "NO_MATCH": "No published Pirelli tyre strategy matches the actual tyre strategy.",
+        "NOT_COMPARABLE": "Published Pirelli compounds are available as pre-race reference.",
+        "REFERENCE_ONLY": "Published Pirelli tyre strategies are available as pre-race reference.",
+        "UNKNOWN": "Actual tyre strategy cannot yet be compared with the published Pirelli strategy.",
+    }[status]
 
 
 def _compact_sequence(compounds: list[str]) -> str:
@@ -186,12 +362,16 @@ def _driver_published_strategy(
     driver: DriverState,
     observations: tuple[LapObservation, ...],
     options: tuple[StrategyOption, ...],
+    published_options: tuple[StrategyOption, ...],
+    pit_events: tuple[PitEvent, ...],
     *,
     baseline_present: bool,
     current_lap: int | None,
     final: bool,
+    dry_tyre_requirement: str,
 ) -> dict[str, Any]:
     observed = observed_compounds(driver, observations)
+    actual = _actual_strategy(driver, observations, pit_events)
     terminal = terminal_state(driver)
     if terminal is None and is_retired_indicated(driver):
         terminal = "RETIRED"
@@ -259,6 +439,28 @@ def _driver_published_strategy(
         facts.append(
             f"The car has passed the published L{passed['startLap']}–{passed['endLap']} window without the corresponding transition."
         )
+    references = []
+    for option in published_options:
+        status, stop_comparisons = _reference_status(
+            option,
+            actual,
+            baseline_present=baseline_present,
+            current_lap=current_lap,
+            terminal=terminal,
+            final=final,
+        )
+        references.append(
+            {
+                "optionId": option.id,
+                "status": status,
+                "stopComparisons": stop_comparisons,
+            }
+        )
+    assessment = min(
+        (item["status"] for item in references),
+        key=lambda item: _REFERENCE_PRIORITY[item],
+        default="UNKNOWN",
+    )
     return {
         "driverNumber": driver.number,
         "observedCompounds": observed,
@@ -266,6 +468,11 @@ def _driver_published_strategy(
         "compatibleOptionIds": [option.id for option in matching],
         "windows": windows,
         "facts": facts[:3],
+        "actualStrategy": actual,
+        "dryTyreRequirement": dry_tyre_requirement,
+        "pirelliAssessment": assessment,
+        "pirelliSummary": _assessment_summary(assessment),
+        "pirelliReferences": references,
     }
 
 
@@ -276,8 +483,10 @@ def build_published_strategy(
     state: RaceState,
     evidence_by_driver: dict[str, tuple[LapObservation, ...]],
     lifecycle: str,
+    pit_events_by_driver: dict[str, tuple[PitEvent, ...]] | None = None,
+    dry_tyre_by_driver: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    baseline, options = _baseline(availability, evidence_cutoff)
+    baseline, options, published_options = _baseline(availability, evidence_cutoff)
     baseline_present = (
         baseline["status"] == "PRESENT" and baseline["modelAdmissible"] is True
     )
@@ -287,9 +496,12 @@ def build_published_strategy(
             driver,
             evidence_by_driver.get(number, ()),
             options,
+            published_options,
+            (pit_events_by_driver or {}).get(number, ()),
             baseline_present=baseline_present,
             current_lap=state.session.lap,
             final=final,
+            dry_tyre_requirement=(dry_tyre_by_driver or {}).get(number, "UNKNOWN"),
         )
         for number, driver in state.drivers.items()
     }

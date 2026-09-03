@@ -74,6 +74,12 @@ export function optionDeltaText(option) {
 
 export function relevantPublishedOptions(baseline, driver) {
   if (baseline?.status !== "PRESENT" || !baseline.options?.length) return [];
+  const references = new Map((driver?.pirelliReferences ?? []).map((reference) => [reference.optionId, reference]));
+  const meaningful = baseline.options.filter((option) => {
+    const status = references.get(option.id)?.status;
+    return status && !["NO_MATCH", "NOT_COMPARABLE", "UNKNOWN"].includes(status);
+  });
+  if (meaningful.length > 0) return meaningful;
   const compatibleIds = new Set(driver?.compatibleOptionIds ?? []);
   if (compatibleIds.size > 0) {
     const resolved = baseline.options.filter((option) => compatibleIds.has(option.id));
@@ -85,14 +91,14 @@ export function relevantPublishedOptions(baseline, driver) {
 export function driverStrategyRelationship(baseline, driver) {
   if (baseline?.status !== "PRESENT") return null;
   if (!baseline.options?.length) return NO_SPECIFIC_PIRELLI_STRATEGY;
-  const relevant = relevantPublishedOptions(baseline, driver);
+  if (driver?.pirelliSummary) return driver.pirelliSummary;
   switch (driver?.relation) {
     case "MATCHING_ONE":
-      return relevant[0] ? `Current path matches the published ${optionPathText(relevant[0])} tyre strategy.` : "Current path matches a published Pirelli tyre strategy.";
+      return "A published Pirelli tyre strategy is still applicable.";
     case "MATCHING_MULTIPLE":
-      return `Current path remains compatible with ${relevant.length} published tyre strategies.`;
+      return "More than one published Pirelli tyre strategy is still applicable.";
     case "DIVERGED":
-      return "No published Pirelli tyre strategy matches the current path.";
+      return "No published Pirelli tyre strategy matches the actual tyre strategy.";
     case "TERMINAL":
       return "Published Pirelli tyre strategies are shown for retrospective comparison.";
     case "NOT_COMPARABLE":
@@ -102,63 +108,97 @@ export function driverStrategyRelationship(baseline, driver) {
   }
 }
 
-function windowStateText(state, window, observedLap) {
-  if (state === "COMPLETED") return observedLap == null ? "Observed stop completed" : `Observed stop L${observedLap}`;
-  if (state === "ACTIVE") return "Published window open now";
-  if (state === "PASSED") return "Published window passed";
-  if (state === "BEFORE") return `Published window opens L${window.startLap}`;
-  return `Published window L${window.startLap}–${window.endLap}`;
+export function actualStrategyCompounds(driver) {
+  return driver?.actualStrategy?.compounds ?? driver?.observedCompounds ?? [];
 }
 
-export function driverPublishedRouteRows(baseline, driver, pitEvents = []) {
+export function actualStrategyText(driver) {
+  const compounds = actualStrategyCompounds(driver);
+  return compounds.length ? compounds.map(compoundCode).join(" → ") : "—";
+}
+
+export function dryTyreRequirementText(driver) {
+  if (driver?.dryTyreRequirement === "UNSATISFIED") return "Another dry compound required";
+  if (driver?.dryTyreRequirement === "SATISFIED") return "Dry tyre requirement satisfied";
+  return null;
+}
+
+function stopComparisonText(comparison) {
+  const published = comparison.publishedStartLap == null || comparison.publishedEndLap == null
+    ? "No stop lap published"
+    : `Pirelli L${comparison.publishedStartLap}–${comparison.publishedEndLap}`;
+  if (comparison.actualLap == null) return published;
+  return `Actual L${comparison.actualLap} · ${published}`;
+}
+
+function assessmentText(status) {
+  return {
+    STILL_APPLICABLE: "Still applicable",
+    ALIGNED: "Strategy and timing aligned",
+    SAME_COMPOUNDS_DIFFERENT_TIMING: "Same compounds · different timing",
+    SAME_COMPOUNDS_TIMING_UNKNOWN: "Same compounds · timing unavailable",
+    EXTRA_SAME_COMPOUND_STOP: "Additional same-compound stop",
+    NO_MATCH: "No match",
+    NOT_COMPARABLE: "Pre-race reference",
+    REFERENCE_ONLY: "Pre-race reference",
+    UNKNOWN: "Comparison unavailable",
+  }[status] ?? null;
+}
+
+export function driverPirelliReferenceRows(baseline, driver) {
+  const references = new Map((driver?.pirelliReferences ?? []).map((reference) => [reference.optionId, reference]));
   return relevantPublishedOptions(baseline, driver).map((option) => {
+    const reference = references.get(option.id);
     const windows = option.pitWindows.map((publishedWindow, stopIndex) => {
-      const driverWindow = driver?.windows?.find((item) => item.optionId === option.id && item.stopIndex === stopIndex);
-      const window = driverWindow ?? publishedWindow;
-      if (!window) return { stopIndex, range: "No stop lap published", state: null };
-      const observed = pitEvents.find((event, index) => (event.ordinal ?? index + 1) === stopIndex + 1);
+      const comparison = reference?.stopComparisons?.find((item) => item.stopIndex === stopIndex);
+      if (comparison) {
+        const comparisonWithheld = ["REFERENCE_ONLY", "NOT_COMPARABLE", "UNKNOWN"].includes(reference?.status);
+        return {
+          stopIndex,
+          range: stopComparisonText(comparison),
+          state: comparisonWithheld ? null : comparison.status === "INSIDE" ? "ALIGNED" : comparison.status === "OUTSIDE" ? "DIFFERENT TIMING" : comparison.status === "NOT_OCCURRED" ? "NOT STOPPED" : null,
+        };
+      }
+      if (!publishedWindow) return { stopIndex, range: "No stop lap published", state: null };
       return {
         stopIndex,
-        range: `L${window.startLap}–${window.endLap}`,
-        state: driverWindow ? windowStateText(driverWindow.state, window, observed?.lap) : null,
+        range: `Pirelli L${publishedWindow.startLap}–${publishedWindow.endLap}`,
+        state: null,
       };
     });
     return {
       id: option.id,
       rank: option.rank,
-      route: optionPathText(option),
+      compounds: option.compounds,
+      sequence: optionPathText(option),
+      ordered: option.order === "ORDERED",
       orderNote: optionOrderNote(option),
+      assessment: reference?.status ?? driver?.pirelliAssessment ?? "UNKNOWN",
+      assessmentText: assessmentText(reference?.status ?? driver?.pirelliAssessment ?? "UNKNOWN"),
       windows,
     };
   });
 }
 
-export function driverPublishedRoutesText(baseline, driver) {
+export function driverPirelliStrategiesText(baseline, driver) {
   if (baseline?.status !== "PRESENT") return "—";
-  if (!baseline.options?.length) return "No specific route published";
-  return relevantPublishedOptions(baseline, driver).map(optionPathText).join(" / ") || "Published routes available";
+  if (!baseline.options?.length) return NO_SPECIFIC_PIRELLI_STRATEGY;
+  return relevantPublishedOptions(baseline, driver).map(optionPathText).join(" / ") || "Pirelli tyre strategy available";
 }
 
-export function driverPublishedWindowsText(baseline, driver, final = false, pitEvents = []) {
+export function driverPirelliStopWindowsText(baseline, driver, final = false) {
   if (final) return "Final · retrospective";
   if (baseline?.status !== "PRESENT" || !baseline.options?.length) return "—";
-  if (pitEvents.length > 0) {
-    const rows = driverPublishedRouteRows(baseline, driver, pitEvents);
-    const multiple = rows.length > 1;
-    return rows.map((row) => {
-      const windows = row.windows.map((window) => `${window.range}${window.state ? ` · ${window.state}` : ""}`).join(", ") || "no stop lap published";
-      return multiple ? `${row.route}: ${windows}` : windows;
-    }).join(" · ");
-  }
-  const options = relevantPublishedOptions(baseline, driver);
-  const multiple = options.length > 1;
-  const summaries = options.map((option) => {
-    const driverWindows = driver?.windows?.filter((window) => window.optionId === option.id) ?? [];
-    const pending = driverWindows.filter((window) => window.state !== "COMPLETED");
-    const values = (pending.length ? pending : driverWindows).map((window) => `L${window.startLap}–${window.endLap}`);
-    const fallback = option.pitWindows.filter(Boolean).map((window) => `L${window.startLap}–${window.endLap}`);
-    const text = (values.length ? values : fallback).join(", ") || "no lap published";
-    return multiple ? `${optionPathText(option)}: ${text}` : text;
-  });
-  return summaries.join(" · ") || "No stop lap published";
+  const rows = driverPirelliReferenceRows(baseline, driver);
+  const multiple = rows.length > 1;
+  return rows.map((row) => {
+    const windows = row.windows.map((window) => window.range).join(", ") || "No stop lap published";
+    return multiple ? `${row.sequence}: ${windows}` : windows;
+  }).join(" · ") || "No stop lap published";
 }
+
+// Compatibility aliases for downstream integrations; current product surfaces use
+// the tyre-strategy names above.
+export const driverPublishedRouteRows = driverPirelliReferenceRows;
+export const driverPublishedRoutesText = driverPirelliStrategiesText;
+export const driverPublishedWindowsText = driverPirelliStopWindowsText;

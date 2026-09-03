@@ -42,19 +42,19 @@ Display-only evidence may preserve official options and context for retrospectiv
 
 ## Published contract
 
-`AnalyticsSnapshot.publishedStrategy` is authored in `src/slipstream/published_strategy.py` and uses model version `pirelli-published-strategy-v1`.
+`AnalyticsSnapshot.publishedStrategy` is authored in `src/slipstream/published_strategy.py` and uses model version `pirelli-published-strategy-v2`.
 
 - `status`, `lifecycle`, and `modelVersion` describe the sidecar.
 - `baseline` contains source/retrieval/cutoff metadata, `evidenceTier`, `modelAdmissible`, `provenanceLabel`, all published `options` in source order, physical `compoundSelection`, optional `tyreBank`, context facts, and an availability reason. Target-scoped source-backed Race context alone can be `PRESENT` with zero options; it remains official context, never fabricated team intent.
 - each option preserves `rank`, `order`, stop count, compounds, published windows/deltas, conditions, and caveats;
-- `drivers[number]` contains the factual observed distinct-compound path, its relationship to published options, all compatible option IDs, every relevant published window across compatible options, and at most three explanatory facts;
+- `drivers[number]` retains the API-v1 distinct-compound relation/window fields and adds the stop-preserving factual `actualStrategy`, the server-owned dry-tyre requirement, an authored Pirelli assessment/summary, and per-option factual stop-lap comparisons;
 - `fieldFacts` contains only cursor-valid contextual statements such as rainfall or an active SC/VSC overlapping a published window.
 
 Ranks are `FASTEST_PUBLISHED`, `EQUIVALENT_FASTEST`, `ALTERNATIVE`, `CONDITIONAL`, and `UNRANKED`. Orders are `ORDERED`, `ANY_ORDER`, `PARTIALLY_ORDERED`, and `UNKNOWN`. The UI must not rename these to Primary/Alternate or choose the first equivalent option.
 
 ## Deterministic derivation
 
-For each driver, consecutive repeats are removed from the observed compound history. Only `ORDERED` published options are prefix-comparable.
+The legacy relation removes consecutive repeats from observed compound history and prefix-compares only `ORDERED` published options. Those compatibility fields are unchanged:
 
 - one matching prefix: `MATCHING_ONE`;
 - multiple matching prefixes: `MATCHING_MULTIPLE`;
@@ -65,6 +65,10 @@ For each driver, consecutive repeats are removed from the observed compound hist
 
 Every declared transition window for every compatible option remains in the contract. A window whose corresponding compound transition is already observed is `COMPLETED`; otherwise its state relative to the factual current lap is `BEFORE`, `ACTIVE`, `PASSED`, or `UNKNOWN`. Final/chequered state retains the baseline for retrospective comparison but publishes no live/future windows or action language. Terminal drivers likewise receive no future action. Rain leaves the dry baseline visible while explicitly stating that it is not directly applicable. SC/VSC overlap states only that neutralization and a published window coincide; it never claims a cheap, optimal, or free stop.
 
+The product-facing `actualStrategy` instead starts from normalized pit events at the inclusive cursor. It appends every factual new compound, including a repeat, and records each actual stop lap. The first compound comes from the first event's previous compound or earliest lap evidence; current state fills only the final evidenced-but-missing compound. Evidence that cannot reconcile with canonical `pit_count` remains incomplete and produces `UNKNOWN` rather than a fabricated sequence.
+
+For each ordered Pirelli option, factual compounds and stop laps author one of: `STILL_APPLICABLE` before the required stop; `ALIGNED` when the completed compounds and every published stop bound align; `SAME_COMPOUNDS_DIFFERENT_TIMING`; `SAME_COMPOUNDS_TIMING_UNKNOWN`; `EXTRA_SAME_COMPOUND_STOP`; or `NO_MATCH`. Unordered, display-only, and incomplete cases remain `NOT_COMPARABLE`, `REFERENCE_ONLY`, or `UNKNOWN`. The legacy relation and these product-facing assessments have separate meanings and must not be substituted for each other.
+
 `ANY_ORDER`, `PARTIALLY_ORDERED`, and `UNKNOWN` options remain visible as published context but are not prefix-compared. The UI uses a non-directional separator for `ANY_ORDER` and never silently selects the first option or first window when several remain compatible.
 
 A display-only baseline follows the same presentation/provenance contract but is deliberately excluded from the comparable option set. Current race facts remain authoritative regardless of Pirelli tier.
@@ -73,7 +77,7 @@ Backward and forward seeks rebuild `RaceState`, session evidence, and this sidec
 
 ## Presentation semantics
 
-The shared compound-badge vocabulary is semantic across Pirelli, Driver, Race Now, and pit transitions: Soft is red, Medium yellow, Hard white, Intermediate green, and Wet blue. Directional arrows represent source-published or factually observed order; they are not an inferred preferred strategy. Replay clients re-request analytics only while Weekend Context is preparing or the Pirelli baseline is `FETCHING`, and stop once it becomes `PRESENT` or another stable state.
+The shared compound-badge vocabulary is semantic across Pirelli, Timing Tower, Driver, Battle, Race Now, TV, and pit transitions: Soft is red, Medium yellow, Hard white, Intermediate green, and Wet blue. Driver surfaces present actual tyre strategy first and Pirelli strategy second. Timing Tower Strategy mode presents actual tyre strategy and the last factual stop only. The server-owned dry-tyre requirement becomes an actionable warning only when `UNSATISFIED`; `UNKNOWN` never infers a warning. Directional arrows represent source-published or factually observed order; they are not an inferred preferred strategy. Replay clients re-request analytics only while Weekend Context is preparing or the Pirelli baseline is `FETCHING`, and stop once it becomes `PRESENT` or another stable state.
 
 ## Parser corpus result
 
@@ -106,5 +110,6 @@ A separate bounded live check on 2026-08-22 used four official modern pages: 202
 | P30 | Prioritized Canada-missing self-backfill becomes PRESENT without restart |
 | P31 | Event-specific RSS, exact-event nomination inheritance, Race context filtering, and multi-event isolation |
 | P32 | Miami 2026 production-seed absence, immediate API-prioritized self-backfill, `FETCHING` to `PRESENT` without restart, and honest client polling termination |
+| P33 | Stop-preserving `S→S` and `M→M→H` actual strategy, no-stop applicability, inside/outside Pirelli timing, incomplete evidence, and dry-rule presentation |
 
 M3.5 product Strategy surfaces pair this admitted baseline with factual `raceRead` fields (current tyre and completed-stop distributions, observed compound sequences, stint context, dry-requirement landscape, recent pits, and factual pace/population context). They remain useful when no Pirelli baseline is present. Legacy projection-heavy `raceStrategy` fields remain wire-compatible but are not read by Strategy/Session/Driver/TV product components. Automated tests cover those ownership boundaries; final visual/product acceptance still requires human replay inspection.
