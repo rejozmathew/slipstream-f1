@@ -155,21 +155,10 @@ def main() -> None:
     serve_command.add_argument(
         "--catalog-years",
         type=int,
-        default=0,
+        default=os.environ.get("SLIPSTREAM_CATALOG_YEARS", "3"),
         help="Refresh this many recent seasons before serving a directory",
     )
     serve_command.add_argument("--catalog-max-age-hours", type=float, default=24.0)
-    serve_command.add_argument(
-        "--pirelli-history-years",
-        type=int,
-        default=int(
-            os.environ.get(
-                "SLIPSTREAM_PIRELLI_HISTORY_YEARS",
-                str(DEFAULT_PIRELLI_HISTORY_YEARS),
-            )
-        ),
-        help="Private Pirelli seed/backfill horizon; does not expand the UI catalog",
-    )
     live_command = commands.add_parser(
         "live", help="Record the unauthenticated public F1 live stream"
     )
@@ -323,7 +312,6 @@ def main() -> None:
             create_app(
                 args.path,
                 web_dir=web_dir,
-                pirelli_history_years=args.pirelli_history_years,
             ),
             host=args.host,
             port=args.port,

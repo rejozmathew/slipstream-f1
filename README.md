@@ -1,6 +1,6 @@
-# Slipstream F1
+# Slipstream
 
-Slipstream F1 is an open-source, self-hosted Formula 1 live-timing, historical-replay, and race-intelligence application. It normalizes source data into one deterministic event/state model, then presents that model through a browser pit wall, TV Mode, a versioned REST/WebSocket API, and a terminal renderer.
+Slipstream is an open-source, self-hosted Formula 1 live-timing, historical-replay, and race-intelligence application. It normalizes source data into one deterministic event/state model, then presents that model through a browser pit wall, TV Mode, a versioned REST/WebSocket API, and a terminal renderer.
 
 Slipstream is unofficial and unaffiliated with Formula 1, FIA, Pirelli, or any team.
 
@@ -124,10 +124,10 @@ docker run -d \
   --restart unless-stopped \
   -p 3444:3444 \
   -v slipstream-recordings:/data \
-  ghcr.io/OWNER/slipstream-f1:latest
+  ghcr.io/rejozmathew/slipstream-f1:latest
 ```
 
-Replace `OWNER` with the account or organization publishing the image, then open `http://localhost:3444`.
+Open `http://localhost:3444`.
 
 To build the current checkout:
 
@@ -157,7 +157,7 @@ Backend:
 ```powershell
 python -m pip install -e ".[dev]"
 slipstream sync-catalog --years 3 --output recordings/catalog.json
-slipstream serve recordings --catalog-years 3 --host 127.0.0.1 --port 8000
+slipstream serve recordings --host 127.0.0.1 --port 8000
 ```
 
 Frontend:
@@ -183,9 +183,11 @@ slipstream build-pirelli-seed --data-root recordings --from-year 2017 --through-
 
 `renormalize-pirelli` is offline: it applies the current normalizer to immutable archived HTML/text and writes a new derivation without replacing older outputs. `refresh-pirelli-seed` is the maintainer/release workflow: refresh lightweight metadata, re-normalize local sources, backfill genuine gaps, validate, and build a non-empty production seed. `build-pirelli-seed` also rejects an empty production output unless `--allow-empty` is explicitly used for diagnostics. None of these maintenance commands run during normal startup.
 
-The application validates and idempotently imports its bundled normalized seed on writable startup. The seed contains no raw Pirelli HTML, PDF, image, or article body. Historical catch-up defaults to the current season plus nine preceding seasons, uses a private lightweight metadata cache rather than the three-season browser catalog, persists retry state, and never downloads timing replay data. Set `SLIPSTREAM_PIRELLI_HISTORY_YEARS=10` or pass `slipstream serve --pirelli-history-years 10` to configure that horizon. `--catalog-years 3` remains independent. Set `SLIPSTREAM_PIRELLI_SEED=0` to disable seed import, `SLIPSTREAM_PIRELLI_BACKFILL=0` to disable catch-up, or `SLIPSTREAM_PIRELLI_REFRESH=0` to disable current-weekend acquisition.
+The application validates and idempotently imports its bundled normalized seed on writable startup. The seed contains no raw Pirelli HTML, PDF, image, or article body. Historical catch-up follows the fixed product policy of the current season plus nine preceding seasons, uses a private lightweight metadata cache rather than the replay catalog, persists retry state, and never downloads timing replay data. The Pirelli horizon is not a normal runtime setting; explicit year bounds remain available only on maintainer/release commands. The replay catalog is independent: `--catalog-years` overrides `SLIPSTREAM_CATALOG_YEARS`, which defaults to `3`. Set `SLIPSTREAM_PIRELLI_SEED=0` to disable seed import, `SLIPSTREAM_PIRELLI_BACKFILL=0` to disable catch-up, or `SLIPSTREAM_PIRELLI_REFRESH=0` to disable current-weekend acquisition.
 
 Artifacts and normalized releases are retained under `.slipstream/pirelli/<meeting_key>/` below the data root. The builder consumes that normalized store and emits the versioned `slipstream.pirelli.seed.v1` distribution artifact; it does not copy raw archive directories.
+
+The 2017–2026 release seed contains 69 meeting entries and 218 normalized releases (53,751 compressed bytes). Within the private metadata source's 93 returned Race meetings, 66 produce a useful pre-race baseline: 9 with an explicit strategy, 46 with compound selection but no strategy, and 11 with context only. Three additional seed entries contain only post-race evidence. The unavailable meetings and seasons are documented as gaps in [Pirelli V1 closure](docs/pirelli-v1-closure.md); the ten-season horizon is not a claim of complete coverage.
 
 Strict model evidence requires proof that the exact artifact version existed by the replay cutoff. Display-only official historical evidence may be shown when official host, event/session scope, and pre-race publication time are proven, but it is labelled `PUBLISHED PRE-RACE · ARCHIVED LATER` and cannot produce model-comparable options or windows.
 

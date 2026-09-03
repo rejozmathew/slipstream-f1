@@ -2,6 +2,7 @@ import asyncio
 import gzip
 import hashlib
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -176,6 +177,40 @@ def _option(baseline, compounds, start_lap, end_lap):
     )
 
 
+def _bundled_seed_without(meeting_key):
+    seed_path = (
+        Path(__file__).parents[1]
+        / "src"
+        / "slipstream"
+        / "data"
+        / PIRELLI_SEED_NAME
+    )
+    payload = json.loads(gzip.decompress(seed_path.read_bytes()))
+    payload["meetings"] = [
+        item for item in payload["meetings"] if item["meetingKey"] != meeting_key
+    ]
+    payload["materialized"] = {
+        "meetingCount": len(payload["meetings"]),
+        "releaseCount": sum(
+            len(item["releases"]) for item in payload["meetings"]
+        ),
+        "meetingKeys": sorted(
+            item["meetingKey"] for item in payload["meetings"]
+        ),
+    }
+    base = {key: value for key, value in payload.items() if key != "integrity"}
+    payload["integrity"] = {
+        "algorithm": "sha256",
+        "digest": hashlib.sha256(
+            json.dumps(base, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
+    return gzip.compress(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode() + b"\n",
+        mtime=0,
+    )
+
+
 def test_bundled_seed_records_horizon_and_exact_materialized_contents():
     seed_path = (
         Path(__file__).parents[1]
@@ -191,12 +226,134 @@ def test_bundled_seed_records_horizon_and_exact_materialized_contents():
     assert payload["coverage"]["throughSeason"] == 2026
     assert payload["horizon"] == payload["coverage"]
     assert payload["materialized"] == {
-        "meetingCount": 2,
-        "releaseCount": 5,
-        "meetingKeys": ["1285", "1292"],
+        "meetingCount": 69,
+        "releaseCount": 218,
+        "meetingKeys": [
+            "1141",
+            "1142",
+            "1143",
+            "1207",
+            "1208",
+            "1210",
+            "1211",
+            "1213",
+            "1214",
+            "1215",
+            "1216",
+            "1217",
+            "1218",
+            "1219",
+            "1220",
+            "1221",
+            "1222",
+            "1225",
+            "1229",
+            "1230",
+            "1231",
+            "1232",
+            "1234",
+            "1236",
+            "1237",
+            "1239",
+            "1240",
+            "1241",
+            "1242",
+            "1243",
+            "1244",
+            "1245",
+            "1246",
+            "1247",
+            "1250",
+            "1251",
+            "1252",
+            "1254",
+            "1255",
+            "1256",
+            "1257",
+            "1258",
+            "1259",
+            "1261",
+            "1262",
+            "1263",
+            "1264",
+            "1265",
+            "1266",
+            "1268",
+            "1269",
+            "1270",
+            "1271",
+            "1274",
+            "1275",
+            "1276",
+            "1277",
+            "1279",
+            "1280",
+            "1281",
+            "1284",
+            "1285",
+            "1286",
+            "1288",
+            "1289",
+            "1290",
+            "1291",
+            "1292",
+            "1293",
+        ],
     }
-    assert {item["meetingKey"] for item in payload["meetings"]} == {"1285", "1292"}
-    assert sum(len(item["releases"]) for item in payload["meetings"]) == 5
+    assert payload["integrity"]["digest"] == (
+        "48546bae72e1cc81c43cddca30a67b18cd5a0dec7c396d385f3ccb50471c3ff4"
+    )
+    assert hashlib.sha256(seed_path.read_bytes()).hexdigest() == (
+        "7f771803208629d6cd7e30eafc3b74aa9483df3faea024805acd8fba8082e709"
+    )
+    for meeting in payload["meetings"]:
+        for release in meeting["releases"]:
+            for fact in release["context_facts"]:
+                statement = fact["statement"]
+                assert len(
+                    re.findall(
+                        r"(?:^|\s)\d{1,2}\s+[A-Za-z]+\s+20\d{2}\s+[-–—]\s+",
+                        statement,
+                    )
+                ) < 2
+                assert "latest news" not in statement.casefold()
+                assert not statement.casefold().endswith("newsroom")
+    by_season = {
+        season: [item for item in payload["meetings"] if item["season"] == season]
+        for season in range(2017, 2027)
+    }
+    assert {
+        season: (len(items), sum(len(item["releases"]) for item in items))
+        for season, items in by_season.items()
+    } == {
+        2017: (0, 0),
+        2018: (0, 0),
+        2019: (0, 0),
+        2020: (0, 0),
+        2021: (0, 0),
+        2022: (0, 0),
+        2023: (18, 60),
+        2024: (19, 52),
+        2025: (20, 53),
+        2026: (12, 53),
+    }
+    meetings = {item["meetingKey"]: item for item in payload["meetings"]}
+    assert (meetings["1141"]["season"], meetings["1141"]["meetingName"]) == (
+        2023,
+        "Bahrain Grand Prix",
+    )
+    assert (meetings["1231"]["season"], meetings["1231"]["meetingName"]) == (
+        2024,
+        "Australian Grand Prix",
+    )
+    assert (meetings["1254"]["season"], meetings["1254"]["meetingName"]) == (
+        2025,
+        "Australian Grand Prix",
+    )
+    assert (meetings["1279"]["season"], meetings["1279"]["meetingName"]) == (
+        2026,
+        "Australian Grand Prix",
+    )
 
 
 def test_clean_install_seed_only_api_exposes_audited_dutch_and_canada(
@@ -267,17 +424,50 @@ def test_bundled_seed_import_is_idempotent_on_an_empty_runtime(tmp_path):
     first = import_bundled_pirelli_seed(tmp_path)
     second = import_bundled_pirelli_seed(tmp_path)
 
-    assert first.meetings == 2
-    assert first.releases_imported == 5
+    assert first.meetings == 69
+    assert first.releases_imported == 218
     assert second.releases_imported == 0
-    assert second.releases_preserved == 5
+    assert second.releases_preserved == 218
 
 
-def test_miami_api_self_backfills_from_production_seed_without_restart(
+def test_startup_imports_seed_without_immediate_ten_year_metadata_scan(
     tmp_path, monkeypatch
 ):
     _write_audited_replays(tmp_path)
-    monkeypatch.delenv("SLIPSTREAM_PIRELLI_SEED_PATH", raising=False)
+    metadata_calls = []
+
+    def metadata_sync(*_args, **_kwargs):
+        metadata_calls.append("called")
+        raise AssertionError("startup must not perform an immediate horizon scan")
+
+    coordinator = PirelliHistoricalCoordinator(
+        tmp_path,
+        PirelliIngestionService(PirelliArchive(tmp_path), _FakePublicClient({})),
+        metadata_sync=metadata_sync,
+    )
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_BACKFILL", "1")
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+
+    with TestClient(
+        create_app(
+            tmp_path,
+            public_live=False,
+            pirelli_historical_coordinator=coordinator,
+            pirelli_backfill_initial_delay=3_600,
+        )
+    ) as client:
+        assert client.get("/api/v1/catalog").status_code == 200
+
+    assert metadata_calls == []
+
+
+def test_miami_api_self_backfills_when_removed_from_production_seed_without_restart(
+    tmp_path, monkeypatch
+):
+    _write_audited_replays(tmp_path)
+    missing_seed = tmp_path / "production-seed-without-miami.json.gz"
+    missing_seed.write_bytes(_bundled_seed_without("1284"))
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_SEED_PATH", str(missing_seed))
     monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
     nomination_url = (
         "https://press.pirelli.com/"
@@ -437,6 +627,7 @@ def test_miami_api_keeps_partial_worker_result_fetching_until_complete(
 ):
     _write_audited_replays(tmp_path)
     monkeypatch.delenv("SLIPSTREAM_PIRELLI_SEED_PATH", raising=False)
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_SEED", "0")
     monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
     started = threading.Event()
     release = threading.Event()
@@ -614,6 +805,7 @@ def test_miami_api_keeps_partial_worker_result_fetching_until_complete(
 def test_miami_api_reports_metadata_backoff_as_retrying(tmp_path, monkeypatch):
     _write_audited_replays(tmp_path)
     monkeypatch.delenv("SLIPSTREAM_PIRELLI_SEED_PATH", raising=False)
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_SEED", "0")
     monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
     clock = datetime(2026, 9, 2, tzinfo=UTC)
 
@@ -643,38 +835,7 @@ def test_miami_api_reports_metadata_backoff_as_retrying(tmp_path, monkeypatch):
 
 
 def test_missing_canada_is_prioritized_and_self_backfills_without_restart(tmp_path):
-    seed_path = (
-        Path(__file__).parents[1]
-        / "src"
-        / "slipstream"
-        / "data"
-        / PIRELLI_SEED_NAME
-    )
-    payload = json.loads(gzip.decompress(seed_path.read_bytes()))
-    payload["meetings"] = [
-        item for item in payload["meetings"] if item["meetingKey"] != "1285"
-    ]
-    payload["materialized"] = {
-        "meetingCount": len(payload["meetings"]),
-        "releaseCount": sum(
-            len(item["releases"]) for item in payload["meetings"]
-        ),
-        "meetingKeys": sorted(
-            item["meetingKey"] for item in payload["meetings"]
-        ),
-    }
-    base = {key: value for key, value in payload.items() if key != "integrity"}
-    payload["integrity"] = {
-        "algorithm": "sha256",
-        "digest": hashlib.sha256(
-            json.dumps(base, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
-    }
-    dutch_only = gzip.compress(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode() + b"\n",
-        mtime=0,
-    )
-    import_pirelli_seed_bytes(dutch_only, tmp_path)
+    import_pirelli_seed_bytes(_bundled_seed_without("1285"), tmp_path)
 
     descriptor = SimpleNamespace(
         key="11291",

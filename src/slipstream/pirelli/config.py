@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DEFAULT_PIRELLI_HISTORY_YEARS = 10
-NORMALIZER_VERSION = "slipstream-pirelli-v5-adapted.5"
+NORMALIZER_VERSION = "slipstream-pirelli-v5-adapted.6"
 
 
 def validate_history_years(value: int) -> int:

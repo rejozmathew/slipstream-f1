@@ -18,7 +18,7 @@ async function builtApplication() {
 test("builds the replay-driven desktop shell as static files", async () => {
   const { index, bundle, styles } = await builtApplication();
 
-  assert.match(index, /<title>Slipstream F1 .* Replay Pit Wall<\/title>/i);
+  assert.match(index, /<title>Slipstream .* Replay Pit Wall<\/title>/i);
   assert.match(index, /<div id="root"><\/div>/);
   assert.match(index, /\/assets\/.*\.js/);
   assert.match(bundle, /Timing tower/);
@@ -144,9 +144,10 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
 });
 
 test("preserves semantic compound colors and bounded functional layouts", async () => {
-  const [styles, driverFocus] = await Promise.all([
+  const [styles, driverFocus, paceChart] = await Promise.all([
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../views/DriverFocusView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/analysis/PaceDeltaChart.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.doesNotMatch(styles, /\.published-path i\s*\{/);
@@ -159,6 +160,8 @@ test("preserves semantic compound colors and bounded functional layouts", async 
   assert.match(styles, /pit-history-columns-stationary-pit-lane/);
   assert.match(driverFocus, /events\.some\(\(event\) => event\.stopDuration != null\)/);
   assert.match(driverFocus, /events\.some\(\(event\) => event\.pitLaneDuration != null\)/);
+  assert.match(paceChart, /samples\.map\(\(sample, index\)/);
+  assert.match(paceChart, /sample\.stintNumber\}-\$\{index\}/);
 });
 test("keeps Packet E TV and analytics contracts truthful", async () => {
   const [tvMode, protocol, publishedStrategy, battleCard, timingTower, strategyView, styles] = await Promise.all([

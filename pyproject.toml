@@ -9,7 +9,7 @@ description = "Self-hosted Formula 1 historical timing and replay application."
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-authors = [{name = "Slipstream F1 contributors"}]
+authors = [{name = "Slipstream contributors"}]
 dependencies = [
   "aiohttp>=3.12",
   "fastapi>=0.115",

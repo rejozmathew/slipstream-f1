@@ -174,16 +174,17 @@ Pirelli is a low-frequency sidecar, not part of timing precedence.
 
 ```mermaid
 flowchart LR
+    Seed[Bundled normalized seed] --> Store[PirelliEvidenceStore]
     RSS[RSS fast path] --> D[Meeting discovery]
     Event[Exact event archive] --> D
     D --> A[Immutable archive]
     A --> X[Deterministic extraction]
     X --> V[Scope + provenance validation]
-    V --> Store[PirelliEvidenceStore]
+    V --> Store
     Store --> PS[publishedStrategy]
 ```
 
-Runtime refresh and historical backfill use the same ingestion core. Browser code never fetches Pirelli directly.
+Startup validates and idempotently imports the normalized distribution seed; it does not scrape the ten-season horizon. Quiet historical self-backfill and current/near-weekend runtime refresh use the same ingestion core. The fixed Pirelli horizon is independent of the replay catalog, and browser code never fetches Pirelli directly.
 
 Strict evidence proves every artifact version existed by the replay cutoff and may be model-admissible. The fallback display-only official historical tier requires an approved Pirelli host, correct scope, and known pre-cutoff publication time; it is labelled and cannot create model-comparable options or windows.
 

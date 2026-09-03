@@ -78,7 +78,7 @@ class PirelliPublicClient:
         self.max_bytes = max_bytes
         self.attempts = max(1, attempts)
         self.headers = {
-            "User-Agent": "SlipstreamF1-PirelliIngest/5",
+            "User-Agent": "Slipstream-PirelliIngest/5",
             "Accept": "text/html,application/pdf,image/*,application/xml;q=0.9,*/*;q=0.1",
         }
 

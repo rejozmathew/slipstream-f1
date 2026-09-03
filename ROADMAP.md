@@ -44,13 +44,18 @@ The current merge candidate includes:
 - server-authored Qualifying phase, clock, benchmark scope, advancement boundary, final segment facts, lap history, teammate comparison, and Driver Focus;
 - resumable `STOPPED` and `RETIRED_INDICATED` separated from terminal classification, with no `NO_RECENT_PROGRESS` derivation;
 - factual pit events plus bounded official `PitLaneTimeCollection` lane transit;
-- sparse official Pirelli acquisition, immutable archives, strict/display-only evidence tiers, and the `publishedStrategy` sidecar;
+- fixed ten-season Pirelli history through a bundled normalized seed, quiet deterministic self-backfill, and sparse current-weekend official acquisition;
+- immutable Pirelli archives, strict/display-only evidence tiers, stop-preserving `actualStrategy`, published-window comparison, and dry-rule integration across Session/Timing Tower/Driver/Battle/Strategy/TV;
 - lifecycle-aware Track Map semantics, cross-session Race/Qualifying/Practice parity, restricted session-specific TV rotations, and capability-stable missing-data presentation;
 - replay deletion that preserves catalog, circuit, Pirelli, and source manifests.
 
 M3.5 is the factual/source merge candidate. OCR/VLM/manual transcription and image-only tyre-bank extraction remain deliberately absent. General historical context, Net Pit Loss, deterministic archived-session backtesting, authenticated live data, precise live X/Y, and hardware remain future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
 
-## Next phase - visual and interaction design
+## Next phase - replay preparation experience
+
+The next bounded milestone is the replay initialization/loading path. It must add download progress and explicit `DOWNLOADING` / `PREPARING` / `READY` feedback, remove the blank or partial post-download shell and possible refresh requirement, shorten the current 15–20 second delay before replay controls become active, make slider readiness explicit, prevent end-to-start initialization flashes, and improve bootstrap performance. None of that work is claimed complete in M3.5.
+
+## Following phase - visual and interaction design
 
 The immediate product phase after the M3.5 baseline is merged is a bounded visual and interaction pass over stable contracts.
 

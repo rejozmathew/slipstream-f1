@@ -6,15 +6,13 @@ It runs under Docker Desktop on Windows and macOS, Docker Engine on Linux, and c
 
 ## Run the published image
 
-Replace `OWNER` with the GitHub account or organization that publishes the package:
-
 ```sh
 docker run -d \
   --name slipstream-f1 \
   --restart unless-stopped \
   -p 3444:3444 \
   -v slipstream-recordings:/data \
-  ghcr.io/OWNER/slipstream-f1:latest
+  ghcr.io/rejozmathew/slipstream-f1:latest
 ```
 
 Open `http://localhost:3444`.
@@ -39,18 +37,18 @@ Use this path for development or when you want to build an unmerged checkout. No
 | `SLIPSTREAM_PORT` | `3444` | Host-side port used by the repository Compose file |
 | `SLIPSTREAM_RECORDINGS_DIR` | Docker volume | Optional host directory mounted at `/data` by Compose |
 | `SLIPSTREAM_MODE` | `full` | `full` serves browser and API; `api-only` omits browser routes |
-| `SLIPSTREAM_PIRELLI_HISTORY_YEARS` | `10` | Private seed/backfill horizon; independent of the browser catalog years |
+| `SLIPSTREAM_CATALOG_YEARS` | `3` | Replay-catalog seasons; an explicit `serve --catalog-years` value overrides it |
 | `SLIPSTREAM_PIRELLI_SEED` | `1` | Validate and idempotently import the bundled normalized Pirelli seed on writable startup |
 | `SLIPSTREAM_PIRELLI_SEED_PATH` | bundled artifact | Optional replacement normalized seed path |
 | `SLIPSTREAM_PIRELLI_BACKFILL` | `1` | Quietly attempt one missing historical Pirelli meeting at a time |
 | `SLIPSTREAM_PIRELLI_REFRESH` | `1` | Keep the sparse current-weekend Pirelli acquisition path enabled |
 
-The seed is application distribution data copied with the Python package, not a runtime recording. Import and historical catch-up write only to the mounted `/data` volume. A seed validation/import or catch-up failure is logged but does not block application startup, the API, live timing, or replay. Historical discovery uses a private lightweight metadata cache and does not expand the browser's three-season catalog.
+The Pirelli historical horizon is a fixed ten-season product policy, not an end-user setting. The seed is application distribution data copied with the Python package, not a runtime recording. Import and historical catch-up write only to the mounted `/data` volume. A seed validation/import or catch-up failure is logged but does not block application startup, the API, live timing, or replay. Historical discovery uses a private lightweight metadata cache and does not expand the browser's three-season catalog. No `.env` file is required for either supplied Compose file.
 
 Choose another host port by changing only the published side:
 
 ```sh
-docker run -d --name slipstream-f1 -p 7444:3444 -v slipstream-recordings:/data ghcr.io/OWNER/slipstream-f1:latest
+docker run -d --name slipstream-f1 -p 7444:3444 -v slipstream-recordings:/data ghcr.io/rejozmathew/slipstream-f1:latest
 ```
 
 With Compose on Linux or macOS:
@@ -102,7 +100,7 @@ docker run -d \
   -e SLIPSTREAM_MODE=api-only \
   -p 3444:3444 \
   -v slipstream-recordings:/data \
-  ghcr.io/OWNER/slipstream-f1:latest
+  ghcr.io/rejozmathew/slipstream-f1:latest
 ```
 
 ## Updates and rollback

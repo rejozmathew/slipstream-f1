@@ -25,7 +25,6 @@ from .historical_download import HistoricalSessionDownloader
 from .library import ReplayLibrary, ReplayResource
 from .live import PublicLiveSession
 from .pirelli.backfill import PirelliHistoricalCoordinator
-from .pirelli.config import DEFAULT_PIRELLI_HISTORY_YEARS, validate_history_years
 from .pirelli.contracts import SessionScope
 from .pirelli.coordinator import PirelliRuntimeCoordinator
 from .pirelli.ingest import PirelliIngestionService
@@ -52,7 +51,6 @@ def create_app(
     web_dir: Path | None = None,
     public_live: bool | None = None,
     live_session: PublicLiveSession | None = None,
-    pirelli_history_years: int = DEFAULT_PIRELLI_HISTORY_YEARS,
     pirelli_historical_coordinator: PirelliHistoricalCoordinator | None = None,
     pirelli_backfill_initial_delay: float = 60.0,
 ) -> FastAPI:
@@ -125,7 +123,6 @@ def create_app(
         else PirelliHistoricalCoordinator(
             recording_path,
             pirelli_ingestion,
-            history_years=validate_history_years(pirelli_history_years),
         )
         if pirelli_ingestion is not None and pirelli_backfill_enabled
         else None
@@ -140,7 +137,7 @@ def create_app(
         if downloads_enabled
         else None
     )
-    app = FastAPI(title="Slipstream F1", version="0.1.0")
+    app = FastAPI(title="Slipstream", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",

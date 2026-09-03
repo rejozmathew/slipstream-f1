@@ -1,4 +1,4 @@
-Slipstream F1 | Australian Grand Prix - Race
+Slipstream | Australian Grand Prix - Race
 Status: GREEN | Lap: 3/- | Track: - | Updated: 2025-03-16T04:02:30Z
 
 POS  DRV  DRIVER             LAP        GAP        INT TYRE         AGE STINT PIT TRACK   LAST LAP STATUS

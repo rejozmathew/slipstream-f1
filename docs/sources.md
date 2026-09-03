@@ -30,7 +30,7 @@ Circuit geometry is static track shape. It must not be represented as driver GPS
 
 ### Pirelli official newsroom
 
-Slipstream uses the public Pirelli Formula 1 RSS/newsroom as an official pre-race strategy source. One sparse server-owned coordinator archives source bytes and metadata, then runs deterministic HTML/prose/structured extraction. Native machine-readable PDF tyre-bank text is optional through `pypdf`; image-only assets are not processed. OCR, PaddleOCR, VLM/LLM extraction, and a normal-product manual transcription workflow are deliberately excluded.
+Slipstream uses the public Pirelli Formula 1 RSS/newsroom as an official pre-race strategy source. A bundled normalized seed supplies release-time history, a single-concurrency coordinator quietly self-backfills missing meetings, and a sparse server-owned coordinator handles current/near-weekend acquisition. Both network paths archive source bytes and metadata, then run the same deterministic HTML/prose/structured extraction. Normal startup validates/imports the seed and never scrapes the fixed ten-season horizon. Native machine-readable PDF tyre-bank text is optional through `pypdf`; image-only assets are not processed. OCR, PaddleOCR, VLM/LLM extraction, and a normal-product manual transcription workflow are deliberately excluded.
 
 Meeting, Race/Sprint target, and exact evidence cutoff are enforced before publication. Browser code never requests Pirelli or its asset hosts directly. Published strategy is presented as Pirelli's baseline, not team intent or a guaranteed result.
 

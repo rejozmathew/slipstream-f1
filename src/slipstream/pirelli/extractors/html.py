@@ -27,9 +27,13 @@ class _Parser(HTMLParser):
         self._json_chunks: list[str] = []
         self._ignore = 0
         self._article = 0
+        self._main = 0
         self._article_chunks: list[str] = []
         self._section_chunks: list[str] = []
         self.article_sections: list[str] = []
+        self._main_chunks: list[str] = []
+        self._main_section_chunks: list[str] = []
+        self.main_sections: list[str] = []
         self._link: tuple[str, str | None, bool] | None = None
         self._link_chunks: list[str] = []
         self.links: list[tuple[str, str, str | None]] = []
@@ -56,8 +60,10 @@ class _Parser(HTMLParser):
             ).casefold()
             if key and d.get("content"):
                 self.meta[key] = d["content"]
-        if tag in {"article", "main"}:
+        if tag == "article":
             self._article += 1
+        elif tag == "main":
+            self._main += 1
         if tag == "a" and d.get("href"):
             classes = set(d.get("class", "").split())
             self._link = (
@@ -95,9 +101,23 @@ class _Parser(HTMLParser):
             "h6",
         }:
             self._flush_article_section()
-        if tag in {"article", "main"} and self._article:
+        elif self._main and tag in {
+            "p",
+            "li",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+        }:
+            self._flush_main_section()
+        if tag == "article" and self._article:
             self._flush_article_section()
             self._article -= 1
+        elif tag == "main" and self._main:
+            self._flush_main_section()
+            self._main -= 1
         if tag == "a" and self._link is not None:
             url, media_type, archive_entry = self._link
             link = (url, _clean(" ".join(self._link_chunks)), media_type)
@@ -132,6 +152,9 @@ class _Parser(HTMLParser):
         if self._article:
             self._article_chunks.append(text)
             self._section_chunks.append(text)
+        elif self._main:
+            self._main_chunks.append(text)
+            self._main_section_chunks.append(text)
         if self._link is not None:
             self._link_chunks.append(text)
         if self._cell:
@@ -142,6 +165,12 @@ class _Parser(HTMLParser):
         if section and (not self.article_sections or self.article_sections[-1] != section):
             self.article_sections.append(section)
         self._section_chunks = []
+
+    def _flush_main_section(self) -> None:
+        section = _clean(" ".join(self._main_section_chunks))
+        if section and (not self.main_sections or self.main_sections[-1] != section):
+            self.main_sections.append(section)
+        self._main_section_chunks = []
 
 
 def _walk(value: Any) -> Iterable[dict[str, Any]]:
@@ -182,7 +211,10 @@ def parse_html(source: str, base_url: str) -> HtmlDocument:
     title = title or _clean(
         parser.meta.get("og:title") or parser.meta.get("twitter:title") or ""
     )
-    body = body or _clean(" ".join(parser._article_chunks))
+    semantic_article = bool(parser._article_chunks)
+    body = body or _clean(
+        " ".join(parser._article_chunks if semantic_article else parser._main_chunks)
+    )
     if json_body:
         article_sections = tuple(
             _clean(section)
@@ -190,7 +222,9 @@ def parse_html(source: str, base_url: str) -> HtmlDocument:
             if _clean(section)
         )
     else:
-        article_sections = tuple(parser.article_sections)
+        article_sections = tuple(
+            parser.article_sections if semantic_article else parser.main_sections
+        )
     if not article_sections and body:
         article_sections = (body,)
     published = (

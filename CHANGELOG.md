@@ -13,8 +13,8 @@
 - Source-neutral lap, stint, and pit evidence parity across direct F1 Live/Replay paths.
 - Cross-session Race, Qualifying, and Practice validation.
 - Per-viewer live-delay validation across state, lifecycle, evidence, map population, envelope playhead, and analytics.
-- Pirelli RSS/event-page discovery resilience, immutable archival storage, and strict/display-only evidence tiers.
-- Historical Pirelli published-strategy context for supported official pre-race artifacts.
+- Pirelli V1 acquisition and history closure: bundled normalized production seed, quiet deterministic self-backfill, current-weekend official acquisition, semantic article-boundary filtering, immutable archival storage, and strict/display-only evidence tiers.
+- Stop-preserving actual tyre strategies, published stop-window comparison, dry-tyre requirement states, and the shared Session/Timing Tower/Driver/Battle/Strategy/TV presentation contract.
 - Lifecycle-aware Track Map behavior and active-coverage semantics.
 - Replay deletion that preserves catalog, circuit, Pirelli, and source manifests.
 
@@ -44,3 +44,4 @@
 - Protected GPS, high-frequency car data, team radio, and precise live X/Y are outside the default public-source slice.
 - Deterministic archived-session backtesting, authentication/control plane, Sync Groups, and hardware clients remain deferred.
 - Broad visual redesign remains a separate post-M3.5 phase.
+- Replay download/preparation progress, readiness feedback, control activation latency, slider readiness, and initialization flashes remain deferred.

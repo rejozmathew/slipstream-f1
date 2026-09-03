@@ -647,6 +647,54 @@ def test_json_ld_article_body_owns_context_sections_over_dom_shell():
     assert {fact.category for fact in facts} == {"COMPOUND_OUTLOOK"}
 
 
+def test_semantic_article_excludes_latest_news_nested_in_main():
+    document = parse_html(
+        """
+        <main>
+          <article>
+            <h1>Race preview</h1>
+            <p>High degradation is expected during Sunday's race.</p>
+          </article>
+          <section class="latest-news">
+            <a>30 Aug 2026 - López and Quiles win two record-breaking races</a>
+            <a>22 Aug 2026 - Norris to start from the front at Zandvoort, all
+               three compounds in play for the race</a>
+          </section>
+        </main>
+        """,
+        "https://press.pirelli.com/race-preview",
+    )
+    facts = extract_context_facts(
+        document.article_text,
+        source_url="https://press.pirelli.com/race-preview",
+        artifact_id="semantic-article",
+        applicability=FactApplicability(
+            meeting_key="100", session_scope=SessionScope.RACE
+        ),
+        sections=document.article_sections,
+    )
+
+    assert document.article_sections == (
+        "Race preview",
+        "High degradation is expected during Sunday's race.",
+    )
+    assert {fact.category for fact in facts} == {"DEGRADATION"}
+    assert all("López" not in fact.statement for fact in facts)
+
+
+def test_main_remains_the_article_fallback_without_semantic_article():
+    document = parse_html(
+        "<main><h1>Race preview</h1><p>High tyre stress is expected.</p></main>",
+        "https://press.pirelli.com/race-preview",
+    )
+
+    assert document.article_text == "Race preview High tyre stress is expected."
+    assert document.article_sections == (
+        "Race preview",
+        "High tyre stress is expected.",
+    )
+
+
 def test_sprint_and_race_strategy_releases_remain_isolated(tmp_path):
     archived_at = datetime(2026, 7, 25, tzinfo=UTC)
     race = _release(meeting="hungary", retrieved=archived_at)

@@ -241,9 +241,9 @@ Prefer one small compressed atomic file, approximately:
     "throughPublishedAt": "..."
   },
   "materialized": {
-    "meetingCount": 2,
-    "releaseCount": 5,
-    "meetingKeys": ["1285", "1292"]
+    "meetingCount": 69,
+    "releaseCount": 218,
+    "meetingKeys": ["1141", "...", "1293"]
   },
   "meetings": {
     "1292": {
@@ -255,6 +255,41 @@ Prefer one small compressed atomic file, approximately:
   }
 }
 ```
+
+The `meetingKeys` list above is abbreviated for readability; the complete exact manifest is pinned in `tests/test_pirelli_acceptance.py`.
+
+## Final production-seed report
+
+The 2026 release build used the immutable local archive first, ran the current `slipstream-pirelli-v5-adapted.6` normalizer offline, performed bounded official-source backfill, and rebuilt the artifact deterministically.
+
+| Season | Seed meeting entries | Normalized releases | Useful Race baselines | Race descriptors returned |
+| --- | ---: | ---: | ---: | ---: |
+| 2017 | 0 | 0 | — | 0 |
+| 2018 | 0 | 0 | — | 0 |
+| 2019 | 0 | 0 | — | 0 |
+| 2020 | 0 | 0 | — | 0 |
+| 2021 | 0 | 0 | — | 0 |
+| 2022 | 0 | 0 | — | 0 |
+| 2023 | 18 | 60 | 17 | 22 |
+| 2024 | 19 | 52 | 19 | 24 |
+| 2025 | 20 | 53 | 18 | 24 |
+| 2026 | 12 | 53 | 12 | 23 |
+| **Total** | **69** | **218** | **66** | **93** |
+
+The gzip artifact is 53,751 bytes. Its compressed-file SHA-256 is `7f771803208629d6cd7e30eafc3b74aa9483df3faea024805acd8fba8082e709`; its embedded canonical-payload digest is `48546bae72e1cc81c43cddca30a67b18cd5a0dec7c396d385f3ccb50471c3ff4`. A second independent build from the same normalized store produced byte-identical output.
+
+Of the 66 useful Race baselines, 9 contain explicit tyre strategies, 46 contain compound selection without an explicit strategy, and 11 contain useful context only. All 66 are admitted as `STRICT_MODEL`; zero require `DISPLAY_ONLY_OFFICIAL_HISTORICAL`. This is exactly 66 / 93 = 70.96774193548387% of the Race descriptors returned across the requested metadata horizon. It is not 69 / 93: the seed also retains normalized post-race releases for Qatar 2023, Miami 2025, and Belgium 2025, which correctly fail the pre-race cutoff and are not counted as Race baseline coverage.
+
+The 27 returned Race descriptors without an admitted baseline are classified as follows:
+
+- `SOURCE EXISTS BUT FAILS PROVENANCE/CUTOFF` (3): Qatar 2023, Miami 2025, and Belgium 2025; their normalized evidence was published after the Race.
+- `SOURCE EXISTS BUT NORMALIZER EXTRACTS NO USEFUL FACT` (4): Canada and Abu Dhabi 2023, Spain 2024, and the Netherlands 2025. Meeting-specific official article pages were archived, but the current deterministic normalizer found no admissible pre-race fact.
+- `NO DEFENSIBLE OFFICIAL SOURCE FOUND` (20): Mexico City and São Paulo 2023; China, Emilia-Romagna, Mexico City, and São Paulo 2024; Emilia-Romagna, Mexico City, and São Paulo 2025; and Barcelona, Spain, Azerbaijan, Bahrain, Singapore, United States, Mexico City, São Paulo, Las Vegas, Qatar, and Abu Dhabi 2026. The supported refresh found only search/tag-feed/home/media-library shells, not a defensible meeting-specific article.
+- `SOURCE EXISTS BUT NOT TARGET-RACE APPLICABLE` (0) and `NETWORK/ACQUISITION FAILURE` (0) among the returned Race descriptors.
+
+The private OpenF1 metadata source returned no Race descriptors for 2017–2022. Those six requested seasons are therefore classified as `OTHER — metadata source unavailable` at the season level; Slipstream does not invent meeting identities or count them in the 93-meeting denominator. This is a known source limitation and is why the fixed ten-season horizon must remain distinct from materialized coverage.
+
+The tracked seed contains normalized contracts and minimum provenance only. It has no local archive path, raw HTML, PDF/image bytes, downloaded article body, evidence excerpt, or text offset. The complete `.slipstream/pirelli/` working archive remains ignored operational data and is not a distribution artifact.
 
 The implementation may use a normalized-release representation instead of the illustrative fields above if that more directly preserves existing `PirelliRelease` semantics. Prefer reuse over a parallel schema.
 
@@ -270,7 +305,7 @@ Required semantic behavior:
 - existing strategy-option presentation must continue to show published strategies as Pirelli-suggested official context;
 - populate existing delta/condition/caveat UI where extraction begins providing those fields;
 - replace arbitrary first-three context selection only if a small deterministic category-priority presentation can be implemented without entering broad visual redesign;
-- do not make `Pirelli Fit`/divergence a larger concept than it is today;
+- do not elevate compatibility-only relation/divergence fields above the authored product assessment;
 - do not redesign Strategy/Driver/Battle/TV layouts. Claude Design follows this closure milestone.
 
 ## Tests / acceptance
@@ -295,7 +330,7 @@ Add focused tests for at least:
 16. the checked-in seed is non-empty and distinguishes its historical horizon from exact materialized meeting/release contents;
 17. seed-only API acceptance proves Dutch 2026 and Canada 2026 facts on an empty runtime;
 18. missing Canada is prioritized and becomes PRESENT through one bounded self-backfill without restart;
-19. adapted.4 source archives re-normalize offline to adapted.5 while preserving old output.
+19. older source archives re-normalize offline to adapted.6 while preserving old output.
 
 Use the known modern corpus cases already documented in `docs/pirelli-strategy.md` (including Austria/Hungary recall limitations) plus bounded new regression fixtures for the nomination/context bugs. Do not commit the user's raw `.slipstream` archive.
 

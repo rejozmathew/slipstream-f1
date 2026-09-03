@@ -9,15 +9,14 @@ Create one Unraid container with:
 | Template field | Value |
 | --- | --- |
 | Name | `slipstream-f1` |
-| Repository | `ghcr.io/OWNER/slipstream-f1:latest` |
+| Repository | `ghcr.io/rejozmathew/slipstream-f1:latest` |
 | Container port | `3444` TCP |
 | Host port | Any free port; `3444` is the default suggestion |
 | Container path | `/data` |
 | Host path | An appdata directory chosen for Slipstream recordings |
 | Variable | `SLIPSTREAM_MODE=full` (optional; this is the default) |
+| Variable | `SLIPSTREAM_CATALOG_YEARS=3` (optional; this is the default) |
 | Network | Choose the network appropriate for your server/template |
-
-Replace `OWNER` with the GitHub account or organization publishing the package.
 
 The image runs as a non-root user. Ensure the selected appdata directory is writable. If the share uses Unraid’s standard `nobody:users` ownership, configure the container as UID/GID `99:100`; otherwise use the ownership appropriate for that share.
 
@@ -72,7 +71,7 @@ An image shown as orphaned or unused means no current container references it. R
 
 ## Compose alternative
 
-Users who prefer Compose can copy `deploy/unraid/compose.yaml`, `.env.example`, and `refresh.sh` into an appdata directory. Rename `.env.example` to `.env` and set the published image plus host-specific port, storage, UID, and GID values.
+Users who prefer Compose can copy `deploy/unraid/compose.yaml` and `refresh.sh` into an appdata directory. The Compose file is self-contained: it uses the official image, port `3444`, full mode, a three-season replay catalog, UID/GID `99:100`, and `/mnt/user/appdata/slipstream-f1/recordings` without an `.env` file. Edit the YAML directly only when the host needs different values.
 
 ```sh
 docker compose up -d --wait

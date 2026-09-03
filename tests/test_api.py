@@ -117,7 +117,7 @@ def test_web_build_is_served_without_shadowing_api(tmp_path: Path) -> None:
     web_dir = tmp_path / "web"
     (web_dir / "assets").mkdir(parents=True)
     (web_dir / "index.html").write_text(
-        "<!doctype html><title>Slipstream F1</title><div id='root'></div>",
+        "<!doctype html><title>Slipstream</title><div id='root'></div>",
         encoding="utf-8",
     )
     (web_dir / "assets" / "app.js").write_text("// built asset", encoding="utf-8")
@@ -130,7 +130,7 @@ def test_web_build_is_served_without_shadowing_api(tmp_path: Path) -> None:
         missing_api = client.get("/api/v1/missing")
 
     assert index.status_code == 200
-    assert "Slipstream F1" in index.text
+    assert "Slipstream" in index.text
     assert browser_route.status_code == 200
     assert browser_route.text == index.text
     assert asset.text == "// built asset"
