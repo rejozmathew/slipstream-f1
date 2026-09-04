@@ -26,4 +26,4 @@ USER slipstream
 VOLUME ["/data"]
 EXPOSE 3444
 ENTRYPOINT ["python", "-m", "slipstream"]
-CMD ["serve", "/data", "--host", "0.0.0.0", "--port", "3444", "--web-dir", "/app/web", "--catalog-years", "3"]
+CMD ["serve", "/data", "--host", "0.0.0.0", "--port", "3444", "--web-dir", "/app/web"]

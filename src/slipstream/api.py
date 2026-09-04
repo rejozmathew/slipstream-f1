@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -23,9 +24,11 @@ from .evidence import SessionEvidence
 from .historical_download import HistoricalSessionDownloader
 from .library import ReplayLibrary, ReplayResource
 from .live import PublicLiveSession
+from .pirelli.backfill import PirelliHistoricalCoordinator
 from .pirelli.contracts import SessionScope
 from .pirelli.coordinator import PirelliRuntimeCoordinator
 from .pirelli.ingest import PirelliIngestionService
+from .pirelli.seed import import_bundled_pirelli_seed, import_pirelli_seed
 from .pirelli.store import PirelliAvailability, PirelliEvidenceStore
 from .playback import ReplayController
 from .serialization import state_envelope
@@ -35,6 +38,8 @@ from .weekend import (
     WeekendContextCoordinator,
     WeekendContextStore,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -46,6 +51,8 @@ def create_app(
     web_dir: Path | None = None,
     public_live: bool | None = None,
     live_session: PublicLiveSession | None = None,
+    pirelli_historical_coordinator: PirelliHistoricalCoordinator | None = None,
+    pirelli_backfill_initial_delay: float = 60.0,
 ) -> FastAPI:
     clock = now or (lambda: datetime.now(UTC))
     live_enabled = (
@@ -82,12 +89,46 @@ def create_app(
     pirelli_refresh_enabled = os.getenv(
         "SLIPSTREAM_PIRELLI_REFRESH", "1"
     ).strip().lower() not in {"0", "false", "no", "off"}
+    pirelli_ingestion = (
+        PirelliIngestionService(pirelli_store.archive)
+        if pirelli_store is not None
+        else None
+    )
     pirelli_coordinator = (
-        PirelliRuntimeCoordinator(PirelliIngestionService(pirelli_store.archive))
-        if pirelli_store is not None and pirelli_refresh_enabled
+        PirelliRuntimeCoordinator(pirelli_ingestion)
+        if pirelli_ingestion is not None and pirelli_refresh_enabled
+        else None
+    )
+    seed_enabled = os.getenv("SLIPSTREAM_PIRELLI_SEED", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+    if pirelli_store is not None and seed_enabled:
+        try:
+            configured_seed = os.getenv("SLIPSTREAM_PIRELLI_SEED_PATH")
+            if configured_seed:
+                import_pirelli_seed(Path(configured_seed), recording_path)
+            else:
+                import_bundled_pirelli_seed(recording_path)
+        except Exception:
+            logger.exception("Bundled Pirelli seed import failed; startup will continue")
+    pirelli_backfill_enabled = os.getenv(
+        "SLIPSTREAM_PIRELLI_BACKFILL", "1"
+    ).strip().lower() not in {"0", "false", "no", "off"}
+    pirelli_historical = (
+        pirelli_historical_coordinator
+        if downloads_enabled and pirelli_historical_coordinator is not None
+        else PirelliHistoricalCoordinator(
+            recording_path,
+            pirelli_ingestion,
+        )
+        if pirelli_ingestion is not None and pirelli_backfill_enabled
         else None
     )
     pirelli_refresh_task: list[asyncio.Task[None] | None] = [None]
+    pirelli_backfill_task: list[asyncio.Task[None] | None] = [None]
     context_coordinator = (
         WeekendContextCoordinator(
             WeekendContextStore(recording_path),
@@ -96,7 +137,7 @@ def create_app(
         if downloads_enabled
         else None
     )
-    app = FastAPI(title="Slipstream F1", version="0.1.0")
+    app = FastAPI(title="Slipstream", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
@@ -140,12 +181,31 @@ def create_app(
             return PirelliAvailability(
                 "ABSENT", error="Pirelli strategy applies only to Race or Sprint"
             )
-        return pirelli_store.load(
+        availability = pirelli_store.load(
             meeting_key=selected.descriptor.meeting_key,
             target_session_key=selected.descriptor.key,
             evidence_cutoff=selected.descriptor.date_start,
             session_scope=scope,
         )
+        if pirelli_historical is not None:
+            if availability.status != "PRESENT":
+                pirelli_historical.prioritize(selected.descriptor.meeting_key)
+            refresh_status = pirelli_historical.availability_status(
+                selected.descriptor.meeting_key, now=clock()
+            )
+            if refresh_status == "FETCHING" or (
+                availability.status != "PRESENT" and refresh_status is not None
+            ):
+                availability = replace(
+                    availability,
+                    status=refresh_status,
+                    error=(
+                        "official_pirelli_context_retry_scheduled"
+                        if refresh_status == "RETRYING"
+                        else "official_pirelli_context_queued"
+                    ),
+                )
+        return availability
 
     def current_live_descriptor():
         if not live_enabled:
@@ -263,9 +323,21 @@ def create_app(
                     clock,
                 )
             )
+        if pirelli_historical is not None:
+            pirelli_backfill_task[0] = asyncio.create_task(
+                pirelli_historical.run_forever(
+                    clock, initial_delay=pirelli_backfill_initial_delay
+                )
+            )
 
     @app.on_event("shutdown")
     async def stop_live_source() -> None:
+        historical_task = pirelli_backfill_task[0]
+        pirelli_backfill_task[0] = None
+        if historical_task is not None:
+            historical_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await historical_task
         pirelli_task = pirelli_refresh_task[0]
         pirelli_refresh_task[0] = None
         if pirelli_task is not None:

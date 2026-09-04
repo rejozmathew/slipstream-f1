@@ -38,6 +38,7 @@ from .contracts import (
 ARCHIVE_FORMAT = "slipstream.pirelli.archive.v5"
 NORMALIZED_FORMAT = "slipstream.pirelli.normalized-release.v5"
 TEXT_REPRESENTATION_FORMAT = "slipstream.pirelli.text-representation.v1"
+DISCOVERY_PROVENANCE_FORMAT = "slipstream.pirelli.discovery-provenance.v1"
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -80,6 +81,14 @@ def _atomic_json(path: Path, payload: object) -> None:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
     if path.exists():
         return
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(encoded, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _replace_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(encoded, encoding="utf-8")
     tmp.replace(path)
@@ -140,7 +149,29 @@ class PirelliArchive:
             "localRelpath": asset_rel,
             "collectorVersion": collector_version,
         }
-        _atomic_json(release_dir / f"{artifact_id}.json", metadata)
+        metadata_path = release_dir / f"{artifact_id}.json"
+        if metadata_path.exists():
+            try:
+                existing = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = None
+            if (
+                isinstance(existing, dict)
+                and existing.get("contentHash") == content_hash
+                and existing.get("sourceUrl") == source_url
+                and not existing.get("localRelpath")
+            ):
+                # A normalized seed intentionally carries provenance without raw
+                # bytes. Exact later reacquisition hydrates only its path: replacing
+                # its timestamps could erase the original replay-cutoff proof.
+                _replace_json(metadata_path, {**existing, "localRelpath": asset_rel})
+                hydrated = self.get_version(meeting_key, artifact_id)
+                if hydrated is not None:
+                    return hydrated
+            else:
+                _atomic_json(metadata_path, metadata)
+        else:
+            _atomic_json(metadata_path, metadata)
         return ArtifactVersion(
             artifact_id=artifact_id,
             source_url=source_url,
@@ -153,6 +184,34 @@ class PirelliArchive:
             local_relpath=asset_rel,
             collector_version=collector_version,
         )
+
+    def save_artifact_metadata(
+        self, *, meeting_key: str, artifact: ArtifactVersion
+    ) -> Path:
+        """Install provenance-only metadata without copying the source artifact."""
+
+        path = (
+            self.meeting_root(meeting_key)
+            / "releases"
+            / f"{artifact.artifact_id}.json"
+        )
+        _atomic_json(
+            path,
+            {
+                "format": ARCHIVE_FORMAT,
+                "artifactId": artifact.artifact_id,
+                "sourceUrl": artifact.source_url,
+                "sourceType": artifact.source_type.value,
+                "publishedAt": _iso(artifact.published_at),
+                "modifiedAt": _iso(artifact.modified_at),
+                "retrievedAt": _iso(artifact.retrieved_at),
+                "contentHash": artifact.content_hash,
+                "mediaType": artifact.media_type,
+                "localRelpath": None,
+                "collectorVersion": artifact.collector_version,
+            },
+        )
+        return path
 
     def list_versions(self, meeting_key: str) -> tuple[ArtifactVersion, ...]:
         release_dir = self.meeting_root(meeting_key) / "releases"
@@ -243,6 +302,50 @@ class PirelliArchive:
         )
         _atomic_json(path, payload)
         return path
+
+    def save_discovery_provenance(
+        self,
+        *,
+        meeting_key: str,
+        artifact_id: str,
+        match_reason: str,
+    ) -> Path:
+        """Persist immutable discovery proof used by later offline normalization."""
+
+        payload = {
+            "format": DISCOVERY_PROVENANCE_FORMAT,
+            "meetingKey": str(meeting_key),
+            "artifactId": artifact_id,
+            "matchReason": match_reason,
+        }
+        digest = sha256_bytes(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )[:16]
+        path = (
+            self.meeting_root(meeting_key)
+            / "derived"
+            / f"{artifact_id}-discovery-{digest}.json"
+        )
+        _atomic_json(path, payload)
+        return path
+
+    def has_exact_event_discovery(self, meeting_key: str, artifact_id: str) -> bool:
+        """Return whether an immutable discovery record proves exact-event scope."""
+
+        root = self.meeting_root(meeting_key) / "derived"
+        for path in sorted(root.glob(f"{artifact_id}-discovery-*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (
+                payload.get("format") == DISCOVERY_PROVENANCE_FORMAT
+                and payload.get("meetingKey") == str(meeting_key)
+                and payload.get("artifactId") == artifact_id
+                and "exact_event_tag" in str(payload.get("matchReason", ""))
+            ):
+                return True
+        return False
 
     def load_evidence_artifact(
         self,
@@ -352,7 +455,7 @@ def _app(raw: object) -> FactApplicability:
     )
 
 
-def _release_from_payload(raw: dict[str, object]) -> PirelliRelease:
+def release_from_payload(raw: dict[str, object]) -> PirelliRelease:
     strategies: list[StrategyOption] = []
     for item_raw in cast(list[object], raw.get("strategies", [])):
         if not isinstance(item_raw, dict):
@@ -536,18 +639,7 @@ def _release_from_payload(raw: dict[str, object]) -> PirelliRelease:
 def list_normalized_releases(
     archive: PirelliArchive, meeting_key: str
 ) -> tuple[PirelliRelease, ...]:
-    root = archive.meeting_root(meeting_key) / "normalized"
-    if not root.exists():
-        return ()
-    releases: list[PirelliRelease] = []
-    for path in sorted(root.glob("*.json")):
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            if raw.get("format") != NORMALIZED_FORMAT:
-                continue
-            releases.append(_release_from_payload(raw))
-        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-            continue
+    releases = list_normalized_derivations(archive, meeting_key)
     # Normalized outputs remain immutable on disk, but one exact source artifact
     # can be reprocessed by a newer deterministic normalizer. Consumers must not
     # treat those derivations as separate releases or select an older output by
@@ -556,9 +648,9 @@ def list_normalized_releases(
     for release in releases:
         key = (release.release_id, release.content_hash)
         selected = current.get(key)
-        if selected is None or _normalizer_order(
+        if selected is None or normalizer_order(
             release.normalizer_version
-        ) > _normalizer_order(selected.normalizer_version):
+        ) > normalizer_order(selected.normalizer_version):
             current[key] = release
     return tuple(
         sorted(
@@ -568,5 +660,43 @@ def list_normalized_releases(
     )
 
 
-def _normalizer_order(value: str) -> tuple[tuple[int, ...], str]:
+def list_normalized_derivations(
+    archive: PirelliArchive, meeting_key: str
+) -> tuple[PirelliRelease, ...]:
+    """Read every immutable derivation, including superseded normalizers."""
+
+    root = archive.meeting_root(meeting_key) / "normalized"
+    if not root.exists():
+        return ()
+    releases: list[PirelliRelease] = []
+    for path in sorted(root.glob("*.json")):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if raw.get("format") != NORMALIZED_FORMAT:
+                continue
+            releases.append(release_from_payload(raw))
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return tuple(
+        sorted(
+            releases,
+            key=lambda r: (
+                r.published_at or r.retrieved_at,
+                r.release_id,
+                normalizer_order(r.normalizer_version),
+            ),
+        )
+    )
+
+
+def normalizer_order(value: str) -> tuple[tuple[int, ...], str]:
     return tuple(int(part) for part in re.findall(r"\d+", value)), value
+
+
+def has_normalizer_release(
+    archive: PirelliArchive, meeting_key: str, normalizer_version: str
+) -> bool:
+    return any(
+        release.normalizer_version == normalizer_version
+        for release in list_normalized_derivations(archive, meeting_key)
+    )

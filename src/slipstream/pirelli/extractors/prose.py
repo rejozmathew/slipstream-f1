@@ -49,6 +49,25 @@ _NEGATIVE_SCOPE = re.compile(
     r"long\s+runs?|compared\s+[^.]{0,30}performance)\b",
     re.IGNORECASE,
 )
+_NUMBER_WORDS = {
+    "zero": 0.0,
+    "one": 1.0,
+    "two": 2.0,
+    "three": 3.0,
+    "four": 4.0,
+    "five": 5.0,
+    "six": 6.0,
+    "seven": 7.0,
+    "eight": 8.0,
+    "nine": 9.0,
+    "ten": 10.0,
+}
+_DELTA_NUMBER = r"(?:\d+(?:\.\d+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten)"
+_ANNOTATION_SUBJECT = re.compile(
+    r"(?P<strategy>\b(?:race\s+)?(?:strateg(?:y|ies)|options?|alternatives?|tactics?)\b)"
+    r"|(?P<other>\b(?:pit[- ]stops?|pit\s+windows?|windows?|laps?|sectors?)\b)",
+    re.IGNORECASE,
+)
 
 
 def _strategy_id(source_url: str, seq: tuple[Compound, ...], evidence_text: str) -> str:
@@ -176,6 +195,93 @@ def _evidence(
     )
 
 
+def _number(value: str) -> float:
+    word = _NUMBER_WORDS.get(value.casefold())
+    return word if word is not None else float(value)
+
+
+def _strategy_attributed(text: str, position: int) -> bool:
+    subjects = tuple(_ANNOTATION_SUBJECT.finditer(text[:position]))
+    return bool(subjects and subjects[-1].lastgroup == "strategy")
+
+
+def _strategy_annotations(
+    text: str,
+) -> tuple[float | None, tuple[float, float] | None, tuple[str, ...], tuple[str, ...]]:
+    """Extract explicit source-local annotations without deriving strategy meaning."""
+
+    delta: float | None = None
+    delta_range: tuple[float, float] | None = None
+    range_match = re.search(
+        rf"\bbetween\s+({_DELTA_NUMBER})\s+and\s+({_DELTA_NUMBER})\s+seconds?\s+slower\b",
+        text,
+        re.IGNORECASE,
+    )
+    if range_match and _strategy_attributed(text, range_match.start()):
+        low, high = _number(range_match.group(1)), _number(range_match.group(2))
+        if 0 <= low <= high <= 120:
+            delta_range = (low, high)
+    elif range_match is None:
+        exact_match = re.search(
+            rf"\b(?:around|about|approximately|roughly)?\s*({_DELTA_NUMBER})\s+seconds?\s+slower\b",
+            text,
+            re.IGNORECASE,
+        )
+        if exact_match and _strategy_attributed(text, exact_match.start()):
+            value = _number(exact_match.group(1))
+            if 0 <= value <= 120:
+                delta = value
+
+    conditions: list[str] = []
+    condition_patterns = (
+        (r"\bin\s+clean\s+air\b", "In clean air"),
+        (r"\bin\s+(?:heavy\s+)?traffic\b", "In traffic"),
+        (r"\bwith\s+(?:heavy\s+)?traffic\b", "With traffic"),
+        (
+            r"\b(?:under|during)\s+(?:a\s+)?(?:virtual\s+safety\s+car|VSC)\b",
+            "Under a VSC",
+        ),
+        (
+            r"\bif\s+(?:there\s+(?:is|was)\s+)?(?:a\s+)?(?:virtual\s+safety\s+car|VSC)\b",
+            "If there is a VSC",
+        ),
+    )
+    for pattern, label in condition_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if (
+            match
+            and _strategy_attributed(text, match.start())
+            and label not in conditions
+        ):
+            conditions.append(label)
+
+    caveats: list[str] = []
+    for pattern in (
+        r"\b(?:only\s+if|provided\s+that|unless)\b[^.;!?]*",
+        r"\btraffic\b[^.;!?]{0,80}\b(?:could|may|might|would)\b[^.;!?]*",
+        (
+            r"\b(?:but|although|albeit)\b[^.;!?]{0,100}"
+            r"\b(?:traffic|clean\s+air|VSC|virtual\s+safety\s+car)\b[^.;!?]*"
+        ),
+    ):
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match and _strategy_attributed(text, match.end()):
+            value = re.sub(r"\s+", " ", match.group(0)).strip(" ,")
+            if value and value not in caveats:
+                caveats.append(value[0].upper() + value[1:])
+
+    caveats = [
+        item
+        for item in caveats
+        if not any(
+            other != item and other.casefold() in item.casefold()
+            for other in caveats
+        )
+    ]
+
+    return delta, delta_range, tuple(conditions), tuple(caveats)
+
+
 def _make(
     *,
     source_url: str,
@@ -185,9 +291,17 @@ def _make(
     evidence_text: str,
     rank_text: str | None = None,
     conditions: tuple[str, ...] = (),
+    caveats: tuple[str, ...] = (),
+    annotate: bool = True,
     applicability: FactApplicability = FactApplicability(),  # noqa: B008
 ) -> StrategyOption:
     sequence_ev = _evidence(artifact_id, source_url, evidence_text)
+    annotation_text = evidence_text
+    extracted_delta, extracted_range, extracted_conditions, extracted_caveats = (
+        _strategy_annotations(annotation_text) if annotate else (None, None, (), ())
+    )
+    all_conditions = tuple(dict.fromkeys((*conditions, *extracted_conditions)))
+    all_caveats = tuple(dict.fromkeys((*caveats, *extracted_caveats)))
     rank_value = _rank(rank_text or evidence_text)
     rank_ev = (
         (_evidence(artifact_id, source_url, rank_text or evidence_text),)
@@ -201,7 +315,10 @@ def _make(
         sequence=(sequence_ev,),
         rank=rank_ev,
         pit_windows=window_evidence,
-        conditions=(sequence_ev,) if conditions else (),
+        delta=(sequence_ev,)
+        if extracted_delta is not None or extracted_range is not None
+        else (),
+        conditions=(sequence_ev,) if all_conditions or all_caveats else (),
     )
     return StrategyOption(
         id=_strategy_id(source_url, compounds, evidence_text),
@@ -209,7 +326,10 @@ def _make(
         stop_count=len(compounds) - 1,
         compounds=compounds,
         pit_windows=windows,
-        conditions=conditions,
+        published_delta_seconds=extracted_delta,
+        published_delta_seconds_range=extracted_range,
+        conditions=all_conditions,
+        caveats=all_caveats,
         source_evidence=(sequence_ev,),
         field_evidence=field_evidence,
         applicability=applicability,
@@ -255,6 +375,7 @@ def extract_strategy_prose(
                     windows=(win,) + (None,) * max(0, len(seq) - 2),
                     evidence_text=sentence.strip(),
                     rank_text=(previous + " " + sentence).strip(),
+                    annotate=len(all_direct) == 1,
                     applicability=applicability,
                 )
             )
@@ -445,6 +566,7 @@ def extract_strategy_prose(
                         windows=(window,),
                         evidence_text=match.group(0),
                         rank_text=local,
+                        annotate=False,
                         applicability=applicability,
                     )
                 )
@@ -494,6 +616,30 @@ def extract_strategy_prose(
                     windows=(PitWindow(int(match.group(3)), int(match.group(4))),),
                     evidence_text=match.group(0),
                     rank_text=local,
+                    applicability=applicability,
+                )
+            )
+
+    # Some official guidance states an explicitly valid compound pairing without
+    # using a transition verb. The route is deterministic even when a following
+    # coded-start sentence does not provide enough local evidence to bind its window.
+    valid_combination = re.compile(
+        rf"\b({_COMPOUND})\s+could\s+be\s+a\s+valid\s+option[^.]*?"
+        rf"(?:used\s+)?in\s+combination\s+with\s+(?:the\s+)?({_COMPOUND})\b",
+        re.IGNORECASE,
+    )
+    for match in valid_combination.finditer(text):
+        first = _compound(match.group(1))
+        second = _compound(match.group(2))
+        if first is not None and second is not None:
+            options.append(
+                _make(
+                    source_url=source_url,
+                    artifact_id=artifact_id,
+                    compounds=(first, second),
+                    windows=(None,),
+                    evidence_text=match.group(0),
+                    rank_text=match.group(0),
                     applicability=applicability,
                 )
             )
@@ -581,6 +727,7 @@ def extract_strategy_prose(
                     compounds=(start_compound, finish),
                     windows=(PitWindow(a, b),),
                     evidence_text=match.group(0),
+                    annotate=False,
                     applicability=applicability,
                 )
             )
@@ -611,10 +758,6 @@ def extract_strategy_prose(
     # article is PARTIAL until these claim scopes are resolved or disproved.
     unresolved_patterns = (
         ("ANAPHORIC_OPTION", r"could\s+instead\s+use\s+it\s+at\s+the\s+start"),
-        (
-            "CROSS_SENTENCE_COMBINATION",
-            rf"(?:{_COMPOUND})\s+could\s+be\s+a\s+valid\s+option[^.]*?combination\s+with\s+(?:the\s+)?(?:{_COMPOUND})",
-        ),
         (
             "ALTERNATIVE_MIDDLE_STINT",
             r"Alternatively,[^.]*middle\s+stint[^.]*towards\s+the\s+end",
@@ -676,6 +819,10 @@ def extract_strategy_prose(
             option.rank,
             option.order,
             tuple((w.start_lap, w.end_lap) if w else None for w in option.pit_windows),
+            option.published_delta_seconds,
+            option.published_delta_seconds_range,
+            option.conditions,
+            option.caveats,
         )
         if key not in seen:
             seen.add(key)

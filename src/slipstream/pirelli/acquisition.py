@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import aiohttp
 
@@ -71,11 +73,12 @@ class PirelliPublicClient:
         max_bytes: int = 8_000_000,
         attempts: int = 3,
     ) -> None:
+        self.timeout_seconds = timeout_seconds
         self.timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         self.max_bytes = max_bytes
         self.attempts = max(1, attempts)
         self.headers = {
-            "User-Agent": "SlipstreamF1-PirelliIngest/5",
+            "User-Agent": "Slipstream-PirelliIngest/5",
             "Accept": "text/html,application/pdf,image/*,application/xml;q=0.9,*/*;q=0.1",
         }
 
@@ -110,14 +113,54 @@ class PirelliPublicClient:
                             .split(";", 1)[0]
                             .casefold()
                         )
+                        if (
+                            "html" in media_type
+                            and not body.rstrip().lower().endswith(b"</html>")
+                        ):
+                            return await asyncio.to_thread(
+                                self._fetch_html_fallback, url
+                            )
                         return final_url, body, media_type
-            except (TimeoutError, aiohttp.ClientError, ValueError) as error:
+            except (
+                TimeoutError,
+                aiohttp.ClientError,
+                HTTPError,
+                URLError,
+                OSError,
+                ValueError,
+            ) as error:
                 last_error = error
                 if attempt + 1 < self.attempts:
                     await asyncio.sleep(0.5 * (2**attempt))
         if last_error is not None:
             raise last_error
         raise RuntimeError("Pirelli fetch failed without an error")
+
+    def _fetch_html_fallback(self, url: str) -> tuple[str, bytes, str]:
+        """Recover PressPage HTML when aiohttp receives a truncated chunk stream."""
+
+        request = Request(
+            url,
+            headers={
+                **self.headers,
+                "Accept-Encoding": "identity",
+                "Connection": "close",
+            },
+        )
+        with urlopen(request, timeout=self.timeout_seconds) as response:
+            final_url = response.geturl()
+            self._validate_url(final_url)
+            body = response.read(self.max_bytes + 1)
+            if len(body) > self.max_bytes:
+                raise ValueError(f"Pirelli artifact exceeds {self.max_bytes} bytes")
+            if not body.rstrip().lower().endswith(b"</html>"):
+                raise ValueError("Pirelli HTML response is incomplete")
+            media_type = (
+                response.headers.get("Content-Type", "text/html")
+                .split(";", 1)[0]
+                .casefold()
+            )
+            return final_url, body, media_type
 
     async def fetch_public(self, url: str) -> tuple[str, bytes, str]:
         """Fetch one allowlisted public Pirelli artifact with bounded retry/backoff."""

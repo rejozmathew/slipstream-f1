@@ -11,6 +11,7 @@ from slipstream.pirelli.contracts import (
     DriverTyreBank,
     EvidenceKind,
     ExtractionMethod,
+    ExtractionStatus,
     FactApplicability,
     PirelliRelease,
     PitWindow,
@@ -26,6 +27,8 @@ from slipstream.pirelli.coordinator import PirelliRuntimeCoordinator
 from slipstream.pirelli.discovery import (
     PIRELLI_F1_RSS_URL,
     MeetingDiscoveryTarget,
+    discover_for_meeting,
+    parse_formula1_feed,
     pirelli_event_tag,
 )
 from slipstream.pirelli.ingest import (
@@ -78,6 +81,40 @@ def _feed(*entries: tuple[str, str, str, str]) -> bytes:
 
 def _page(text: str) -> bytes:
     return f"<html><main>{text}</main></html>".encode()
+
+
+def test_production_presspage_category_list_exposes_exact_event_tag():
+    feed = _feed(
+        (
+            "Sprint victory for Norris and pole position for Antonelli",
+            "https://press.pirelli.com/miami-strategy",
+            "Sat, 02 May 2026 23:07:38 GMT",
+            "2026 Season,2026 Infographics,2026 Miami Grand Prix,news,Formula 1",
+        )
+    )
+
+    [entry] = parse_formula1_feed(feed.decode())
+
+    assert entry.categories == (
+        "2026 Season",
+        "2026 Infographics",
+        "2026 Miami Grand Prix",
+        "news",
+        "Formula 1",
+    )
+    [candidate] = discover_for_meeting(
+        (entry,),
+        MeetingDiscoveryTarget(
+            meeting_key="1284",
+            canonical_name="Miami Grand Prix",
+            season=2026,
+            weekend_start=datetime(2026, 5, 1, tzinfo=UTC),
+            weekend_end=datetime(2026, 5, 3, 23, tzinfo=UTC),
+            aliases=("Miami", "Miami Gardens"),
+        ),
+    )
+    assert candidate.status == ExtractionStatus.ACCEPTED
+    assert candidate.match_reason == "exact_event_tag"
 
 
 def _meeting(name: str = "Hungarian Grand Prix") -> MeetingDiscoveryTarget:
@@ -279,6 +316,59 @@ def test_china_qualifying_day_article_admits_race_strategy_despite_sprint_langua
         published,
         ["SOFT", "HARD"],
         [{"startLap": 15, "endLap": 21}],
+    )
+
+
+def test_miami_qualifying_article_admits_explicit_grand_prix_guidance(tmp_path):
+    availability, published = _run_race_article_pipeline(
+        tmp_path,
+        meeting_key="1284",
+        meeting_name="Miami Grand Prix",
+        title="Sprint victory for Norris and pole position for Antonelli",
+        published_at=datetime(2026, 5, 2, 23, 7, tzinfo=UTC),
+        race_start=datetime(2026, 5, 3, 17, tzinfo=UTC),
+        current_lap=24,
+        article=(
+            "<p>Kimi Antonelli secured pole position in today's qualifying session. "
+            "Lando Norris claimed victory in this morning's Sprint. During the Sprint "
+            "all Pirelli compounds were used.</p><p>The one-stop strategy is confirmed as "
+            "the fastest option for tomorrow, as expected ahead of the race weekend. "
+            "The compounds selected for Miami have proven consistent and with low "
+            "degradation. By contrast, a two-stop strategy would be penalised by around "
+            "10 seconds compared to a single stop.</p><p>On paper, the Medium-Hard solution, "
+            "with a pit window between laps 22 and 28, is the quickest. The Soft could "
+            "be a valid option, exploiting its higher grip, when used in combination "
+            "with the Hard. Starting on the C5, the pit stop should be made between laps "
+            "16 and 22. Less effective in terms of lap time is the Medium-Soft pairing, "
+            "which would have a pit window between laps 32 and 38.</p><p>The weather forecast "
+            "could even lead to a wet race.</p>"
+        ),
+    )
+
+    assert availability.status == "PRESENT"
+    assert published["baseline"]["status"] == "PRESENT"
+    assert _published_option(
+        published,
+        ["MEDIUM", "HARD"],
+        [{"startLap": 22, "endLap": 28}],
+    )
+    assert _published_option(
+        published,
+        ["MEDIUM", "SOFT"],
+        [{"startLap": 32, "endLap": 38}],
+    )
+    assert any(
+        option["compounds"] == ["SOFT", "HARD"]
+        and option["pitWindows"] == [None]
+        for option in published["baseline"]["options"]
+    )
+    categories = {
+        fact["category"] for fact in published["baseline"]["contextFacts"]
+    }
+    assert {"STRATEGY_OUTLOOK", "DEGRADATION", "WEATHER"} <= categories
+    assert any(
+        "around 10 seconds" in fact["statement"]
+        for fact in published["baseline"]["contextFacts"]
     )
 
 
@@ -698,3 +788,21 @@ def test_failed_refresh_is_observable_and_retries_without_twelve_hour_suppressio
     assert state.last_success_at is None
     assert state.last_reason == "retry_after_failure"
     assert state.last_error == "OSError: newsroom unavailable"
+
+
+def test_current_coordinator_does_not_refresh_an_old_default_replay():
+    service = _FailingService()
+    coordinator = PirelliRuntimeCoordinator(service)  # type: ignore[arg-type]
+    descriptor = _descriptor()
+
+    asyncio.run(
+        coordinator.refresh_relevant(
+            {descriptor.key: descriptor},
+            default_key=descriptor.key,
+            resource_loader=lambda _key: _resource(),
+            now=datetime(2026, 9, 2, tzinfo=UTC),
+        )
+    )
+
+    assert service.attempts == 0
+    assert coordinator.states == {}

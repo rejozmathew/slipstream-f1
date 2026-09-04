@@ -1,19 +1,111 @@
-"""Bounded manual Pirelli historical Race backfill over the replay catalog."""
+"""Bounded manual and quiet historical Pirelli Race backfill."""
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from ..library import ReplayLibrary
+from ..catalog import recent_seasons
+from .acquisition import PirelliPublicClient
 from .archive import list_normalized_releases
+from .config import (
+    DEFAULT_PIRELLI_HISTORY_YEARS,
+    NORMALIZER_VERSION,
+    validate_history_years,
+)
 from .contracts import SessionScope
 from .coordinator import build_ingestion_target
 from .discovery import FeedEntry
 from .ingest import PirelliIngestionService
+from .metadata import (
+    metadata_descriptors,
+    metadata_path,
+    sync_pirelli_metadata,
+)
 from .store import PirelliEvidenceStore
+
+logger = logging.getLogger(__name__)
+BACKFILL_STATE_FORMAT = "slipstream.pirelli.backfill-state.v1"
+
+
+def _fact_applies_to_target(
+    fact: object,
+    *,
+    meeting_key: str,
+    session_scope: SessionScope,
+    target_session_key: str,
+) -> bool:
+    applicability = fact.applicability
+    if applicability.meeting_key != meeting_key:
+        return False
+    if applicability.session_scope == SessionScope.WEEKEND:
+        return True
+    if applicability.session_scope in {SessionScope.UNKNOWN, session_scope}:
+        return (
+            applicability.session_scope == session_scope
+            and applicability.target_session_key == target_session_key
+        )
+    return False
+
+
+def _release_applies_to_target(
+    release: object,
+    *,
+    meeting_key: str,
+    session_scope: SessionScope,
+    target_session_key: str,
+) -> bool:
+    facts = (
+        *release.compound_selections,
+        *release.strategies,
+        *release.tyre_bank_snapshots,
+        *release.context_facts,
+    )
+    return any(
+        _fact_applies_to_target(
+            fact,
+            meeting_key=meeting_key,
+            session_scope=session_scope,
+            target_session_key=target_session_key,
+        )
+        for fact in facts
+    )
+
+
+def _target_releases_use_current_normalizer(
+    store: PirelliEvidenceStore, descriptor: object, availability: object
+) -> bool:
+    """Check the cutoff-admitted releases backing this target, not the meeting."""
+
+    if getattr(availability, "status", None) != "PRESENT":
+        return False
+    meeting_key = str(descriptor.meeting_key)
+    if getattr(availability, "model_admissible", True):
+        releases = store.releases_as_of(
+            meeting_key, evidence_cutoff=descriptor.date_start
+        )
+    else:
+        releases = store.display_releases_as_of(
+            meeting_key, evidence_cutoff=descriptor.date_start
+        )
+    relevant = tuple(
+        release
+        for release in releases
+        if _release_applies_to_target(
+            release,
+            meeting_key=meeting_key,
+            session_scope=SessionScope.RACE,
+            target_session_key=str(descriptor.key),
+        )
+    )
+    return bool(relevant) and all(
+        release.normalizer_version == NORMALIZER_VERSION for release in relevant
+    )
 
 
 @dataclass(frozen=True)
@@ -63,8 +155,19 @@ async def sync_pirelli_backfill(
     if not selected_years:
         raise ValueError("at least one season is required")
     selected_meetings = {str(value) for value in meeting_keys}
-    replay_library = library or ReplayLibrary(data_root)
-    descriptors = dict(replay_library.descriptors)
+    replay_library = library
+    resource_loader = None
+    if replay_library is None:
+        metadata = sync_pirelli_metadata(
+            metadata_path(data_root), selected_years, now=now
+        )
+        descriptor_values = metadata_descriptors(metadata)
+    else:
+        descriptor_values = tuple(replay_library.descriptors.values())
+        resource_loader = (
+            None if getattr(replay_library, "metadata_only", False) else replay_library.get
+        )
+    descriptors = {descriptor.key: descriptor for descriptor in descriptor_values}
     races = [
         descriptor
         for descriptor in descriptors.values()
@@ -80,27 +183,27 @@ async def sync_pirelli_backfill(
     ingestion = service or PirelliIngestionService(store.archive)
     retrieved_at = now or datetime.now(UTC)
     shared_feed: tuple[FeedEntry, ...] | None = None
-    needs_refresh = any(
-        force or not list_normalized_releases(store.archive, meeting_key)
-        for meeting_key in by_meeting
-    )
-    if (
-        isinstance(ingestion, PirelliIngestionService)
-        and not dry_run
-        and needs_refresh
-    ):
-        try:
-            shared_feed = await ingestion.discovery_entries(now=retrieved_at)
-        except Exception:  # noqa: BLE001 - every meeting gets isolated archive fallback
-            shared_feed = ()
+    shared_feed_loaded = False
     items: list[PirelliBackfillItem] = []
     for meeting_key, descriptor in by_meeting.items():
         if dry_run:
             items.append(_item(descriptor, "PLANNED", attempted=False))
             continue
 
-        existing = list_normalized_releases(store.archive, meeting_key)
-        attempted = force or not existing
+        existing_availability = store.load(
+            meeting_key=meeting_key,
+            target_session_key=str(descriptor.key),
+            evidence_cutoff=descriptor.date_start,
+            session_scope=SessionScope.RACE,
+        )
+        current_normalizer = _target_releases_use_current_normalizer(
+            store, descriptor, existing_availability
+        )
+        attempted = (
+            force
+            or existing_availability.status != "PRESENT"
+            or not current_normalizer
+        )
         issue: str | None = None
         if attempted:
             inventory = sorted(
@@ -116,17 +219,49 @@ async def sync_pirelli_backfill(
                     meeting_key,
                     descriptor,
                     inventory,
-                    replay_library.get,
+                    resource_loader,
+                )
+                if (
+                    not current_normalizer
+                    and isinstance(ingestion, PirelliIngestionService)
+                ):
+                    repaired = await ingestion.renormalize_archived(target)
+                    if repaired.issues:
+                        issue = "; ".join(repaired.issues)
+                    existing_availability = store.load(
+                        meeting_key=meeting_key,
+                        target_session_key=str(descriptor.key),
+                        evidence_cutoff=descriptor.date_start,
+                        session_scope=SessionScope.RACE,
+                    )
+                    current_normalizer = _target_releases_use_current_normalizer(
+                        store, descriptor, existing_availability
+                    )
+                needs_network = (
+                    force
+                    or not current_normalizer
+                    or existing_availability.status != "PRESENT"
                 )
                 if isinstance(ingestion, PirelliIngestionService):
-                    refresh = await ingestion.refresh(
-                        target,
-                        now=retrieved_at,
-                        feed_entries=shared_feed,
-                    )
+                    if needs_network:
+                        if not shared_feed_loaded:
+                            try:
+                                shared_feed = await ingestion.discovery_entries(
+                                    now=retrieved_at
+                                )
+                            except Exception:  # noqa: BLE001 - per-event fallback remains
+                                shared_feed = ()
+                            shared_feed_loaded = True
+                        refresh = await ingestion.refresh(
+                            target,
+                            now=retrieved_at,
+                            feed_entries=shared_feed,
+                        )
+                    else:
+                        refresh = None
                 else:
                     refresh = await ingestion.refresh(target, now=retrieved_at)
-                if refresh.issues:
+                if refresh is not None and refresh.issues:
                     issue = "; ".join(refresh.issues)
             except Exception as error:  # noqa: BLE001 - one meeting must not stop a sweep
                 items.append(
@@ -168,6 +303,280 @@ async def sync_pirelli_backfill(
     return PirelliBackfillReport(selected_years, dry_run, tuple(items))
 
 
+@dataclass(frozen=True)
+class HistoricalBackfillResult:
+    status: str
+    meeting_key: str | None = None
+    issue: str | None = None
+
+
+class PirelliHistoricalCoordinator:
+    """Fill at most one old meeting per low-frequency pass."""
+
+    def __init__(
+        self,
+        data_root: Path,
+        service: PirelliIngestionService,
+        *,
+        history_years: int = DEFAULT_PIRELLI_HISTORY_YEARS,
+        interval: timedelta = timedelta(hours=6),
+        retry_after: timedelta = timedelta(hours=24),
+        metadata_sync: Any = sync_pirelli_metadata,
+    ) -> None:
+        self.data_root = data_root
+        self.store = PirelliEvidenceStore(data_root)
+        self.service = service
+        self.history_years = validate_history_years(history_years)
+        self.interval = interval
+        self.retry_after = retry_after
+        self.metadata_sync = metadata_sync
+        self._lock = asyncio.Lock()
+        self._priority: str | None = None
+        self._priority_revision = 0
+        self._wake: asyncio.Event | None = None
+        self._wake_loop: asyncio.AbstractEventLoop | None = None
+        self._active_meeting: str | None = None
+
+    def prioritize(self, meeting_key: str) -> None:
+        key = str(meeting_key)
+        if self._priority != key:
+            self._priority = key
+            self._priority_revision += 1
+        if self._wake is not None and self._wake_loop is not None:
+            self._wake_loop.call_soon_threadsafe(self._wake.set)
+
+    def availability_status(
+        self, meeting_key: str, *, now: datetime | None = None
+    ) -> str | None:
+        """Expose only the product-level state for one requested meeting."""
+
+        key = str(meeting_key)
+        if self._active_meeting == key:
+            return "FETCHING"
+        clock = (now or datetime.now(UTC)).astimezone(UTC)
+        rows = _read_backfill_state(self.data_root).get("meetings", {})
+        for row in (rows.get(key, {}), rows.get("__metadata__", {})):
+            retry_at = _optional_utc(row.get("nextAttemptAt"))
+            if (
+                row.get("status") not in {None, "PRESENT"}
+                and retry_at is not None
+                and retry_at > clock
+            ):
+                return "RETRYING"
+        if self._priority == key:
+            return "FETCHING"
+        return None
+
+    async def run_once(
+        self,
+        *,
+        now: datetime | None = None,
+        descriptors: tuple[object, ...] | None = None,
+    ) -> HistoricalBackfillResult:
+        if self._lock.locked():
+            return HistoricalBackfillResult("BUSY")
+        async with self._lock:
+            attempt = asyncio.create_task(
+                self._run_once_locked(now=now, descriptors=descriptors)
+            )
+            try:
+                return await asyncio.shield(attempt)
+            except asyncio.CancelledError:
+                # asyncio.to_thread cannot stop an already-running worker. Keep
+                # the coordinator lock and wait for the selected meeting to
+                # reach a persisted terminal state before shutdown completes.
+                await asyncio.shield(attempt)
+                raise
+
+    async def _run_once_locked(
+        self,
+        *,
+        now: datetime | None,
+        descriptors: tuple[object, ...] | None,
+    ) -> HistoricalBackfillResult:
+        clock = (now or datetime.now(UTC)).astimezone(UTC)
+        priority_revision = self._priority_revision
+        years = tuple(recent_seasons(self.history_years, now=clock))
+        if descriptors is None and _retry_pending(
+            self.data_root, "__metadata__", clock
+        ):
+            return HistoricalBackfillResult(
+                "DEFERRED", issue="historical metadata retry is not due"
+            )
+        try:
+            available = descriptors
+            if available is None:
+                metadata = await asyncio.to_thread(
+                    self.metadata_sync,
+                    metadata_path(self.data_root),
+                    years,
+                    now=clock,
+                )
+                available = metadata_descriptors(metadata)
+            selected = self._select(available, now=clock)
+            if selected is None:
+                return HistoricalBackfillResult("IDLE")
+            meeting_key = str(selected.meeting_key)
+            priority_revision = self._priority_revision
+            self._active_meeting = meeting_key
+            self._record_attempt(meeting_key, clock, status="RUNNING")
+            sync_kwargs = {
+                "years": (int(selected.year),),
+                "meeting_keys": (meeting_key,),
+                "force": False,
+                "now": clock,
+                "library": _DescriptorLibrary(available),
+                "service": self.service,
+            }
+            if isinstance(
+                getattr(self.service, "client", None), PirelliPublicClient
+            ):
+                # Production ingestion mixes async HTTP with substantial
+                # immutable-archive parsing. Run its private event loop in a
+                # worker so historical catch-up cannot starve API/WebSocket
+                # traffic in the one-process application.
+                report = await asyncio.to_thread(
+                    _sync_pirelli_backfill_worker,
+                    self.data_root,
+                    sync_kwargs,
+                )
+            else:
+                # Lightweight injected services remain on the caller's loop;
+                # tests and integrations may intentionally own loop-bound
+                # synchronization primitives.
+                report = await sync_pirelli_backfill(
+                    self.data_root, **sync_kwargs
+                )
+            item = report.items[0] if report.items else None
+            if item is None:
+                status, issue = "ABSENT", "selected meeting produced no report"
+            else:
+                status, issue = item.status, item.issue
+            self._record_attempt(meeting_key, clock, status=status, issue=issue)
+            if (
+                self._priority == meeting_key
+                and self._priority_revision == priority_revision
+            ):
+                self._priority = None
+            return HistoricalBackfillResult(status, meeting_key, issue)
+        except Exception as error:  # noqa: BLE001 - catch-up never blocks product
+            meeting_key = (
+                str(selected.meeting_key) if "selected" in locals() and selected else None
+            )
+            issue = f"{type(error).__name__}: {error}"
+            self._record_attempt(
+                meeting_key or "__metadata__",
+                clock,
+                status="FAILURE",
+                issue=issue,
+            )
+            logger.warning("Historical Pirelli catch-up failed: %s", issue)
+            return HistoricalBackfillResult("FAILURE", meeting_key, issue)
+        finally:
+            self._active_meeting = None
+
+    async def run_forever(
+        self,
+        clock: Any = lambda: datetime.now(UTC),
+        *,
+        initial_delay: float = 60.0,
+    ) -> None:
+        self._wake_loop = asyncio.get_running_loop()
+        self._wake = asyncio.Event()
+        try:
+            if initial_delay > 0 and self._priority is None:
+                try:
+                    await asyncio.wait_for(self._wake.wait(), timeout=initial_delay)
+                except TimeoutError:
+                    pass
+            while True:
+                self._wake.clear()
+                await self.run_once(now=clock())
+                if self._priority is None:
+                    self._wake.clear()
+                try:
+                    await asyncio.wait_for(
+                        self._wake.wait(),
+                        timeout=max(self.interval.total_seconds(), 60.0),
+                    )
+                except TimeoutError:
+                    pass
+        finally:
+            self._wake = None
+            self._wake_loop = None
+
+    def _select(
+        self, descriptors: tuple[object, ...], *, now: datetime
+    ) -> object | None:
+        state = _read_backfill_state(self.data_root)
+        candidates: list[object] = []
+        by_meeting: dict[str, object] = {}
+        for descriptor in sorted(descriptors, key=lambda item: item.date_start):
+            if getattr(descriptor, "session_kind", None) != "race":
+                continue
+            if _as_utc(descriptor.date_end) >= now - timedelta(days=2):
+                continue
+            by_meeting[str(descriptor.meeting_key)] = descriptor
+        for meeting_key, descriptor in by_meeting.items():
+            if self._covered(descriptor):
+                continue
+            row = state.get("meetings", {}).get(meeting_key, {})
+            retry_at = _optional_utc(row.get("nextAttemptAt"))
+            if retry_at is not None and retry_at > now:
+                continue
+            candidates.append(descriptor)
+        if self._priority is not None:
+            prioritized = next(
+                (
+                    item
+                    for item in candidates
+                    if str(item.meeting_key) == self._priority
+                ),
+                None,
+            )
+            if prioritized is not None:
+                return prioritized
+        return candidates[0] if candidates else None
+
+    def _covered(self, descriptor: object) -> bool:
+        availability = self.store.load(
+            meeting_key=str(descriptor.meeting_key),
+            target_session_key=str(descriptor.key),
+            evidence_cutoff=descriptor.date_start,
+            session_scope=SessionScope.RACE,
+        )
+        return _target_releases_use_current_normalizer(
+            self.store, descriptor, availability
+        )
+
+    def _record_attempt(
+        self,
+        meeting_key: str,
+        attempted_at: datetime,
+        *,
+        status: str,
+        issue: str | None = None,
+    ) -> None:
+        try:
+            state = _read_backfill_state(self.data_root)
+            meetings = state.setdefault("meetings", {})
+            meetings[meeting_key] = {
+                "lastAttemptAt": attempted_at.isoformat(),
+                "nextAttemptAt": (attempted_at + self.retry_after).isoformat(),
+                "status": status,
+                "issue": issue,
+            }
+            _write_backfill_state(self.data_root, state)
+        except (OSError, TypeError, ValueError) as error:
+            logger.warning("Could not persist historical Pirelli retry state: %s", error)
+
+
+def _sync_pirelli_backfill_worker(
+    data_root: Path, kwargs: dict[str, Any]
+) -> PirelliBackfillReport:
+    return asyncio.run(sync_pirelli_backfill(data_root, **kwargs))
+
+
 def format_pirelli_backfill_report(report: PirelliBackfillReport) -> str:
     lines = [
         f"Pirelli Race sync seasons: {', '.join(str(year) for year in report.years)}",
@@ -207,3 +616,62 @@ def _item(
         normalized_release_count=normalized_release_count,
         issue=issue,
     )
+
+
+class _DescriptorLibrary:
+    metadata_only = True
+
+    def __init__(self, descriptors: tuple[object, ...]) -> None:
+        self.descriptors = {str(item.key): item for item in descriptors}
+
+    def get(self, _key: str) -> None:
+        return None
+
+
+def _as_utc(value: str | datetime) -> datetime:
+    parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _optional_utc(value: object) -> datetime | None:
+    if not isinstance(value, (str, datetime)):
+        return None
+    try:
+        return _as_utc(value)
+    except ValueError:
+        return None
+
+
+def _backfill_state_path(data_root: Path) -> Path:
+    return data_root / ".slipstream" / "pirelli-backfill-state.json"
+
+
+def _read_backfill_state(data_root: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(
+            _backfill_state_path(data_root).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, dict) or payload.get("format") != BACKFILL_STATE_FORMAT:
+        return {"format": BACKFILL_STATE_FORMAT, "meetings": {}}
+    if not isinstance(payload.get("meetings"), dict):
+        payload["meetings"] = {}
+    return payload
+
+
+def _write_backfill_state(data_root: Path, payload: dict[str, Any]) -> None:
+    path = _backfill_state_path(data_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(encoded, encoding="utf-8")
+    temporary.replace(path)
+
+
+def _retry_pending(data_root: Path, meeting_key: str, now: datetime) -> bool:
+    row = _read_backfill_state(data_root).get("meetings", {}).get(meeting_key, {})
+    retry_at = _optional_utc(row.get("nextAttemptAt"))
+    return retry_at is not None and retry_at > now

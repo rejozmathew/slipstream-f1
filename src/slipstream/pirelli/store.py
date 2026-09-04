@@ -241,11 +241,15 @@ def _availability_for_releases(
             model_admissible=model_admissible,
             evidence_tier=evidence_tier,
         )
-    if snapshot.latest_strategy_release is None and not snapshot.compound_selections:
+    if (
+        snapshot.latest_strategy_release is None
+        and not snapshot.compound_selections
+        and not snapshot.context_facts
+    ):
         return PirelliAvailability(
             "ABSENT",
             snapshot=snapshot,
-            error="no_admissible_published_strategy",
+            error="no_admissible_pirelli_context",
             model_admissible=model_admissible,
             evidence_tier=evidence_tier,
         )

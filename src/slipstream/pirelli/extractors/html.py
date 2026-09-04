@@ -27,7 +27,13 @@ class _Parser(HTMLParser):
         self._json_chunks: list[str] = []
         self._ignore = 0
         self._article = 0
+        self._main = 0
         self._article_chunks: list[str] = []
+        self._section_chunks: list[str] = []
+        self.article_sections: list[str] = []
+        self._main_chunks: list[str] = []
+        self._main_section_chunks: list[str] = []
+        self.main_sections: list[str] = []
         self._link: tuple[str, str | None, bool] | None = None
         self._link_chunks: list[str] = []
         self.links: list[tuple[str, str, str | None]] = []
@@ -54,8 +60,10 @@ class _Parser(HTMLParser):
             ).casefold()
             if key and d.get("content"):
                 self.meta[key] = d["content"]
-        if tag in {"article", "main"}:
+        if tag == "article":
             self._article += 1
+        elif tag == "main":
+            self._main += 1
         if tag == "a" and d.get("href"):
             classes = set(d.get("class", "").split())
             self._link = (
@@ -82,8 +90,34 @@ class _Parser(HTMLParser):
             return
         if tag in {"script", "style", "noscript", "svg"} and self._ignore:
             self._ignore -= 1
-        if tag in {"article", "main"} and self._article:
+        if self._article and tag in {
+            "p",
+            "li",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+        }:
+            self._flush_article_section()
+        elif self._main and tag in {
+            "p",
+            "li",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+        }:
+            self._flush_main_section()
+        if tag == "article" and self._article:
+            self._flush_article_section()
             self._article -= 1
+        elif tag == "main" and self._main:
+            self._flush_main_section()
+            self._main -= 1
         if tag == "a" and self._link is not None:
             url, media_type, archive_entry = self._link
             link = (url, _clean(" ".join(self._link_chunks)), media_type)
@@ -117,10 +151,26 @@ class _Parser(HTMLParser):
             return
         if self._article:
             self._article_chunks.append(text)
+            self._section_chunks.append(text)
+        elif self._main:
+            self._main_chunks.append(text)
+            self._main_section_chunks.append(text)
         if self._link is not None:
             self._link_chunks.append(text)
         if self._cell:
             self._cell_chunks.append(text)
+
+    def _flush_article_section(self) -> None:
+        section = _clean(" ".join(self._section_chunks))
+        if section and (not self.article_sections or self.article_sections[-1] != section):
+            self.article_sections.append(section)
+        self._section_chunks = []
+
+    def _flush_main_section(self) -> None:
+        section = _clean(" ".join(self._main_section_chunks))
+        if section and (not self.main_sections or self.main_sections[-1] != section):
+            self.main_sections.append(section)
+        self._main_section_chunks = []
 
 
 def _walk(value: Any) -> Iterable[dict[str, Any]]:
@@ -139,6 +189,7 @@ def parse_html(source: str, base_url: str) -> HtmlDocument:
 
     title = ""
     body = ""
+    json_body = ""
     published: str | None = None
     modified: str | None = None
     for raw in parser.jsonld:
@@ -150,7 +201,8 @@ def parse_html(source: str, base_url: str) -> HtmlDocument:
             if not title and isinstance(node.get("headline"), str):
                 title = _clean(node["headline"])
             if not body and isinstance(node.get("articleBody"), str):
-                body = _clean(node["articleBody"])
+                json_body = node["articleBody"]
+                body = _clean(json_body)
             if not published and isinstance(node.get("datePublished"), str):
                 published = node["datePublished"]
             if not modified and isinstance(node.get("dateModified"), str):
@@ -159,7 +211,22 @@ def parse_html(source: str, base_url: str) -> HtmlDocument:
     title = title or _clean(
         parser.meta.get("og:title") or parser.meta.get("twitter:title") or ""
     )
-    body = body or _clean(" ".join(parser._article_chunks))
+    semantic_article = bool(parser._article_chunks)
+    body = body or _clean(
+        " ".join(parser._article_chunks if semantic_article else parser._main_chunks)
+    )
+    if json_body:
+        article_sections = tuple(
+            _clean(section)
+            for section in re.split(r"(?:\r?\n){2,}", json_body)
+            if _clean(section)
+        )
+    else:
+        article_sections = tuple(
+            parser.article_sections if semantic_article else parser.main_sections
+        )
+    if not article_sections and body:
+        article_sections = (body,)
     published = (
         published
         or parser.meta.get("article:published_time")
@@ -179,4 +246,5 @@ def parse_html(source: str, base_url: str) -> HtmlDocument:
         links=tuple(parser.links),
         tables=tuple(parser.tables),
         archive_links=tuple(parser.archive_links),
+        article_sections=article_sections,
     )

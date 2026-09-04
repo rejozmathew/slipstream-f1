@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -30,6 +31,23 @@ def test_versioned_state_and_capabilities_endpoints() -> None:
     assert replay.json()["eventCount"] > 0
     assert replay.json()["startTime"] <= replay.json()["endTime"]
     assert replay.json()["durationSeconds"] > 0
+
+
+def test_invalid_bundled_seed_cannot_block_application_startup(
+    tmp_path, monkeypatch
+) -> None:
+    (tmp_path / "sample.json").write_bytes(NORMALIZED_REPLAY.read_bytes())
+    invalid_seed = tmp_path / "invalid-seed.json.gz"
+    invalid_seed.write_bytes(b"not a gzip seed")
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_SEED_PATH", str(invalid_seed))
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_BACKFILL", "0")
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+
+    with TestClient(create_app(tmp_path, public_live=False)) as client:
+        response = client.get("/api/v1/catalog")
+
+    assert response.status_code == 200
+    assert response.json()["sessions"]
 
 
 def test_driver_history_is_on_demand_and_outside_race_state() -> None:
@@ -83,8 +101,11 @@ def test_catalog_exposes_season_weekend_and_session_metadata() -> None:
     ]
 
 
-def test_recording_directory_can_switch_between_library_sessions() -> None:
-    with TestClient(create_app(RECORDING.parent)) as client:
+def test_recording_directory_can_switch_between_library_sessions(tmp_path: Path) -> None:
+    for source in RECORDING.parent.glob("*.json"):
+        shutil.copy2(source, tmp_path / source.name)
+
+    with TestClient(create_app(tmp_path)) as client:
         catalog = client.get("/api/v1/catalog").json()
         selected = client.get("/api/v1/state?session_key=100").json()
 
@@ -96,7 +117,7 @@ def test_web_build_is_served_without_shadowing_api(tmp_path: Path) -> None:
     web_dir = tmp_path / "web"
     (web_dir / "assets").mkdir(parents=True)
     (web_dir / "index.html").write_text(
-        "<!doctype html><title>Slipstream F1</title><div id='root'></div>",
+        "<!doctype html><title>Slipstream</title><div id='root'></div>",
         encoding="utf-8",
     )
     (web_dir / "assets" / "app.js").write_text("// built asset", encoding="utf-8")
@@ -109,7 +130,7 @@ def test_web_build_is_served_without_shadowing_api(tmp_path: Path) -> None:
         missing_api = client.get("/api/v1/missing")
 
     assert index.status_code == 200
-    assert "Slipstream F1" in index.text
+    assert "Slipstream" in index.text
     assert browser_route.status_code == 200
     assert browser_route.text == index.text
     assert asset.text == "// built asset"

@@ -19,7 +19,7 @@ def render(state: RaceState) -> str:
         f"{session.lap if session.lap is not None else '-'}/{session.total_laps or '-'}"
     )
     lines = [
-        f"Slipstream F1 | {title}",
+        f"Slipstream | {title}",
         f"Status: {session.status} | Lap: {session_lap} | Track: {session.track_status or '-'} | Updated: {state.updated_at or 'never'}",
     ]
     conditions = _render_conditions(state)

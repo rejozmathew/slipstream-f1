@@ -36,6 +36,8 @@ Reconstruction remains deterministic: the inclusive event cursor determines both
 
 Historical replay ends at the settled factual product boundary rather than necessarily at the first chequered packet. Late classification facts included in the normalized recording remain reachable, and backward seeks reconstruct the earlier cursor without projecting those final results into the past.
 
+Replay download/preparation UX is still deferred. The product does not yet claim complete progress feedback, an explicit `DOWNLOADING` / `PREPARING` / `READY` lifecycle, elimination of the blank or partial post-download shell or possible refresh, immediate control/slider readiness, removal of the end-to-start initialization flash, or optimized bootstrap latency.
+
 ## Qualifying
 
 The backend owns Qualifying truth. It publishes the current phase and clock, tyre/usage observations, completed-lap history, benchmark/scope, verified advancement boundary, final-segment results, teammate comparison, and advancing/eliminated classification when evidence supports them. The browser formats these values but does not calculate a competing benchmark or elimination model.

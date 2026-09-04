@@ -9,6 +9,7 @@ services:
       - "${SLIPSTREAM_PORT:-3444}:3444"
     environment:
       SLIPSTREAM_MODE: "${SLIPSTREAM_MODE:-full}"
+      SLIPSTREAM_CATALOG_YEARS: "${SLIPSTREAM_CATALOG_YEARS:-3}"
     volumes:
       - "${SLIPSTREAM_RECORDINGS_DIR:-slipstream-recordings}:/data"
     restart: unless-stopped

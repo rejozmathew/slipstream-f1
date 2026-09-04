@@ -5,11 +5,12 @@ import asyncio
 import os
 import re
 import sys
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .adapters.openf1 import OpenF1Client, OpenF1Error, write_recording
 from .catalog import recent_seasons, sync_catalog
+from .pirelli.config import DEFAULT_PIRELLI_HISTORY_YEARS
 from .playback import ReplayController
 from .replay import load_events, replay
 from .terminal import render
@@ -82,13 +83,58 @@ def main() -> None:
         "--year", type=int, action="append", help="Sync one explicit season"
     )
     pirelli_seasons.add_argument(
-        "--years", type=int, default=3, help="Number of recent seasons to sync"
+        "--years",
+        type=int,
+        default=DEFAULT_PIRELLI_HISTORY_YEARS,
+        help="Number of recent seasons to sync",
     )
     pirelli_command.add_argument(
         "--meeting-key", action="append", default=[], help="Limit to a meeting key"
     )
     pirelli_command.add_argument("--force", action="store_true")
     pirelli_command.add_argument("--dry-run", action="store_true")
+    seed_command = commands.add_parser(
+        "build-pirelli-seed",
+        help="Build a deterministic normalized Pirelli distribution seed",
+    )
+    seed_command.add_argument(
+        "--data-root", type=Path, default=Path("recordings")
+    )
+    seed_command.add_argument("--from-year", type=int, required=True)
+    seed_command.add_argument("--through-year", type=int, required=True)
+    seed_command.add_argument("--output", type=Path, required=True)
+    seed_command.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Permit an empty diagnostic seed; release seeds reject this by default",
+    )
+    renormalize_command = commands.add_parser(
+        "renormalize-pirelli",
+        help="Re-run the current normalizer against immutable local Pirelli sources",
+    )
+    renormalize_command.add_argument(
+        "--data-root", type=Path, default=Path("recordings")
+    )
+    renormalize_command.add_argument("--year", type=int, action="append")
+    renormalize_command.add_argument("--years", type=int)
+    renormalize_command.add_argument("--from-year", type=int)
+    renormalize_command.add_argument("--through-year", type=int)
+    renormalize_command.add_argument(
+        "--meeting-key", action="append", default=[]
+    )
+    refresh_seed_command = commands.add_parser(
+        "refresh-pirelli-seed",
+        help="Refresh official history and build a non-empty production seed",
+    )
+    refresh_seed_command.add_argument(
+        "--data-root", type=Path, default=Path("recordings")
+    )
+    refresh_seed_command.add_argument(
+        "--years", type=int, default=DEFAULT_PIRELLI_HISTORY_YEARS
+    )
+    refresh_seed_command.add_argument("--from-year", type=int)
+    refresh_seed_command.add_argument("--through-year", type=int)
+    refresh_seed_command.add_argument("--output", type=Path, required=True)
     serve_command = commands.add_parser(
         "serve", help="Serve one replay or a recording directory over API v1"
     )
@@ -109,7 +155,7 @@ def main() -> None:
     serve_command.add_argument(
         "--catalog-years",
         type=int,
-        default=0,
+        default=os.environ.get("SLIPSTREAM_CATALOG_YEARS", "3"),
         help="Refresh this many recent seasons before serving a directory",
     )
     serve_command.add_argument("--catalog-max-age-hours", type=float, default=24.0)
@@ -181,6 +227,68 @@ def main() -> None:
         if report.count("FAILURE"):
             parser.exit(1)
         return
+    if args.command == "build-pirelli-seed":
+        from .pirelli.seed import build_pirelli_seed
+
+        try:
+            report = build_pirelli_seed(
+                args.data_root,
+                from_year=args.from_year,
+                through_year=args.through_year,
+                output=args.output,
+                require_nonempty=not args.allow_empty,
+            )
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"Pirelli seed build unavailable: {error}\n")
+        print(
+            f"Built {report.meetings} meetings / {report.releases} releases "
+            f"({report.bytes_written} bytes, sha256 {report.digest}) in {args.output}"
+        )
+        return
+    if args.command == "renormalize-pirelli":
+        from .pirelli.maintenance import (
+            format_renormalize_report,
+            renormalize_pirelli,
+        )
+
+        try:
+            years = _pirelli_maintenance_years(args)
+            report = asyncio.run(
+                renormalize_pirelli(
+                    args.data_root,
+                    years=years,
+                    meeting_keys=tuple(args.meeting_key),
+                )
+            )
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"Pirelli re-normalization unavailable: {error}\n")
+        print(format_renormalize_report(report))
+        if any(item.issue for item in report.items):
+            parser.exit(1)
+        return
+    if args.command == "refresh-pirelli-seed":
+        from .pirelli.maintenance import (
+            format_seed_refresh_report,
+            refresh_pirelli_seed,
+        )
+
+        through_year = args.through_year or datetime.now(UTC).year
+        from_year = args.from_year or through_year - args.years + 1
+        try:
+            report = asyncio.run(
+                refresh_pirelli_seed(
+                    args.data_root,
+                    from_year=from_year,
+                    through_year=through_year,
+                    output=args.output,
+                )
+            )
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"Pirelli seed refresh unavailable: {error}\n")
+        print(format_seed_refresh_report(report))
+        if report.backfill.count("FAILURE"):
+            parser.exit(1)
+        return
     if args.command == "serve":
         import uvicorn
 
@@ -201,14 +309,15 @@ def main() -> None:
 
         web_dir = args.web_dir if args.mode == "full" else None
         uvicorn.run(
-            create_app(args.path, web_dir=web_dir),
+            create_app(
+                args.path,
+                web_dir=web_dir,
+            ),
             host=args.host,
             port=args.port,
         )
         return
     if args.command == "live":
-        from datetime import datetime
-
         from .live import LiveSourceError, PublicLiveRecorder
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -241,6 +350,26 @@ def main() -> None:
             controller.pause()
         return
     print(render(replay(events, at=args.at, event_limit=args.events)), end="")
+
+
+def _pirelli_maintenance_years(args: argparse.Namespace) -> tuple[int, ...]:
+    if args.year:
+        if args.years or args.from_year or args.through_year:
+            raise ValueError(
+                "--year cannot be combined with --years/--from-year/--through-year"
+            )
+        return tuple(sorted(set(args.year)))
+    through_year = args.through_year or datetime.now(UTC).year
+    if args.from_year is not None:
+        if args.years is not None:
+            raise ValueError("--from-year cannot be combined with --years")
+        if args.from_year > through_year:
+            raise ValueError("--from-year must not exceed --through-year")
+        return tuple(range(args.from_year, through_year + 1))
+    count = args.years or DEFAULT_PIRELLI_HISTORY_YEARS
+    if count < 1:
+        raise ValueError("--years must be at least one")
+    return tuple(range(through_year - count + 1, through_year + 1))
 
 
 def _fetch_session_library(

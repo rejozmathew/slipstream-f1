@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 
 import { PaceDeltaChart } from "../components/analysis/PaceDeltaChart";
-import { DriverPirelliContext, PirelliBaseline, RaceNow, publishedWindowSummary } from "../components/analysis/PublishedStrategy";
+import { DriverPirelliContext, PirelliBaseline, PirelliNomination, RaceNow } from "../components/analysis/PublishedStrategy";
 import { TrackMap } from "../components/analysis/TrackMap";
-import { CompoundBadge, CompoundTransition } from "../components/shared/CompoundBadge";
+import { CompoundBadge, CompoundSequence, CompoundTransition } from "../components/shared/CompoundBadge";
 import { TimingTower } from "../components/timing/TimingTower";
 import { completedLapGapTrend, currentPairGap } from "../domain/battle";
 import { driverLifecycle } from "../domain/lifecycle";
+import { actualStrategyCompounds, driverPirelliReferenceRows, driverPirelliStopWindowsText, driverStrategyRelationship, dryTyreRequirementText, NO_SPECIFIC_PIRELLI_STRATEGY } from "../domain/pirelliPresentation.mjs";
 import type { AnalyticsSnapshot, Driver, PositionMode, RaceState, SessionKind } from "../domain/protocol";
 import type { SessionLayout } from "../domain/sessionLayout";
 import { isCriticalTrackStatus, nextAuthoredState } from "../domain/tvMode.mjs";
@@ -47,16 +48,19 @@ function DriverTV({ driver, analytics, state, positionMode }: {
     <div className="tv-driver-zones">
       <section className="tv-driver-facts"><h3>DRIVER STATE</h3><div><span>AHEAD</span><strong>{model?.ahead?.code ?? "—"}</strong><small>{model?.ahead?.gapSeconds == null ? "—" : `${model.ahead.gapSeconds.toFixed(3)}s`}</small></div><div><span>BEHIND</span><strong>{model?.behind?.code ?? "—"}</strong><small>{model?.behind?.gapSeconds == null ? "—" : `${model.behind.gapSeconds.toFixed(3)}s`}</small></div><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>STINT / PITS</span><strong>{driver.stint_laps ?? "—"}L · {driver.pit_count}</strong></div><div><span>LAST / BEST</span><strong>{driver.last_lap ?? "—"} · {driver.best_lap ?? "—"}</strong></div>{latestPit && <div><span>LATEST PIT · L{latestPit.lap}</span><strong><CompoundTransition from={latestPit.previousCompound} to={latestPit.newCompound} compact /></strong><small>STOP {model?.pitEvents.length ?? driver.pit_count} · STATIONARY {latestPit.stopDuration == null ? "—" : `${latestPit.stopDuration.toFixed(1)}s`} · PIT LANE {latestPit.pitLaneDuration == null ? "—" : `${latestPit.pitLaneDuration.toFixed(1)}s`}</small></div>}<div className="tv-driver-read"><span>DRIVER READ</span><strong>{model?.read.headline ?? "Driver read not available yet."}</strong>{model?.read.facts.slice(0, 2).map((fact) => <small key={fact}>{fact}</small>)}</div></section>
       <div className="tv-driver-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[driver.number]} focusLabel={`${driver.code ?? driver.number} · FOCUS`} /></div>
-      <div className="tv-driver-analysis"><section className="tv-driver-pace"><h3>PACE TREND</h3><PaceDeltaChart samples={samples} compact serverScale={model?.pace.scale} /></section><DriverPirelliContext analytics={analytics} driverNumber={driver.number} compact /></div>
+      <div className="tv-driver-analysis"><section className="tv-driver-pace"><h3>PACE TREND</h3><PaceDeltaChart samples={samples} compact serverScale={model?.pace.scale} /></section><DriverPirelliContext analytics={analytics} driver={driver} compact /></div>
     </div>
   </div>;
 }
 
 function BattleCard({ driver, analytics }: { driver: Driver; analytics: AnalyticsSnapshot | null }) {
-  const model = analytics?.drivers[driver.number];
   const published = analytics?.publishedStrategy?.drivers[driver.number];
-  const showPublished = analytics?.publishedStrategy?.status === "PRESENT";
-  return <section className="tv-battle-card" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as React.CSSProperties}><header><b>P{driver.position ?? "—"}</b><strong>{driver.code ?? driver.number}</strong><span>#{driver.number}</span></header><p>{driver.name ?? "Driver"} · {driver.team ?? "Team unavailable"}</p><div><span>TYRE / AGE</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</strong></div><div><span>LAST / REPRESENTATIVE</span><strong>{driver.last_lap ?? "—"} · {model?.pace.currentStintBaseline?.toFixed(3) ?? "—"}</strong></div>{showPublished && <><div><span>PIRELLI FIT</span><strong>{published?.relation.replaceAll("_", " ") ?? "—"}</strong></div><div><span>PUBLISHED WINDOWS</span><strong>{publishedWindowSummary(published, "—")}</strong></div></>}</section>;
+  const baseline = analytics?.publishedStrategy?.baseline;
+  const showPublished = baseline?.status === "PRESENT";
+  const hasPublishedStrategy = showPublished && baseline.options.length > 0;
+  const references = driverPirelliReferenceRows(baseline, published);
+  const dryRule = dryTyreRequirementText(published);
+  return <section className="tv-battle-card" style={{ "--team": `#${driver.team_colour ?? "77808f"}` } as React.CSSProperties}><header><b>P{driver.position ?? "—"}</b><strong>{driver.code ?? driver.number}</strong><span>#{driver.number}</span></header><p>{driver.name ?? "Driver"} · {driver.team ?? "Team unavailable"}</p><div><span>TYRE / AGE · STOPS</span><strong><CompoundBadge compound={driver.compound} compact /> {driver.tyre_age == null ? "—" : `${driver.tyre_age}L`} · {driver.pit_count}</strong></div><div><span>ACTUAL TYRE STRATEGY</span><strong><CompoundSequence compounds={actualStrategyCompounds(published)} /></strong></div>{dryRule && <div><span>DRY RULE</span><strong>{dryRule}</strong></div>}{hasPublishedStrategy ? <><div><span>PIRELLI TYRE STRATEGY</span><strong className="strategy-pirelli-options">{references.map((reference) => <CompoundSequence key={reference.id} compounds={reference.compounds} ordered={reference.ordered} />)}</strong><small>{driverStrategyRelationship(baseline, published)}</small></div><div><span>PUBLISHED STOP WINDOW</span><strong>{driverPirelliStopWindowsText(baseline, published, false)}</strong></div></> : showPublished && <><div><span>PIRELLI TYRE STRATEGY</span><strong>{NO_SPECIFIC_PIRELLI_STRATEGY}</strong></div><PirelliNomination baseline={baseline} /></>}</section>;
 }
 
 function TVBattle({ drivers, analytics, mode, state, positionMode }: {
@@ -165,7 +169,7 @@ export function TVModeView({ state, analytics, recommendedBattle, sessionLayout,
     <main className={`tv-stage tv-stage-${visibleState}`}>
       {visibleState === "tower" && <div className="tv-tower"><TimingTower drivers={drivers} variant={layout === "race" ? "race" : layout === "qualifying" ? "qualifying" : "practice"} mode="standard" replayAvailable={replayAvailable} analytics={analytics} sectorTimingAvailable={layout === "qualifying" && sectorTimingAvailable} /></div>}
       {visibleState === "track" && (layout === "race" ? <TVTrack state={state} drivers={drivers} analytics={analytics} positionMode={positionMode} replayAvailable={replayAvailable} /> : <div className="tv-track"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /></div>)}
-      {visibleState === "strategy" && <div className={`tv-strategy pirelli-tv-strategy${pirelliPresent ? "" : " pirelli-tv-strategy-absent"}`}>{pirelliPresent ? <><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} /><RaceNow analytics={analytics} /></> : <><RaceNow analytics={analytics} /><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} compact /></>}</div>}
+      {visibleState === "strategy" && <div className={`tv-strategy pirelli-tv-strategy${pirelliPresent ? "" : " pirelli-tv-strategy-absent"}`}>{pirelliPresent ? <><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} fieldFacts={analytics?.publishedStrategy?.fieldFacts} /><RaceNow analytics={analytics} /></> : <><RaceNow analytics={analytics} /><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} compact /></>}</div>}
       {visibleState === "battle" && <TVBattle drivers={battle} analytics={analytics} mode={preferences.battleMode} state={state} positionMode={positionMode} />}
       {visibleState === "driver" && <DriverTV driver={selectedDriver} analytics={analytics} state={state} positionMode={positionMode} />}
     </main>

@@ -3,15 +3,16 @@ name: slipstream-f1
 services:
   slipstream:
     container_name: slipstream-f1
-    image: ${SLIPSTREAM_IMAGE:?Set SLIPSTREAM_IMAGE to the published GHCR image}
+    image: ghcr.io/rejozmathew/slipstream-f1:latest
     pull_policy: always
-    user: "${SLIPSTREAM_PUID:-99}:${SLIPSTREAM_PGID:-100}"
+    user: "99:100"
     ports:
-      - "${SLIPSTREAM_PORT:-3444}:3444"
+      - "3444:3444"
     environment:
-      SLIPSTREAM_MODE: "${SLIPSTREAM_MODE:-full}"
+      SLIPSTREAM_MODE: "full"
+      SLIPSTREAM_CATALOG_YEARS: "3"
     volumes:
-      - "${SLIPSTREAM_RECORDINGS_DIR:-./recordings}:/data"
+      - "/mnt/user/appdata/slipstream-f1/recordings:/data"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3444/api/v1/catalog', timeout=3)"]

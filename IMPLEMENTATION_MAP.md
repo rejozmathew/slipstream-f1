@@ -39,7 +39,7 @@ React renders canonical contracts and does not recreate analytics or provider tr
 | Analytics orchestration | `analytics.py` |
 | RaceRead and race intelligence | `race_intelligence.py`, `strategy_rules.py` |
 | Qualifying intelligence | `qualifying.py` |
-| Pirelli acquisition and storage | `pirelli/` |
+| Pirelli seed, acquisition, backfill, normalization, admission, and storage | `pirelli/` plus bundled `data/pirelli-seed-v1.json.gz` |
 | Published Pirelli comparison | `published_strategy.py` |
 | Backtest boundary | `backtest.py` — explicitly `NOT_IMPLEMENTED` |
 | API and serialization | `api.py`, `serialization.py` |
@@ -75,14 +75,14 @@ The public Live subscription allow-list also contains `Heartbeat` and `TopThree`
 
 | Surface | Main truth |
 | --- | --- |
-| Session and Timing Tower | `RaceState` |
-| Driver current state | `RaceState.drivers[number]` |
+| Session and Timing Tower | `RaceState`; Race Strategy mode adds `publishedStrategy.actualStrategy` and last factual stop |
+| Driver current state | `RaceState.drivers[number]`; Race Driver Focus puts actual strategy before Pirelli reference |
 | Driver lap and pit history | `SessionEvidence` through `/api/v1/driver-history` |
-| Strategy | server-authored `raceRead` plus admitted Pirelli context |
+| Strategy | full admitted Pirelli baseline plus current-race `publishedStrategy` evidence and factual `raceRead` |
 | Qualifying | server-authored `qualifying` analytics |
-| Battle | server-authored completed-lap evidence and stabilization |
+| Battle | actual two-driver strategy plus server-authored completed-lap evidence; Pirelli remains secondary context |
 | Track Map | circuit geometry plus capability- and lifecycle-filtered positions |
-| TV Mode | the same canonical state and analytics, with authored presentation |
+| TV Mode | compact rendering of the same actual-strategy, Pirelli, state, and analytics semantics |
 
 Race and Sprint may expose Strategy and Battle. Qualifying uses its own timing and Driver Focus. Qualifying TV is Tower plus Track only when positions are renderable; Practice TV is Tower-only.
 
@@ -97,6 +97,9 @@ Race and Sprint may expose Strategy and Battle. Qualifying uses its own timing a
 - The Live protocol accepts 0–300 seconds; the browser currently offers 0, 5, 10, 15, and 30-second presets.
 - Pirelli has strict-model and display-only official historical evidence tiers.
 - Display-only Pirelli evidence cannot produce model-comparable options or future windows.
+- Pirelli history is fixed at ten seasons; the independently configurable replay catalog defaults to three.
+- `actualStrategy` preserves every factual pit stop, including same-compound stops, and incomplete evidence stays `UNKNOWN`.
+- Dry-tyre requirement is `UNSATISFIED`, `SATISFIED`, `NOT_APPLICABLE`, or `UNKNOWN`; only `UNSATISFIED` is actionable.
 - Replay deletion preserves catalog/circuit/Pirelli/source manifests while removing replay timing, raw timing, and rebuildable Weekend Context.
 - `IN_PIT` may be omitted from a physical map marker but is never an `OUT / STOPPED` label.
 
@@ -124,3 +127,4 @@ See the current `tests/` and `web/tests/` trees rather than older milestone-spec
 - protected/authenticated telemetry by default;
 - precise live X/Y and hardware clients;
 - broad visual redesign after the M3.5 factual baseline.
+- replay download/preparation readiness, control activation, slider readiness, initialization flashes, and bootstrap performance.

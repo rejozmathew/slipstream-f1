@@ -8,6 +8,7 @@ from slipstream.pirelli.archive import (
 )
 from slipstream.pirelli.contracts import (
     Compound,
+    ContextFact,
     EvidenceKind,
     ExtractionMethod,
     FactApplicability,
@@ -20,8 +21,12 @@ from slipstream.pirelli.contracts import (
     StrategyOrder,
     StrategyRank,
 )
+from slipstream.pirelli.extractors.html import parse_html
 from slipstream.pirelli.extractors.prose import extract_strategy_prose
-from slipstream.pirelli.extractors.structured import extract_compound_nominations
+from slipstream.pirelli.extractors.structured import (
+    extract_compound_nominations,
+    extract_context_facts,
+)
 from slipstream.pirelli.store import PirelliEvidenceStore
 
 
@@ -90,11 +95,22 @@ def _save_release(archive: PirelliArchive, *, meeting: str, release: PirelliRele
         )
         for option in release.strategies
     )
+    context_facts = tuple(
+        replace(
+            fact,
+            source_evidence=tuple(
+                replace(evidence, artifact_id=artifact.artifact_id)
+                for evidence in fact.source_evidence
+            ),
+        )
+        for fact in release.context_facts
+    )
     saved = replace(
         release,
         release_id=artifact.artifact_id,
         artifact_ids=(artifact.artifact_id,),
         strategies=strategies,
+        context_facts=context_facts,
     )
     save_normalized_release(archive, meeting_key=meeting, release=saved)
     return saved
@@ -133,6 +149,89 @@ def test_store_is_meeting_scoped_and_cursor_safe(tmp_path):
         evidence_cutoff="2026-07-26T12:00:00Z",
     )
     assert wrong_target.status == "ABSENT"
+
+
+def test_context_only_race_baseline_is_present_but_remains_target_scoped(tmp_path):
+    release = _release(
+        meeting="miami", retrieved=datetime(2026, 7, 25, tzinfo=UTC)
+    )
+    evidence = release.strategies[0].source_evidence[0]
+    context_only = replace(
+        release,
+        strategies=(),
+        context_facts=(
+            ContextFact(
+                "STRATEGY_OUTLOOK",
+                "The one-stop strategy is the fastest option for tomorrow.",
+                (evidence,),
+                FactApplicability(
+                    meeting_key="miami",
+                    session_scope=SessionScope.RACE,
+                    target_session_key="race-miami",
+                ),
+            ),
+        ),
+    )
+    _save_release(
+        PirelliArchive(tmp_path), meeting="miami", release=context_only
+    )
+    store = PirelliEvidenceStore(tmp_path)
+
+    present = store.load(
+        meeting_key="miami",
+        target_session_key="race-miami",
+        evidence_cutoff="2026-07-26T17:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+    wrong_session = store.load(
+        meeting_key="miami",
+        target_session_key="other-race",
+        evidence_cutoff="2026-07-26T17:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+    wrong_meeting = store.load(
+        meeting_key="montreal",
+        target_session_key="race-miami",
+        evidence_cutoff="2026-07-26T17:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+    session_only = replace(
+        context_only,
+        release_id="session-only",
+        applicability=FactApplicability(
+            meeting_key="session-only", session_scope=SessionScope.WEEKEND
+        ),
+        context_facts=tuple(
+            replace(
+                context_only.context_facts[0],
+                applicability=FactApplicability(
+                    meeting_key="session-only",
+                    session_scope=scope,
+                    target_session_key=f"{scope.value.casefold()}-session",
+                ),
+            )
+            for scope in (SessionScope.QUALIFYING, SessionScope.PRACTICE)
+        ),
+    )
+    _save_release(
+        PirelliArchive(tmp_path), meeting="session-only", release=session_only
+    )
+    race_from_other_sessions = store.load(
+        meeting_key="session-only",
+        target_session_key="race-session",
+        evidence_cutoff="2026-07-26T17:00:00Z",
+        session_scope=SessionScope.RACE,
+    )
+
+    assert present.status == "PRESENT"
+    assert present.snapshot is not None
+    assert present.snapshot.latest_strategy_release is None
+    assert [fact.category for fact in present.snapshot.context_facts] == [
+        "STRATEGY_OUTLOOK"
+    ]
+    assert wrong_session.status == "ABSENT"
+    assert wrong_meeting.status == "ABSENT"
+    assert race_from_other_sessions.status == "ABSENT"
 
 
 def test_post_cutoff_official_pre_race_content_is_display_only(tmp_path):
@@ -312,6 +411,7 @@ def test_exact_dutch_soft_hard_option_is_source_ranked_alternative():
     )
     assert option.rank == StrategyRank.ALTERNATIVE
     assert option.pit_windows == (PitWindow(26, 32),)
+    assert option.published_delta_seconds == 1.0
 
 
 def test_multi_event_nomination_keeps_each_meeting_binding():
@@ -330,6 +430,269 @@ def test_multi_event_nomination_keeps_each_meeting_binding():
         "C4": Compound.MEDIUM,
         "C5": Compound.SOFT,
     }
+
+
+def test_one_nomination_triplet_can_apply_to_two_named_meetings():
+    result = extract_compound_nominations(
+        "The C2, C3 and C4 selection applies to the Dutch Grand Prix and Spanish Grand Prix.",
+        source_url="https://press.pirelli.com/shared-selection",
+        artifact_id="shared-selection",
+        meeting_aliases={
+            "Dutch Grand Prix": "nl",
+            "Spanish Grand Prix": "es",
+        },
+    )
+
+    assert result.accepted
+    assert [fact.applicability.meeting_key for fact in result.facts] == ["nl", "es"]
+    assert [(fact.hard, fact.medium, fact.soft) for fact in result.facts] == [
+        ("C2", "C3", "C4"),
+        ("C2", "C3", "C4"),
+    ]
+
+
+def test_exact_event_nomination_inherits_proven_event_scope():
+    scope = FactApplicability(
+        meeting_key="canada-2026",
+        source_meeting_name="Canadian Grand Prix",
+        session_scope=SessionScope.WEEKEND,
+        target_session_key="race-canada-2026",
+    )
+    result = extract_compound_nominations(
+        "The three compounds selected for the weekend are C3, C4 and C5.",
+        source_url="https://press.pirelli.com/the-first-sprint-in-montreal/",
+        artifact_id="canada-preview",
+        meeting_aliases={"Canadian Grand Prix": "canada-2026", "Canada": "canada-2026"},
+        default_applicability=scope,
+        exact_event_scope=True,
+    )
+
+    assert result.accepted
+    assert len(result.facts) == 1
+    assert result.facts[0].applicability == scope
+    assert (result.facts[0].hard, result.facts[0].medium, result.facts[0].soft) == (
+        "C3",
+        "C4",
+        "C5",
+    )
+
+
+def test_multi_event_nomination_accepts_target_clause_without_foreign_contamination():
+    result = extract_compound_nominations(
+        "The C2, C3 and C4 selection applies to the Dutch and Spanish Grands Prix. "
+        "For Monza, the chosen compounds are C1, C2 and C3.",
+        source_url="https://press.pirelli.com/tyre-compounds-selected-for-zandvoort-monza-and-madrid/",
+        artifact_id="multi-event-selection",
+        meeting_aliases={"Dutch": "dutch-2026", "Zandvoort": "dutch-2026"},
+        default_applicability=FactApplicability(
+            meeting_key="dutch-2026", session_scope=SessionScope.WEEKEND
+        ),
+    )
+
+    assert result.accepted
+    assert len(result.facts) == 1
+    assert result.facts[0].applicability.meeting_key == "dutch-2026"
+    assert (result.facts[0].hard, result.facts[0].medium, result.facts[0].soft) == (
+        "C2",
+        "C3",
+        "C4",
+    )
+
+
+def test_context_is_meeting_local_and_window_is_not_wind():
+    scope = FactApplicability(
+        meeting_key="nl", session_scope=SessionScope.WEEKEND
+    )
+    sections = (
+        "DUTCH GRAND PRIX",
+        "All three compounds are in play and degradation is expected to be low.",
+        "SPANISH GRAND PRIX",
+        "Strong wind and high tyre stress are forecast for the race.",
+        "The pit window should open around lap 20.",
+    )
+    facts = extract_context_facts(
+        "\n\n".join(sections),
+        source_url="https://press.pirelli.com/multi-event-preview",
+        artifact_id="multi-event-preview",
+        applicability=scope,
+        meeting_aliases={"Dutch Grand Prix": "nl"},
+        sections=sections,
+    )
+
+    assert {fact.category for fact in facts} == {
+        "COMPOUND_OUTLOOK",
+        "DEGRADATION",
+    }
+    assert all("Spanish" not in fact.statement for fact in facts)
+    assert not extract_context_facts(
+        "The pit window should open around lap 20.",
+        source_url="https://press.pirelli.com/window",
+        artifact_id="window",
+        applicability=scope,
+    )
+    assert not extract_context_facts(
+        "All three compounds are not viable race options.",
+        source_url="https://press.pirelli.com/negated-outlook",
+        artifact_id="negated-outlook",
+        applicability=scope,
+    )
+
+
+def test_race_context_excludes_qualifying_weather_and_keeps_strategy_outlook():
+    facts = extract_context_facts(
+        "A few drops during qualifying led teams to bring forward their runs. "
+        "During qualifying, rain made the track slippery. "
+        "For the Grand Prix, a one-stop strategy could again be preferred. "
+        "Two-stop strategies can be competitive for cars running in clean air.",
+        source_url="https://press.pirelli.com/race-context",
+        artifact_id="race-context",
+        applicability=FactApplicability(
+            meeting_key="race", session_scope=SessionScope.RACE
+        ),
+    )
+
+    assert {fact.category for fact in facts} == {"STRATEGY_OUTLOOK"}
+    assert len(facts) == 2
+    assert all("qualifying" not in fact.statement.casefold() for fact in facts)
+
+
+def test_race_context_handles_presspage_hyphens_and_rejects_historical_context():
+    facts = extract_context_facts(
+        "As seen in Miami, teams tend to favour cautious choices in the race, where "
+        "a one‑stop strategy could again be preferred this year. "
+        "IN 2025 The two‑stop strategy proved to be the quickest. "
+        "The 2011 race was interrupted by torrential rain. "
+        "The Soft will offer optimal grip over a single lap.",
+        source_url="https://press.pirelli.com/the-first-sprint-in-montreal/",
+        artifact_id="canada-preview",
+        applicability=FactApplicability(
+            meeting_key="canada-2026", session_scope=SessionScope.RACE
+        ),
+    )
+
+    assert [(fact.category, fact.statement) for fact in facts] == [
+        (
+            "STRATEGY_OUTLOOK",
+            (
+                "As seen in Miami, teams tend to favour cautious choices in the race, "
+                "where a one‑stop strategy could again be preferred this year."
+            ),
+        )
+    ]
+
+
+def test_strategy_delta_range_conditions_and_caveats_are_source_local():
+    exact = extract_strategy_prose(
+        "The alternative Medium-Hard race strategy is around one second slower in clean air.",
+        source_url="https://press.pirelli.com/exact",
+        artifact_id="exact",
+    )
+    ranged = extract_strategy_prose(
+        "The alternative Soft-Hard strategy is between 1.5 and 2 seconds slower "
+        "in traffic, but traffic might make the stop less effective.",
+        source_url="https://press.pirelli.com/range",
+        artifact_id="range",
+    )
+
+    exact_option = exact.facts[0]
+    range_option = ranged.facts[0]
+    assert exact_option.published_delta_seconds == 1.0
+    assert exact_option.published_delta_seconds_range is None
+    assert exact_option.conditions == ("In clean air",)
+    assert range_option.published_delta_seconds is None
+    assert range_option.published_delta_seconds_range == (1.5, 2.0)
+    assert range_option.conditions == ("In traffic",)
+    assert range_option.caveats == ("But traffic might make the stop less effective",)
+
+
+def test_strategy_annotations_reject_nearer_pit_stop_subject():
+    result = extract_strategy_prose(
+        "The Medium-Hard race strategy is quickest, but a pit stop under green is "
+        "around 12 seconds slower than under a VSC.",
+        source_url="https://press.pirelli.com/vsc-pit-loss",
+        artifact_id="vsc-pit-loss",
+    )
+
+    option = result.facts[0]
+    assert option.published_delta_seconds is None
+    assert option.published_delta_seconds_range is None
+    assert option.conditions == ()
+    assert option.caveats == ()
+
+
+def test_json_ld_article_body_owns_context_sections_over_dom_shell():
+    document = parse_html(
+        """
+        <main><p>Strong wind and high tyre stress are forecast.</p></main>
+        <script type="application/ld+json">
+          {"@type":"NewsArticle","headline":"Race preview",
+           "articleBody":"All three compounds are in play and viable."}
+        </script>
+        """,
+        "https://press.pirelli.com/race-preview",
+    )
+    facts = extract_context_facts(
+        document.article_text,
+        source_url="https://press.pirelli.com/race-preview",
+        artifact_id="json-ld",
+        applicability=FactApplicability(
+            meeting_key="100", session_scope=SessionScope.WEEKEND
+        ),
+        sections=document.article_sections,
+    )
+
+    assert document.article_sections == (
+        "All three compounds are in play and viable.",
+    )
+    assert {fact.category for fact in facts} == {"COMPOUND_OUTLOOK"}
+
+
+def test_semantic_article_excludes_latest_news_nested_in_main():
+    document = parse_html(
+        """
+        <main>
+          <article>
+            <h1>Race preview</h1>
+            <p>High degradation is expected during Sunday's race.</p>
+          </article>
+          <section class="latest-news">
+            <a>30 Aug 2026 - López and Quiles win two record-breaking races</a>
+            <a>22 Aug 2026 - Norris to start from the front at Zandvoort, all
+               three compounds in play for the race</a>
+          </section>
+        </main>
+        """,
+        "https://press.pirelli.com/race-preview",
+    )
+    facts = extract_context_facts(
+        document.article_text,
+        source_url="https://press.pirelli.com/race-preview",
+        artifact_id="semantic-article",
+        applicability=FactApplicability(
+            meeting_key="100", session_scope=SessionScope.RACE
+        ),
+        sections=document.article_sections,
+    )
+
+    assert document.article_sections == (
+        "Race preview",
+        "High degradation is expected during Sunday's race.",
+    )
+    assert {fact.category for fact in facts} == {"DEGRADATION"}
+    assert all("López" not in fact.statement for fact in facts)
+
+
+def test_main_remains_the_article_fallback_without_semantic_article():
+    document = parse_html(
+        "<main><h1>Race preview</h1><p>High tyre stress is expected.</p></main>",
+        "https://press.pirelli.com/race-preview",
+    )
+
+    assert document.article_text == "Race preview High tyre stress is expected."
+    assert document.article_sections == (
+        "Race preview",
+        "High tyre stress is expected.",
+    )
 
 
 def test_sprint_and_race_strategy_releases_remain_isolated(tmp_path):

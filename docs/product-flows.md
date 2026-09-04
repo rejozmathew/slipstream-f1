@@ -82,11 +82,11 @@ Layout reuse does not change factual session kind or sporting policy.
 
 ### Session
 
-The Race layout combines Timing Tower, Track Map, weather, race control, governing status, and current tyre/stint/pit facts. Timing Tower content modes can change presentation without changing the underlying driver state.
+The Race layout combines Timing Tower, Track Map, weather, race control, governing status, current tyre/stint/pit facts, and compact race-level Pirelli tyre strategies. Timing Tower content modes can change presentation without changing the underlying driver state; Strategy mode shows each driver's factual stop-preserving tyre sequence and last actual stop.
 
 ### Driver
 
-Driver Focus combines current factual stint, ahead/behind context, lifecycle-aware Track Map, clean-stint pace trend, factual Pit History, and attributed Pirelli context when available.
+Driver Focus combines current factual stint, ahead/behind context, lifecycle-aware Track Map, clean-stint pace trend, factual Pit History, and attributed Pirelli context when available. It presents the actual tyre strategy first, the Pirelli reference second, and the dry-tyre requirement only when the server can author it truthfully.
 
 A pit row can contain:
 
@@ -107,7 +107,7 @@ RaceRead remains useful when Pirelli is absent. Display-only Pirelli context can
 
 ### Battle
 
-Battle is server-authored from factual and derived completed-lap evidence. React renders the selected/recommended pair, score factors, histories, and factual map context without recalculating timing truth.
+Battle is server-authored from factual and derived completed-lap evidence. React renders the two drivers' actual tyre strategies, selected/recommended pair, score factors, histories, and factual map context without recalculating timing truth; Pirelli remains secondary reference context.
 
 ## Qualifying and Sprint Qualifying
 

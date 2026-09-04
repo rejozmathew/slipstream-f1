@@ -561,7 +561,7 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .timing-race { grid-template-columns: 38px minmax(160px,1.35fr) minmax(76px,.64fr) 48px 44px minmax(84px,.72fr) 38px; }
 .timing-race-timing { grid-template-columns: 38px minmax(150px,1.25fr) minmax(72px,.6fr) 46px repeat(5,minmax(58px,.52fr)); }
 .timing-race-strategy { grid-template-columns: 38px minmax(150px,1.25fr) minmax(72px,.6fr) 46px 44px 52px 38px; }
-.timing-race-strategy.timing-race-strategy-published { grid-template-columns: 38px minmax(150px,1.25fr) minmax(72px,.6fr) 46px 44px 52px 38px minmax(76px,.68fr) minmax(78px,.7fr); }
+.timing-race-strategy.timing-race-strategy-detail { grid-template-columns: 38px minmax(150px,1.25fr) minmax(72px,.6fr) 46px 44px 52px 38px minmax(110px,.85fr) minmax(64px,.5fr); }
 .timing-row > .compound-badge, .timing-row > .compound-transition { padding: 0 8px; }
 .car-marker circle { stroke: #05080b; stroke-width: 3; vector-effect: non-scaling-stroke; filter: drop-shadow(0 3px 5px #000); }.car-marker text { fill: #05080b; font: 800 8px var(--mono); pointer-events: none; }.car-markers { pointer-events: none; }
 
@@ -1004,6 +1004,9 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .pirelli-context-facts { padding: 7px 12px; }
 .pirelli-context-facts p { margin: 0; padding: 5px 0; color: var(--muted); font-size: 10px; }
 .pirelli-context-facts span { margin-right: 8px; color: var(--quiet); font: 700 8px/1 var(--mono); }
+.pirelli-field-facts { padding: 8px 12px; border-top: 1px solid var(--line-soft); }
+.pirelli-field-facts > span { color: var(--accent); font: 700 8px/1 var(--mono); letter-spacing: .08em; }
+.pirelli-field-facts p { margin: 6px 0 0; color: var(--muted); font-size: 10px; }
 .pirelli-unavailable { min-height: 78px; display: grid; align-content: center; gap: 7px; padding: 12px; }
 .pirelli-unavailable strong { color: var(--muted); font: 750 10px/1 var(--mono); letter-spacing: .08em; }
 .pirelli-unavailable p, .pirelli-no-options { margin: 0; color: var(--quiet); font: 600 9px/1.4 var(--sans); }
@@ -1035,6 +1038,12 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .session-strategy-zones header b { color: var(--accent); }
 .session-strategy-zones section > p { margin: 0; padding: 10px; color: var(--muted); font-size: 9px; line-height: 1.35; }
 .session-published-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.session-pirelli-more { display: block; padding: 5px 9px; border-top: 1px solid var(--line-soft); color: var(--muted); font: 700 8px/1 var(--mono); letter-spacing: .07em; }
+.session-pirelli-context-only { display: grid; gap: 7px; padding: 9px 10px; }
+.session-pirelli-context-only > strong { font: 750 10px/1.25 var(--mono); }
+.session-pirelli-context-only .physical-nomination { min-height: 0; padding: 5px 0; border: 0; }
+.session-pirelli-context-only p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.35; }
+.session-pirelli-context-only p span { margin-right: 6px; color: var(--quiet); font: 700 7px/1 var(--mono); }
 .session-race-now { display: grid; gap: 7px; padding: 12px 10px; }
 .session-race-now strong { font: 740 11px/1 var(--mono); }
 .session-race-now small { color: var(--muted); font: 600 8px/1.25 var(--mono); }
@@ -1046,30 +1055,37 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .strategy-current-column { min-width: 0; display: grid; align-content: start; gap: 8px; }
 .pirelli-strategy-view .driver-strategy-table th, .pirelli-strategy-view .driver-strategy-table td { white-space: nowrap; }
 .driver-strategy-table td strong { display: block; }.driver-strategy-table td small { display: block; margin-top: 3px; color: var(--muted); }
-.driver-strategy-table td[data-relation="MATCHING_ONE"], .driver-strategy-table td[data-relation="MATCHING_MULTIPLE"] { color: var(--green); }
-.driver-strategy-table td[data-relation="DIVERGED"] { color: var(--amber); }
 .driver-pirelli-body { display: grid; min-height: 0; }
-.driver-pirelli-relation { display: grid; gap: 7px; padding: 11px 12px; border-bottom: 1px solid var(--line-soft); }
-.driver-pirelli-relation > span, .driver-pirelli-windows span, .driver-tyre-bank > span { color: var(--quiet); font: 700 8px/1 var(--mono); letter-spacing: .08em; }
-.driver-pirelli-relation > strong { font-size: 14px; }
-.driver-pirelli-relation > b { color: var(--muted); font: 750 9px/1.2 var(--mono); }
-.driver-pirelli-relation > b[data-relation="MATCHING_ONE"], .driver-pirelli-relation > b[data-relation="MATCHING_MULTIPLE"] { color: var(--green); }
-.driver-pirelli-windows { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); }
-.driver-pirelli-windows > div { display: grid; gap: 6px; padding: 10px 12px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
-.driver-pirelli-windows strong { font: 780 15px/1 var(--mono); }
-.driver-pirelli-windows b { color: var(--muted); font: 700 8px/1 var(--mono); }
-.driver-pirelli-windows b[data-state="ACTIVE"] { color: var(--green); }
-.driver-pirelli-windows b[data-state="PASSED"] { color: var(--amber); }
-.driver-pirelli-facts { padding: 7px 12px; }.driver-pirelli-facts p { margin: 5px 0; color: var(--muted); font-size: 9px; }
+.driver-strategy-current { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border-bottom: 1px solid var(--line-soft); }
+.driver-strategy-current > div { display: grid; gap: 7px; padding: 10px 12px; border-right: 1px solid var(--line-soft); }
+.driver-strategy-current span, .driver-pirelli-routes header span, .driver-pirelli-routes small, .driver-pirelli-context-only p span { color: var(--quiet); font: 700 8px/1 var(--mono); letter-spacing: .08em; }
+.driver-strategy-current strong { display: flex; align-items: center; gap: 5px; font: 760 13px/1 var(--mono); }
+.driver-strategy-relationship { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: 650 9px/1.35 var(--sans); }
+.driver-dry-rule { margin: 0; padding: 7px 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: 700 8px/1.2 var(--mono); letter-spacing: .05em; }
+.driver-dry-rule-unsatisfied { color: var(--amber); background: color-mix(in srgb, var(--amber), transparent 93%); }
+.strategy-pirelli-options { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.driver-pirelli-routes { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); }
+.driver-pirelli-routes article { display: grid; align-content: start; gap: 7px; padding: 10px 12px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+.driver-pirelli-routes header { display: flex; justify-content: space-between; gap: 8px; }
+.driver-pirelli-routes header strong { font: 800 13px/1 var(--mono); }
+.driver-pirelli-routes article > p { margin: 0; color: var(--muted); font-size: 9px; }
+.driver-pirelli-routes article > div { display: grid; gap: 5px; }
+.driver-pirelli-routes article > div > span { display: flex; justify-content: space-between; gap: 8px; }
+.driver-pirelli-routes b { font: 700 8px/1.2 var(--mono); }
+.driver-pirelli-context-only { display: grid; gap: 6px; padding: 10px 12px; }
+.driver-pirelli-context-only > strong { font: 750 10px/1.3 var(--mono); }
+.driver-pirelli-context-only .physical-nomination { padding: 6px 0; border: 0; }
+.driver-pirelli-context-only > p { margin: 0; color: var(--muted); font-size: 9px; }
 .driver-tyre-bank { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line-soft); }
+.driver-tyre-bank > span { color: var(--quiet); font: 700 8px/1 var(--mono); letter-spacing: .08em; }
 .driver-tyre-bank > div { display: flex; align-items: center; gap: 5px; }
 .driver-tyre-bank b, .driver-tyre-bank small { font: 700 8px/1 var(--mono); }.driver-tyre-bank small { color: var(--muted); }
-.driver-pirelli-context-compact .driver-pirelli-relation { padding: 8px; }.driver-pirelli-context-compact .driver-pirelli-windows > div { padding: 7px 8px; }
-.battle-pirelli-strip { display: grid; gap: 5px; margin-top: 8px; padding: 9px; border: 1px solid var(--line-soft); }
-.battle-pirelli-strip span { color: var(--quiet); font: 700 8px/1 var(--mono); }.battle-pirelli-strip strong { font: 750 10px/1.2 var(--mono); }.battle-pirelli-strip small { color: var(--muted); font: 600 8px/1.25 var(--mono); }
+.driver-pirelli-context-compact .driver-strategy-current > div, .driver-pirelli-context-compact .driver-pirelli-routes article { padding: 7px 8px; }
 .battle-published-context { display: grid; grid-template-columns: 1fr 1fr; min-height: 118px; }
-.battle-published-context > div { display: grid; align-content: center; gap: 7px; padding: 12px; border-right: 1px solid var(--line-soft); }
-.battle-published-context span { color: var(--accent); font: 700 8px/1 var(--mono); }.battle-published-context strong { font: 750 10px/1.2 var(--mono); }.battle-published-context small { color: var(--muted); font: 600 8px/1.2 var(--mono); }
+.battle-published-context > div { display: grid; align-content: center; gap: 8px; padding: 12px; border-right: 1px solid var(--line-soft); }
+.battle-published-context span { color: var(--accent); font: 700 8px/1 var(--mono); }.battle-published-context strong, .battle-published-context b { font: 750 10px/1.25 var(--mono); }.battle-published-context small { display: block; margin-bottom: 4px; color: var(--quiet); font: 700 7px/1 var(--mono); }.battle-published-context p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.35; }
+.battle-published-context > .battle-pirelli-context-only { grid-column: 1/-1; padding: 0; }
+.battle-pirelli-context-only .physical-nomination { border-top: 1px solid var(--line-soft); border-bottom: 0; }
 .pirelli-tv-strategy { grid-template-columns: minmax(0,1.25fr) minmax(330px,.75fr); }
 .pirelli-tv-strategy > .panel { min-height: 0; height: 100%; overflow: auto; }
 .pirelli-tv-strategy-absent { grid-template-columns: 1fr; grid-template-rows: minmax(0,1fr) minmax(64px,10%); }

@@ -23,3 +23,4 @@ class HtmlDocument:
     links: tuple[tuple[str, str, str | None], ...]
     tables: tuple[tuple[tuple[str, ...], ...], ...]
     archive_links: tuple[tuple[str, str, str | None], ...] = ()
+    article_sections: tuple[str, ...] = ()

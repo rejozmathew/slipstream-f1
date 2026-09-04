@@ -56,10 +56,13 @@ class PirelliRuntimeCoordinator:
             <= timedelta(days=8)
         ]
         default = descriptors.get(default_key)
-        if default is not None and getattr(default, "session_kind", None) in {
-            "race",
-            "sprint",
-        }:
+        if (
+            default is not None
+            and getattr(default, "session_kind", None) in {"race", "sprint"}
+            and -timedelta(days=2)
+            <= _as_utc(default.date_start) - _as_utc(now)
+            <= timedelta(days=8)
+        ):
             near.append(default)
         by_meeting: dict[str, list[object]] = {}
         for item in near:
@@ -191,21 +194,32 @@ def build_ingestion_target(
     meeting_key: str,
     descriptor: object,
     inventory: list[object],
-    resource_loader: Callable[[str], object],
+    resource_loader: Callable[[str], object] | None,
 ) -> PirelliIngestionTarget:
     """Build the shared runtime/manual ingestion target for one session."""
 
-    resource = resource_loader(str(descriptor.key))
-    drivers = tuple(
-        WeekendDriverIdentity(
-            driver_number=driver.number,
-            driver_code=driver.code or driver.number,
-            full_name=driver.name or driver.code or driver.number,
-            aliases=tuple(
-                value for value in (driver.code, driver.name) if value is not None
-            ),
+    drivers: tuple[WeekendDriverIdentity, ...] = ()
+    if resource_loader is not None:
+        resource = resource_loader(str(descriptor.key))
+        drivers = tuple(
+            WeekendDriverIdentity(
+                driver_number=driver.number,
+                driver_code=driver.code or driver.number,
+                full_name=driver.name or driver.code or driver.number,
+                aliases=tuple(
+                    value for value in (driver.code, driver.name) if value is not None
+                ),
+            )
+            for driver in resource.final_state.drivers.values()
         )
-        for driver in resource.final_state.drivers.values()
+    event_tag = pirelli_event_tag(
+        int(descriptor.year), str(descriptor.meeting_name)
+    )
+    country = getattr(descriptor, "country", None)
+    country_tag = (
+        pirelli_event_tag(int(descriptor.year), f"{country} Grand Prix")
+        if country
+        else None
     )
     return PirelliIngestionTarget(
         MeetingDiscoveryTarget(
@@ -224,9 +238,10 @@ def build_ingestion_target(
                     if value
                 )
             ),
-            exact_tag=pirelli_event_tag(
-                int(descriptor.year), str(descriptor.meeting_name)
-            ),
+            exact_tag=event_tag,
+            tag_aliases=(country_tag,)
+            if country_tag is not None and country_tag != event_tag
+            else (),
         ),
         target_session_key=str(descriptor.key),
         session_scope=(
