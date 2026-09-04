@@ -1649,6 +1649,9 @@ def _signature(
         sequence,
         context_revision,
         pirelli_revision,
+        # Completed releases can be read while their worker is still FETCHING.
+        # Rebuild when availability changes even if release IDs stay the same.
+        pirelli.status if pirelli is not None else "ABSENT",
         state.session.lap,
         state.session.status,
         state.session.track_status,
