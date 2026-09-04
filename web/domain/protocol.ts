@@ -114,6 +114,7 @@ export type LiveSourceState = {
   replayReady: boolean;
   finalRecording: string | null;
   delaySeconds: number;
+  positionMode?: PositionMode;
 };
 
 export type StateEnvelope = {

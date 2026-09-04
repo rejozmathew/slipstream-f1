@@ -36,6 +36,7 @@ from .race_intelligence import (
     race_phase,
     race_read,
 )
+from .session_clock import cursor_session_clock
 from .state import DriverState, RaceState
 from .strategy_rules import strategy_rule_profile
 from .weekend import ContextAvailability
@@ -112,7 +113,13 @@ class AnalyticsService:
             self._cache[signature] = cached
             if len(self._cache) > 128:
                 self._cache.pop(next(iter(self._cache)))
-        return deepcopy(cached)
+        result = deepcopy(cached)
+        result["asOf"] = as_of
+        if result["qualifying"]["status"] != "NOT_APPLICABLE":
+            result["qualifying"]["sessionClock"] = cursor_session_clock(
+                resource.events, state, sequence, as_of
+            )
+        return result
 
 
 def build_analytics_snapshot(
@@ -221,7 +228,7 @@ def build_analytics_snapshot(
                 "future projection withheld: hard validity, plausibility, and stability must all pass",
             )
     for number, model in driver_models.items():
-        model["read"] = _driver_read(state.drivers[number], model)
+        model["read"] = _driver_read(state.drivers[number], model, race_session=resource.descriptor.session_kind in {"race", "sprint"})
     race_gate = _race_projection_gate(race_strategy, state, stage, driver_gates)
     race_strategy["projectionGate"] = race_gate
     if not race_gate["publishAllowed"]:
@@ -335,7 +342,7 @@ def build_analytics_snapshot(
         "raceRead": race_read_payload,
         "publishedStrategy": published_strategy,
         "qualifying": build_qualifying_snapshot(
-            resource, state, sequence=sequence
+            resource, state, sequence=sequence, as_of=as_of
         ),
         "dryRequirementLandscape": race_read_payload["dryRequirementLandscape"],
         # v2.1 §18: field distributions are over *active runners* at the cursor
@@ -1532,14 +1539,15 @@ def _pit_event_payload(event: PitEvent) -> dict[str, Any]:
     }
 
 
-def _driver_read(driver: DriverState, model: dict[str, Any]) -> dict[str, Any]:
+def _driver_read(driver: DriverState, model: dict[str, Any], *, race_session: bool = True) -> dict[str, Any]:
     """Concise deterministic commentary composed only from published facts."""
 
     lifecycle = terminal_state(driver)
     facts: list[str] = []
     if lifecycle:
         headline = f"{driver.code or driver.number} is {lifecycle} at this cursor."
-        facts.append("Future strategy fields are suppressed for this terminal state.")
+        if race_session:
+            facts.append("Future strategy fields are suppressed for this terminal state.")
     elif str(driver.status or "").upper() == "STOPPED":
         headline = f"{driver.code or driver.number} is explicitly STOPPED."
         facts.append("STOPPED is resumable and is not treated as retirement.")
@@ -1561,11 +1569,11 @@ def _driver_read(driver: DriverState, model: dict[str, Any]) -> dict[str, Any]:
     else:
         facts.append("Current clean-stint Pace Trend is unknown.")
     strategy = model.get("strategy", {})
-    if strategy.get("finishAssessment", {}).get("canFinish") is True:
+    if race_session and strategy.get("finishAssessment", {}).get("canFinish") is True:
         facts.append(
             "Same-race evidence supports reaching the flag on the current stint."
         )
-    elif strategy.get("projectionGate", {}).get("publishAllowed") is False:
+    elif race_session and strategy.get("projectionGate", {}).get("publishAllowed") is False:
         facts.append(
             "Future outlook is withheld because every projection gate has not passed."
         )

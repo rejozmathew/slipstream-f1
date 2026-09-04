@@ -1,5 +1,6 @@
 import { useMemo, type CSSProperties } from "react";
 
+import { Conditions } from "../components/analysis/Conditions";
 import { PaceDeltaChart } from "../components/analysis/PaceDeltaChart";
 import { DriverPirelliContext } from "../components/analysis/PublishedStrategy";
 import { TrackMap } from "../components/analysis/TrackMap";
@@ -9,7 +10,7 @@ import { InfoPopover } from "../components/shared/InfoPopover";
 import { Panel } from "../components/shared/Panel";
 import { formatLapTime, formatSector } from "../domain/format";
 import { driverLifecycle } from "../domain/lifecycle";
-import type { AnalyticsSnapshot, Driver, DriverBattleContext, DriverHistory, PaceSample, PitEvent, PositionMode, RaceState } from "../domain/protocol";
+import type { AnalyticsSnapshot, Driver, DriverBattleContext, DriverHistory, PaceSample, PitEvent, PositionMode, ViewingMode, RaceState } from "../domain/protocol";
 import type { SessionLayout } from "../domain/sessionLayout";
 
 function BattleContext({ label, value }: { label: string; value: DriverBattleContext | null }) {
@@ -18,7 +19,7 @@ function BattleContext({ label, value }: { label: string; value: DriverBattleCon
 }
 
 function PitHistory({ events }: { events: PitEvent[] }) {
-  if (events.length === 0) return <div className="panel-empty">NO OBSERVED PIT EVENTS AT THIS REPLAY TIME</div>;
+  if (events.length === 0) return <div className="panel-empty">NO OBSERVED PIT EVENTS AT THIS TIME</div>;
   const hasStationaryDuration = events.some((event) => event.stopDuration != null);
   const hasPitLaneDuration = events.some((event) => event.pitLaneDuration != null);
   const durationColumns = [hasStationaryDuration && "stationary", hasPitLaneDuration && "pit-lane"].filter(Boolean).join("-") || "none";
@@ -31,11 +32,11 @@ function PitHistory({ events }: { events: PitEvent[] }) {
   </div>)}</div></>;
 }
 
-function QualifyingDriverFocus({ driver, state, analytics, positionMode, onChangeDriver, onBack }: {
+function QualifyingDriverFocus({ driver, state, analytics, positionMode, viewingMode, onChangeDriver, onBack }: {
   driver: Driver;
   state: RaceState;
   analytics: AnalyticsSnapshot | null;
-  positionMode: PositionMode;
+  positionMode: PositionMode; viewingMode: ViewingMode;
   onChangeDriver: () => void;
   onBack: () => void;
 }) {
@@ -56,12 +57,12 @@ function QualifyingDriverFocus({ driver, state, analytics, positionMode, onChang
     <div className="qualifying-driver-grid">
       <Panel eyebrow="CURRENT QUALIFYING STATE" title="Driver facts" className="qualifying-driver-state"><div className="qualifying-driver-facts"><div><span>BEST</span><strong>{model?.scopeBest ?? driver.best_lap ?? driver.last_lap ?? "—"}</strong></div><div><span>GAP TO FASTEST</span><strong>{delta}</strong></div>{segmentLabels.map((label, index) => <div key={label}><span>{label}</span><strong>{formatLapTime(segmentResults[index])}</strong></div>)}<div><span>TYRE</span><strong><CompoundBadge compound={driver.compound} showLabel /></strong></div><div><span>AGE / USAGE</span><strong>{driver.tyre_age == null ? "—" : `${driver.tyre_age}L`} · {model?.tyreUsage === "UNKNOWN" ? "—" : model?.tyreUsage ?? "—"}</strong></div><div><span>Q STATUS</span><strong>{model?.qStatus ?? "—"}</strong></div><div><span>TEAMMATE</span><strong>{teammate ? `${teammate.code ?? teammate.driverNumber} · ${teammate.comparison}${teammate.gapSeconds == null ? "" : ` ${teammate.gapSeconds.toFixed(3)}s`}` : "—"}</strong></div></div></Panel>
       <Panel eyebrow="COMPLETED LAPS" title="QUALIFYING LAP HISTORY" className="qualifying-driver-attempts">{!model?.attempts.length && <div className="panel-empty">NO QUALIFYING LAPS RECORDED YET</div>}<div className="driver-attempt-list">{model?.attempts.map((lap) => <div key={`${lap.attempt}-${lap.occurredAt}`}><header>{lap.phase !== "UNKNOWN" && <span>{lap.phase}</span>}<b>LAP {lap.lap ?? "—"} · {lap.classification.replace("_", "-")}</b></header><div><strong>{formatLapTime(lap.lapTime)}</strong><span>S1 {formatSector(lap.sector1)}</span><span>S2 {formatSector(lap.sector2)}</span><span>S3 {formatSector(lap.sector3)}</span><CompoundBadge compound={lap.compound} compact /><em>{lap.tyreAge == null ? "—" : `${lap.tyreAge}L`} · {lap.tyreUsage === "UNKNOWN" ? "—" : lap.tyreUsage}</em></div></div>)}</div></Panel>
-      <div className="qualifying-driver-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} focusedDriverNumbers={[driver.number]} focusLabel={driver.code ?? driver.number} /></div>
+      <div className="qualifying-driver-map"><TrackMap circuit={state.circuit} session={state.session} drivers={Object.values(state.drivers)} positionMode={positionMode} viewingMode={viewingMode} focusedDriverNumbers={[driver.number]} focusLabel={driver.code ?? driver.number} /></div>
     </div>
   </div>;
 }
 
-export function DriverFocusView({ state, analytics, sessionLayout, driverNumber, history, historyError, playhead, positionMode, onChangeDriver, onBack }: {
+export function DriverFocusView({ state, analytics, sessionLayout, driverNumber, history, historyError, playhead, positionMode, viewingMode, onChangeDriver, onBack }: {
   state: RaceState;
   analytics: AnalyticsSnapshot | null;
   sessionLayout: SessionLayout;
@@ -69,7 +70,7 @@ export function DriverFocusView({ state, analytics, sessionLayout, driverNumber,
   history: DriverHistory | null;
   historyError: string | null;
   playhead: string | null;
-  positionMode: PositionMode;
+  positionMode: PositionMode; viewingMode: ViewingMode;
   onChangeDriver: () => void;
   onBack: () => void;
 }) {
@@ -80,7 +81,7 @@ export function DriverFocusView({ state, analytics, sessionLayout, driverNumber,
   const paceSamples = model?.pace.samples ?? observations.map((lap): PaceSample => ({ lap: lap.lap, rawLapTime: lap.duration, delta: null, compound: lap.compound, tyreAge: lap.tyre_age, stintNumber: lap.stint_number, quality: lap.quality, contaminationReasons: lap.contamination_reasons }));
   const pitEvents: PitEvent[] = model?.pitEvents ?? fallbackPits;
   if (!driver) return <div className="driver-focus-view"><header className="experience-heading"><button onClick={onBack}>BACK TO SESSION</button><div><span>DRIVER FOCUS</span><h1>Driver unavailable</h1></div></header><div className="service-unavailable"><strong>DRIVER STATE UNAVAILABLE</strong><p>This driver is not present at the current replay time.</p><button onClick={onChangeDriver}>CHOOSE DRIVER</button></div></div>;
-  if (sessionLayout === "qualifying") return <QualifyingDriverFocus driver={driver} state={state} analytics={analytics} positionMode={positionMode} onChangeDriver={onChangeDriver} onBack={onBack} />;
+  if (sessionLayout === "qualifying") return <QualifyingDriverFocus driver={driver} state={state} analytics={analytics} positionMode={positionMode} viewingMode={viewingMode} onChangeDriver={onChangeDriver} onBack={onBack} />;
   const allDrivers = Object.values(state.drivers);
   const lifecycle = driverLifecycle(driver);
   return <div className="driver-focus-view">
@@ -95,8 +96,9 @@ export function DriverFocusView({ state, analytics, sessionLayout, driverNumber,
         <div className="driver-current-metrics"><div><span>COMPOUND</span><strong><CompoundBadge compound={driver.compound} showLabel /></strong></div><div><span>TYRE AGE</span><strong>{driver.tyre_age == null ? "—" : `${driver.tyre_age} LAPS`}</strong></div><div><span>STINT LAPS</span><strong>{driver.stint_laps ?? "—"}</strong></div><div><span>PIT STOPS</span><strong>{driver.pit_count}</strong></div><div><span>LAST LAP</span><DataValue compact value={driver.last_lap} availability={driver.availability.last_lap} /></div><div><span>BEST LAP</span><DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} /></div></div>
         <div className="driver-battle-context"><BattleContext label="AHEAD" value={model?.ahead ?? null} /><BattleContext label="BEHIND" value={model?.behind ?? null} /></div><div className="driver-read"><span>DRIVER READ</span><strong>{model?.read.headline ?? "Driver read not available yet."}</strong>{model?.read.facts.map((fact) => <p key={fact}>{fact}</p>)}</div>
       </section>
-      <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} focusedDriverNumbers={[driverNumber]} focusLabel={driver.code ?? driver.number} /></div>
-      <DriverPirelliContext analytics={analytics} driver={driver} />
+      <div className="driver-map-context"><TrackMap circuit={state.circuit} session={state.session} drivers={allDrivers} positionMode={positionMode} viewingMode={viewingMode} focusedDriverNumbers={[driverNumber]} focusLabel={driver.code ?? driver.number} /></div>
+      {["race", "sprint"].includes(state.session.session_kind) && <DriverPirelliContext analytics={analytics} driver={driver} />}
+      {sessionLayout === "practice" && <div className="practice-driver-conditions"><Conditions weather={state.weather} session={state.session} /></div>}
       <Panel eyebrow="PACE DELTA" title="Stint trend" className="driver-history-panel" action={<span className="pace-baseline-badge">VS CLEAN STINT BASELINE <InfoPopover meaning="Signed lap-time delta versus the robust median of representative laps in the same stint. Faster laps are above zero; slower laps are below." why="Pit, neutralized, contaminated, and robust outlier laps do not set the chart scale. They remain visible as capped grey hatched markers." /></span>}>
         {historyError && <div className="panel-empty">HISTORY UNAVAILABLE · {historyError}</div>}
         {!historyError && !history && !model && <div className="panel-empty">LOADING NORMALIZED LAP EVIDENCE</div>}

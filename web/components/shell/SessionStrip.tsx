@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { formatSessionDate, utcOffsetLabel } from "../../domain/format";
 import type { CatalogSession, LiveProductPhase, RaceState, ViewingMode } from "../../domain/protocol";
+import { SessionProgress } from "../shared/SessionProgress";
 import { DataValue } from "../shared/DataValue";
 
 function countdownLabel(target: string | null, now: number) {
@@ -20,22 +21,19 @@ function sessionStartLabel(date: string | null, offset: string | null) {
   return `${new Date(Date.parse(date) + offsetMs).toISOString().slice(11, 16)} ${utcOffsetLabel(offset)}`;
 }
 
-export function SessionStrip({ session, selected, viewingMode, livePhase, liveNow, qualifyingClock, onGoLive }: {
+export function SessionStrip({ session, selected, viewingMode, livePhase, liveNow, onGoLive }: {
   session: RaceState["session"];
   selected: CatalogSession | null;
   viewingMode: ViewingMode;
   livePhase: LiveProductPhase;
   liveNow: boolean;
-  qualifyingClock: string | null | undefined;
   onGoLive: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const date = session.started_at ?? selected?.dateStart ?? null;
   const gmtOffset = session.gmt_offset ?? selected?.gmtOffset ?? null;
   const preEvent = viewingMode === "live" && livePhase === "PRE_EVENT";
-  const qualifying = session.layout_family === "qualifying" || selected?.layoutFamily === "qualifying";
   const race = session.layout_family === "race" || selected?.layoutFamily === "race";
-  const displayedQualifyingClock = qualifyingClock ?? session.session_clock;
   const canonicalStatus = session.display_status ?? session.track_status;
   const displayStatus = !canonicalStatus || canonicalStatus === "UNKNOWN" ? null : canonicalStatus.replaceAll("_", " ");
   const modeLabel = viewingMode === "live" ? livePhase.replaceAll("_", " ") : "REPLAY";
@@ -56,7 +54,7 @@ export function SessionStrip({ session, selected, viewingMode, livePhase, liveNo
       </div>
       <div className="session-stat"><span>DATE</span><DataValue compact value={date ? formatSessionDate(date) : null} /></div>
       <div className="session-stat"><span>LOCAL</span><DataValue compact value={session.local_time ? `${session.local_time.slice(11, 19)} ${utcOffsetLabel(gmtOffset)}` : sessionStartLabel(selected?.dateStart ?? null, gmtOffset)} /></div>
-      {qualifying ? (session.qualifying_phase !== "UNKNOWN" || displayedQualifyingClock ? <div className="session-stat lap-stat qualifying-clock-stat">{session.qualifying_phase !== "UNKNOWN" && <span>{session.qualifying_phase}</span>}{displayedQualifyingClock && <strong>{displayedQualifyingClock}</strong>}</div> : null) : <div className="session-stat lap-stat"><span>LAP</span><strong><DataValue compact value={session.lap} /> <i>/</i> <DataValue compact value={session.total_laps} /></strong></div>}
+      {!preEvent && <div className="session-stat lap-stat session-progress"><SessionProgress session={session} /></div>}
       {(race || displayStatus) && <div className="session-stat track-stat" data-track-status={displayStatus?.toLowerCase().replaceAll(" ", "-") ?? "unknown"}><span>STATUS</span><DataValue compact value={displayStatus ?? "—"} /></div>}
     </section>
   );

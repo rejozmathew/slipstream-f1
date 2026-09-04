@@ -107,19 +107,22 @@ function QualifyingRow({ driver, intelligence, sectorTimingAvailable, showQStatu
 }
 
 function PracticeRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverNumber: string) => void }) {
+  const lifecycle = driverLifecycle(driver);
   return <button type="button" className={"timing-row timing-practice " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
     <strong>{driver.position ?? "—"}</strong><DriverIdentity driver={driver} />
     <CompoundBadge compound={driver.compound} compact />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.last_lap} availability={driver.availability.last_lap} />
     <DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} />
+    <DataValue compact value={driver.gap_to_leader} availability={driver.availability.gap_to_leader} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
+    <span className="practice-driver-status">{lifecycle.label}</span>
   </button>;
 }
 
 const headers = {
-  practice: ["P", "DRIVER", "TYRE", "AGE", "LAST", "BEST", "STINT", "PIT"],
+  practice: ["P", "DRIVER", "TYRE", "AGE", "LAST", "BEST", "GAP", "STINT", "STOPS", "STATUS"],
 };
 
 const raceModeHeaders = {

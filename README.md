@@ -100,7 +100,7 @@ viewer C: 120 s
 RaceState + AnalyticsSnapshot at each viewer's cursor
 ```
 
-The protocol accepts 0–300 seconds. The current browser offers 0, 5, 10, 15, and 30-second presets. `RESET / LIVE` returns only that viewer to zero delay. Live mode does not expose replay pause, historical seek, step, or speed commands.
+The protocol accepts 0–300 seconds. The browser offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry, such as `2:17`. The active delay follows server confirmation. `GO LIVE` returns only that viewer to zero delay. Live mode does not expose replay pause, historical seek, step, or speed commands.
 
 ## Race, Qualifying, and Practice
 

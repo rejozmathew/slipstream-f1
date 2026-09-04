@@ -39,7 +39,7 @@ export function AppShell() {
   const dataAvailable = session.viewingMode === "live"
     ? ["LIVE", "STALE", "RECONNECTING", "FINALIZING", "COMPLETE", "REPLAY_READY"].includes(session.livePhase)
     : replayAvailable;
-  const positionMode = session.capabilities?.positionMode ?? session.metadata?.positionMode ?? session.selectedCatalogSession?.positionMode ?? "unavailable";
+  const positionMode = session.viewingMode === "live" ? session.livePositionMode : session.capabilities?.positionMode ?? session.metadata?.positionMode ?? session.selectedCatalogSession?.positionMode ?? "unavailable";
   const sectorTimingAvailable = session.capabilities?.capabilities.sector_timing ?? false;
   const driverHistory = useDriverHistory(session.viewingMode === "replay" ? session.selectedSessionKey : null, focusedDriver);
   const recommendedBattle = useBattleRecommendation(session.analytics, session.state);
@@ -80,7 +80,7 @@ export function AppShell() {
     setView("session");
   };
 
-  if (view === "tv") return <div {...rootProps}><TVModeView state={session.state} analytics={session.analytics} recommendedBattle={recommendedBattle} sessionLayout={layout} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} sectorTimingAvailable={sectorTimingAvailable} preferences={preferences.tv} onPreferencesChange={preferences.setTV} onExit={() => setView("session")} /></div>;
+  if (view === "tv") return <div {...rootProps}><TVModeView state={session.state} analytics={session.analytics} recommendedBattle={recommendedBattle} sessionLayout={layout} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} viewingMode={session.viewingMode} sectorTimingAvailable={sectorTimingAvailable} preferences={preferences.tv} onPreferencesChange={preferences.setTV} onExit={() => setView("session")} /></div>;
 
   return <div {...rootProps}>
     <header className="app-header">
@@ -98,21 +98,21 @@ export function AppShell() {
         <ReplayLibrary catalog={session.catalog} selected={session.selectedCatalogSession} selectedKey={session.selectedSessionKey} viewingMode={session.viewingMode} downloadState={session.downloadState} downloadError={session.downloadError} onSelect={(key) => { session.chooseSession(key); setView("session"); }} onGoLive={goLive} onWatchReplay={session.watchReplay} onDownload={() => void session.downloadReplay()} />
       </div>
     </header>
-    {view !== "settings" && <SessionStrip session={session.state.session} selected={session.selectedCatalogSession} viewingMode={session.viewingMode} livePhase={session.livePhase} liveNow={liveNow} qualifyingClock={session.analytics?.qualifying.sessionClock} onGoLive={goLive} />}
+    {view !== "settings" && <SessionStrip session={session.state.session} selected={session.selectedCatalogSession} viewingMode={session.viewingMode} livePhase={session.livePhase} liveNow={liveNow} onGoLive={goLive} />}
     <main ref={workspaceRef} className={`workspace workspace-${layout} workspace-view-${view}`}>
       {view !== "settings" && session.connectionError && <section className="service-unavailable"><strong>SLIPSTREAM DATA UNAVAILABLE</strong><p>{session.connectionError}</p><span>No sample race has been substituted.</span></section>}
       {view !== "settings" && !session.connectionError && session.viewingMode === "live" && !dataAvailable && <section className={`live-source-state live-source-${session.livePhase.toLowerCase()}`}><strong>{connectionLabel}</strong><p>{session.livePhase === "PRE_EVENT" ? "WAITING FOR PUBLIC TIMING FEED" : session.livePhase === "CONNECTING" ? "Connecting to the public Formula 1 timing source." : "Public live timing is currently unavailable. No replay or sample state has been substituted."}</p></section>}
-      {view === "session" && !session.connectionError && layout === "race" && <RaceView state={session.state} analytics={session.analytics} replayAvailable={dataAvailable} positionMode={positionMode} layout={preferences.raceLayout} onLayoutChange={preferences.setRaceLayout} onOpenLayoutEditor={openLayoutEditor} onSelectDriver={openDriver} towerView={preferences.towerView} onTowerViewChange={preferences.setTowerView} onOpenStrategy={() => setView("strategy")} />}
-      {view === "session" && !session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} analytics={session.analytics} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={openDriver} />}
-      {view === "session" && !session.connectionError && layout === "practice" && <PracticeView state={session.state} replayAvailable={dataAvailable} positionMode={positionMode} onSelectDriver={openDriver} />}
+      {view === "session" && !session.connectionError && layout === "race" && <RaceView state={session.state} analytics={session.analytics} replayAvailable={dataAvailable} positionMode={positionMode} viewingMode={session.viewingMode} layout={preferences.raceLayout} onLayoutChange={preferences.setRaceLayout} onOpenLayoutEditor={openLayoutEditor} onSelectDriver={openDriver} towerView={preferences.towerView} onTowerViewChange={preferences.setTowerView} onOpenStrategy={() => setView("strategy")} />}
+      {view === "session" && !session.connectionError && layout === "qualifying" && <QualifyingView state={session.state} analytics={session.analytics} sessionKind={classification.kind} replayAvailable={dataAvailable} positionMode={positionMode} viewingMode={session.viewingMode} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={openDriver} />}
+      {view === "session" && !session.connectionError && layout === "practice" && <PracticeView state={session.state} replayAvailable={dataAvailable} positionMode={positionMode} viewingMode={session.viewingMode} onSelectDriver={openDriver} />}
       {view === "session" && !session.connectionError && layout === "unsupported" && <Panel eyebrow="SESSION LAYOUT" title="Session layout unavailable"><div className="unknown-block"><strong>LAYOUT - NOT AVAILABLE</strong><p>This session is present in the catalog but does not classify as Race, Qualifying, or Practice.</p></div></Panel>}
       {view === "strategy" && layout === "race" && !session.connectionError && <StrategyView state={session.state} analytics={session.analytics} onSelectDriver={openDriver} />}
-      {view === "battle" && layout === "race" && !session.connectionError && <BattleView state={session.state} analytics={session.analytics} recommendedPair={recommendedBattle} positionMode={positionMode} preferences={preferences.battle} onPreferencesChange={preferences.setBattle} />}
+      {view === "battle" && layout === "race" && !session.connectionError && <BattleView state={session.state} analytics={session.analytics} recommendedPair={recommendedBattle} positionMode={positionMode} viewingMode={session.viewingMode} preferences={preferences.battle} onPreferencesChange={preferences.setBattle} />}
       {view === "driver" && !session.connectionError && (!focusedDriver || !session.state.drivers[focusedDriver]) && <DriverPickerView state={session.state} onSelect={openDriver} />}
-      {view === "driver" && !session.connectionError && focusedDriver && session.state.drivers[focusedDriver] && <DriverFocusView state={session.state} analytics={session.analytics} sessionLayout={layout} driverNumber={focusedDriver} history={driverHistory.history} historyError={driverHistory.error} playhead={session.playhead} positionMode={positionMode} onChangeDriver={() => setFocusedDriver(null)} onBack={() => setView("session")} />}
+      {view === "driver" && !session.connectionError && focusedDriver && session.state.drivers[focusedDriver] && <DriverFocusView state={session.state} analytics={session.analytics} sessionLayout={layout} driverNumber={focusedDriver} history={driverHistory.history} historyError={driverHistory.error} playhead={session.playhead} positionMode={positionMode} viewingMode={session.viewingMode} onChangeDriver={() => setFocusedDriver(null)} onBack={() => setView("session")} />}
       {view === "settings" && <SettingsView appearance={preferences.appearance} onAppearanceChange={preferences.setAppearance} raceLayout={preferences.raceLayout} onRaceLayoutChange={preferences.setRaceLayout} tvPreferences={preferences.tv} onTVPreferencesChange={preferences.setTV} drivers={Object.values(session.state.drivers)} section={settingsSection} onSectionChange={setSettingsSection} />}
     </main>
     {view !== "settings" && session.viewingMode === "replay" && <ReplayControls metadata={session.metadata} playhead={session.playhead} gmtOffset={session.state.session.gmt_offset} isPlaying={session.isPlaying} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />}
-    {view !== "settings" && session.viewingMode === "live" && <LiveControls phase={session.livePhase} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />}
+    {view !== "settings" && session.viewingMode === "live" && <LiveControls phase={session.livePhase} delaySeconds={session.liveDelaySeconds} commandAvailable={session.commandAvailable} onCommand={session.sendReplayCommand} />}
   </div>;
 }

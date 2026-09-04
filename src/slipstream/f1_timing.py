@@ -344,20 +344,27 @@ def _timing_track_position(
     Reset-only segment patches carry no new position evidence.
     """
 
-    if "NumberOfLaps" in line_patch:
-        return 0.0
-
+    if len(merged_sectors) != 3:
+        return None
+    # An explicit source array establishes cardinality. Contiguous dictionary
+    # prefixes accumulated from sparse patches do not establish a denominator.
+    if any(
+        not isinstance(sector, dict) or not isinstance(sector.get("Segments"), list)
+        for sector in merged_sectors
+    ):
+        return None
+    inventories = [sector["Segments"] for sector in merged_sectors]
+    if any(
+        not segments or any(not isinstance(segment, dict) or "Status" not in segment
+                            for segment in segments)
+        for segments in inventories
+    ):
+        return None
+    sector_sizes = [len(segments) for segments in inventories]
+    total_segments = sum(sector_sizes)
     patch_sectors = line_patch.get("Sectors")
     if not isinstance(patch_sectors, (dict, list)):
-        return None
-    sector_sizes = [
-        len(_ordered_values(sector.get("Segments")))
-        for sector in merged_sectors
-        if isinstance(sector, dict)
-    ]
-    total_segments = sum(sector_sizes)
-    if total_segments <= 0:
-        return None
+        return 0.0 if (_number(line_patch.get("NumberOfLaps"), integer=True) or 0) > 0 else None
 
     latest: int | None = None
     for sector_index, sector_patch in _indexed_values(patch_sectors):
@@ -370,9 +377,11 @@ def _timing_track_position(
             if (
                 segment_index < sector_size
                 and isinstance(segment, dict)
-                and _number(segment.get("Status"), integer=True) not in {None, 0}
+                and segment.get("Status") in (2048, 2049, 2051)
             ):
-                latest = sum(sector_sizes[:sector_index]) + segment_index + 1
+                latest = max(
+                    latest or 0, sum(sector_sizes[:sector_index]) + segment_index + 1
+                )
     return latest / total_segments if latest is not None else None
 
 

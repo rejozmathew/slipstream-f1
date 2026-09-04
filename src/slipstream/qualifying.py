@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from .events import parse_timestamp
+from .events import NormalizedEvent
 from .library import ReplayResource
+from .session_clock import cursor_session_clock
 from .state import DriverState, RaceState
 
 QUALIFYING_PHASES = ("Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3")
@@ -28,6 +30,7 @@ def build_qualifying_snapshot(
     state: RaceState,
     *,
     sequence: int,
+    as_of: str | None = None,
 ) -> dict[str, Any]:
     if resource.descriptor.layout_family != "qualifying":
         return {
@@ -42,7 +45,7 @@ def build_qualifying_snapshot(
         }
 
     sprint = resource.descriptor.session_kind == "sprint_qualifying"
-    phase_boundaries = _phase_boundaries(resource, sequence, sprint=sprint)
+    phase_boundaries = _phase_boundaries(resource.events, sequence, sprint=sprint)
     normalized_phase = str(state.session.qualifying_phase or "UNKNOWN").upper()
     phase_from_state = normalized_phase in QUALIFYING_PHASES
     phase = normalized_phase if phase_from_state else (
@@ -138,7 +141,7 @@ def build_qualifying_snapshot(
             if phase != "UNKNOWN"
             else "phase is not established by normalized source evidence"
         ),
-        "sessionClock": _cursor_session_clock(resource, state, sequence),
+        "sessionClock": cursor_session_clock(resource.events, state, sequence, as_of),
         "sessionClockRunning": state.session.session_clock_running,
         "benchmark": (
             {
@@ -173,7 +176,7 @@ def _attempts(
         for item in resource.evidence.lap_observations
         if item.driver_number == str(driver_number) and item.sequence <= sequence
     ]
-    phase_boundaries = _phase_boundaries(resource, sequence, sprint=sprint)
+    phase_boundaries = _phase_boundaries(resource.events, sequence, sprint=sprint)
     return [
         {
             "attempt": index,
@@ -233,8 +236,18 @@ def _latest_lap(attempts: list[dict[str, Any]]) -> dict[str, Any] | None:
     }
 
 
+def cursor_qualifying_phase(
+    events: Sequence[NormalizedEvent], state: RaceState, sequence: int,
+) -> str:
+    phase = state.session.qualifying_phase
+    if phase in QUALIFYING_PHASES or state.session.session_kind not in {"qualifying", "sprint_qualifying"}:
+        return phase
+    boundaries = _phase_boundaries(events, sequence, sprint=state.session.session_kind == "sprint_qualifying")
+    return _phase_at_sequence(boundaries, sequence) or "UNKNOWN"
+
+
 def _phase_boundaries(
-    resource: ReplayResource,
+    events: Sequence[NormalizedEvent],
     sequence: int,
     *,
     sprint: bool,
@@ -242,7 +255,7 @@ def _phase_boundaries(
     phases = ("SQ1", "SQ2", "SQ3") if sprint else ("Q1", "Q2", "Q3")
     starts: list[tuple[int, str]] = []
     last_started_at: str | None = None
-    for event_sequence, event in enumerate(resource.events, start=1):
+    for event_sequence, event in enumerate(events, start=1):
         if event_sequence > sequence:
             break
         is_initial_start = (
@@ -288,39 +301,6 @@ def _timestamp_seconds(value: str | None) -> float | None:
     except ValueError:
         return None
 
-
-def _cursor_session_clock(
-    resource: ReplayResource, state: RaceState, sequence: int
-) -> str | None:
-    clock = state.session.session_clock
-    if clock is None or not state.session.session_clock_running or sequence <= 0:
-        return clock
-    scoped_events = resource.events[:sequence]
-    observation = next(
-        (
-            event
-            for event in reversed(scoped_events)
-            if event.kind == "session"
-            and event.payload.get("session_clock") is not None
-        ),
-        None,
-    )
-    if observation is None or not scoped_events:
-        return clock
-    try:
-        hours, minutes, seconds = (float(part) for part in clock.split(":"))
-        observed_remaining = hours * 3600 + minutes * 60 + seconds
-        elapsed = max(
-            0.0,
-            (
-                parse_timestamp(scoped_events[-1].occurred_at)
-                - parse_timestamp(observation.occurred_at)
-            ).total_seconds(),
-        )
-    except (TypeError, ValueError):
-        return clock
-    remaining = max(0, int(observed_remaining - elapsed))
-    return f"{remaining // 3600:02d}:{remaining % 3600 // 60:02d}:{remaining % 60:02d}"
 
 
 def _scope_best(
