@@ -1,52 +1,75 @@
 # Unraid deployment
 
-The current Slipstream deployment is one image, one container, and one internal TCP port. Older instructions that used separate backend, web, and Nginx gateway containers are obsolete.
+Slipstream uses one image, one container, and one internal TCP port. The technical slug is `slipstream-f1`.
 
-## Recommended Docker template
+## Docker template
 
 Create one Unraid container with:
 
 | Template field | Value |
 | --- | --- |
-| Name | `slipstream-f1` |
+| Name | `Slipstream` |
 | Repository | `ghcr.io/rejozmathew/slipstream-f1:latest` |
-| Container port | `3444` TCP |
-| Host port | Any free port; `3444` is the default suggestion |
-| Container path | `/data` |
-| Host path | An appdata directory chosen for Slipstream recordings |
-| Variable | `SLIPSTREAM_MODE=full` (optional; this is the default) |
-| Variable | `SLIPSTREAM_CATALOG_YEARS=3` (optional; this is the default) |
-| Network | Choose the network appropriate for your server/template |
+| WebUI | `http://[IP]:[PORT:3344]` |
+| Container port | `3344` TCP |
+| Host port | `3344` by default; choose another free host port if needed |
+| Container path | `/data`, read/write |
+| Host path | `/mnt/user/appdata/slipstream-f1` |
+| Variable | `SLIPSTREAM_MODE=full` |
+| Variable | `SLIPSTREAM_CATALOG_YEARS=3` |
+| Network | `bridge` by default; adapt to your server if needed |
 
-The image runs as a non-root user. Ensure the selected appdata directory is writable. If the share uses Unraid’s standard `nobody:users` ownership, configure the container as UID/GID `99:100`; otherwise use the ownership appropriate for that share.
+The image runs as its built-in non-root `slipstream` user (UID 10001). Prepare the host appdata directory so UID 10001 can write to it, and retain the image's built-in user. A host bind mount supplies its own permissions; it does not inherit the image directory's ownership. Validate a clean writable directory before relying on the installation.
 
-Start the container and open:
+Start the container and open `http://UNRAID-IP:3344` (or the selected host port).
+
+`full` is the normal, recommended installation: browser UI + REST API + WebSocket. `api-only` serves headless REST API + WebSocket without the bundled browser UI and is useful for custom clients/integrations. The browser depends on the API/WebSocket, so a browser-only runtime mode is not supported.
+
+`SLIPSTREAM_CATALOG_YEARS` is the number of recent Formula 1 seasons included in Slipstream's session catalog and defaults to `3`. On first startup, Slipstream refreshes lightweight metadata for the current and two preceding seasons; it does not automatically download timing for every session. Pirelli history remains fixed internally at ten seasons and is not an administrator-facing horizon setting.
+
+## Persistent application data
+
+The standard read/write mapping is:
 
 ```text
-http://UNRAID-IP:HOST-PORT
+/mnt/user/appdata/slipstream-f1 -> /data
 ```
 
-On first startup Slipstream refreshes a lightweight catalog for the current and two preceding seasons. That catalog supplies dates and track shapes but does not automatically download timing for every session.
+`/data` is Slipstream's persistent application-data root and may contain:
 
-## Historical recordings
+- catalog metadata;
+- downloaded replay/session data;
+- `.slipstream` operational state;
+- Pirelli state;
+- future persistent database/settings.
 
-Downloaded sessions remain under the mapped `/data` directory across image updates. Use the browser’s **Download replay** action for finished sessions, or run:
+Application code stays inside the image under `/app`. `/data` is not the application installation directory. Preserve and back up the entire host data root across container updates.
+
+Use the browser's **Download replay** action for finished sessions, or run (use `slipstream-f1` as the container name for the Compose installation):
 
 ```sh
-docker exec slipstream-f1 python -m slipstream fetch 9165 --output /data/session-9165.json
-docker exec slipstream-f1 python -m slipstream fetch-weekend 1219 --output-dir /data
-docker exec slipstream-f1 python -m slipstream fetch-season 2023 --output-dir /data
+docker exec Slipstream python -m slipstream fetch 9165 --output /data/session-9165.json
+docker exec Slipstream python -m slipstream fetch-weekend 1219 --output-dir /data
+docker exec Slipstream python -m slipstream fetch-season 2023 --output-dir /data
 ```
 
 Add `--include-location` only when you want the much larger historical source X/Y data.
 
+## Draft Community Applications template
+
+[deploy/unraid/slipstream-f1.xml](../deploy/unraid/slipstream-f1.xml) is a DockerMan v2 draft for private testing. It pre-fills the image, WebUI, port, appdata mapping, runtime mode, and catalog years above. Its mode selector offers `full` and `api-only`, with `full` selected initially.
+
+The draft follows the [official Community Apps field reference](https://ca.unraid.net/submit/help/xml-field-reference) and [DockerMan implementation conventions](https://github.com/unraid/webgui/blob/master/emhttp/plugins/dynamix.docker.manager/include/CreateDocker.php). XML parsing alone does not validate DockerMan compatibility. This template has not been validated by an actual DockerMan-compatible schema or imported and exercised on Unraid, and is **not CA-submission-ready**.
+
+Before submission, privately import the template on Unraid, inspect the generated container command and defaults, then verify catalog access, browser routes in full mode, absent browser routes in api-only mode, and persistent writes on a clean data root using the built-in image user.
+
 ## Nginx Proxy Manager or another proxy
 
-Slipstream does not require a proxy. If you use one, configure it yourself with a single upstream:
+Slipstream does not require a proxy. If you use one, configure a single upstream:
 
 ```text
-Forward host: slipstream-f1 (or the Unraid host address)
-Forward port: 3444 (or the mapped host port)
+Forward host: Slipstream (slipstream-f1 for Compose), or the Unraid host address
+Forward port: 3344 (or the mapped host port)
 WebSocket support: enabled
 ```
 
@@ -54,24 +77,24 @@ No separate `/api` location, gateway container, proxy-network environment variab
 
 ## Updating
 
-For `latest`, use Unraid’s **Force Update** action or pull the image and recreate the container. Keep the same `/data` mapping.
+For `latest`, use Unraid's **Force Update** action or pull the image and recreate the container. Keep the same `/data` mapping.
 
-The release workflow also publishes immutable `run-N` and `sha-COMMIT` tags. Pin one of those for a controlled deployment. Rollback means selecting the earlier tag and recreating the same container; recordings remain unchanged.
+The release workflow also publishes immutable `run-N` and `sha-COMMIT` tags. Pin one of those for a controlled deployment. Rollback means selecting the earlier tag and recreating the same container; persistent application data remains unchanged.
 
 ## Moving from the older multi-container layout
 
 After the new `slipstream-f1` container is healthy:
 
-1. confirm it uses the existing recordings/appdata directory;
+1. confirm it uses the existing appdata directory;
 2. point any reverse proxy at the single container;
 3. stop and remove the old `slipstream-f1-backend`, `slipstream-f1-web`, and gateway containers;
 4. remove their unused images from the Unraid Docker page if desired.
 
-An image shown as orphaned or unused means no current container references it. Removing an old unused image does not delete the recordings directory, but confirm the active container and `/data` mapping first.
+An image shown as orphaned or unused means no current container references it. Removing an old unused image does not delete the persistent-data directory, but confirm the active container and `/data` mapping first.
 
 ## Compose alternative
 
-Users who prefer Compose can copy `deploy/unraid/compose.yaml` and `refresh.sh` into an appdata directory. The Compose file is self-contained: it uses the official image, port `3444`, full mode, a three-season replay catalog, UID/GID `99:100`, and `/mnt/user/appdata/slipstream-f1/recordings` without an `.env` file. Edit the YAML directly only when the host needs different values.
+Copy `deploy/unraid/compose.yaml` and `deploy/unraid/refresh.sh` into `/mnt/user/appdata/slipstream-f1`. The Compose file is self-contained: it uses the official image, `3344:3344`, full mode, a three-season catalog, and `/mnt/user/appdata/slipstream-f1:/data`. It retains the built-in image user, always pulls the image, restarts unless stopped, and checks `http://127.0.0.1:3344/api/v1/catalog`. No `.env` file is required. Edit the YAML directly when the host needs different values.
 
 ```sh
 docker compose up -d --wait
@@ -83,4 +106,4 @@ To refresh later:
 sh /mnt/user/appdata/slipstream-f1/refresh.sh
 ```
 
-The public Compose example intentionally contains no server name, private Docker network, reverse-proxy network, hostname, token, or credential.
+The public Compose example contains no server name, private Docker network, reverse-proxy network, hostname, token, or credential.

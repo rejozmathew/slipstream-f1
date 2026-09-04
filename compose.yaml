@@ -6,19 +6,19 @@ services:
     build:
       context: .
     ports:
-      - "${SLIPSTREAM_PORT:-3444}:3444"
+      - "${SLIPSTREAM_PORT:-3344}:3344"
     environment:
       SLIPSTREAM_MODE: "${SLIPSTREAM_MODE:-full}"
       SLIPSTREAM_CATALOG_YEARS: "${SLIPSTREAM_CATALOG_YEARS:-3}"
     volumes:
-      - "${SLIPSTREAM_RECORDINGS_DIR:-slipstream-recordings}:/data"
+      - "${SLIPSTREAM_DATA_DIR:-slipstream-data}:/data"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3444/api/v1/catalog', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3344/api/v1/catalog', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
 
 volumes:
-  slipstream-recordings:
+  slipstream-data:

@@ -122,12 +122,12 @@ A physically stopped Qualifying car is not automatically eliminated; qualifying 
 docker run -d \
   --name slipstream-f1 \
   --restart unless-stopped \
-  -p 3444:3444 \
-  -v slipstream-recordings:/data \
+  -p 3344:3344 \
+  -v slipstream-data:/data \
   ghcr.io/rejozmathew/slipstream-f1:latest
 ```
 
-Open `http://localhost:3444`.
+Open `http://localhost:3344`.
 
 To build the current checkout:
 
@@ -143,7 +143,9 @@ The production container serves one origin:
 /api/v1/stream     WebSocket live/replay stream
 ```
 
-Set `SLIPSTREAM_MODE=api-only` to omit browser routes. Slipstream does not bundle Nginx or require a second runtime service. See [Docker deployment](docs/docker.md) and [Unraid deployment](docs/unraid.md).
+The default `SLIPSTREAM_MODE=full` serves the browser UI, REST API, and WebSocket and is recommended for normal installations. Set `SLIPSTREAM_MODE=api-only` for headless REST API and WebSocket access by custom clients and integrations. The browser depends on the API/WebSocket, so there is no browser-only runtime mode. `SLIPSTREAM_CATALOG_YEARS` defaults to `3`; the Pirelli horizon remains fixed internally at ten seasons. No `.env` file is required.
+
+`/data` is the persistent application-data root for catalog metadata, downloaded replay/session data, `.slipstream` operational state, Pirelli state, and future persistent database/settings. Application code lives in the image under `/app`. On Unraid, map `/mnt/user/appdata/slipstream-f1` to `/data`. Slipstream does not bundle Nginx or require a second runtime service. See [Docker deployment](docs/docker.md) and [Unraid deployment](docs/unraid.md).
 
 ## Local development
 

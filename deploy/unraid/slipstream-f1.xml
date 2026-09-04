@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Draft for private DockerMan testing; not validated for CA submission. -->
+<Container version="2">
+  <Name>Slipstream</Name>
+  <Repository>ghcr.io/rejozmathew/slipstream-f1:latest</Repository>
+  <Registry>https://github.com/rejozmathew/slipstream-f1/pkgs/container/slipstream-f1</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Project>https://github.com/rejozmathew/slipstream-f1</Project>
+  <Support>https://github.com/rejozmathew/slipstream-f1/issues</Support>
+  <Overview>Self-hosted Formula 1 live timing and historical replay. Full mode includes the Slipstream browser UI, REST API, and WebSocket; api-only provides headless REST API and WebSocket access. Draft template for private testing.</Overview>
+  <WebUI>http://[IP]:[PORT:3344]</WebUI>
+  <Config Name="Web Port" Target="3344" Default="3344" Mode="tcp" Description="Slipstream HTTP and WebSocket port." Type="Port" Display="always" Required="true" Mask="false">3344</Config>
+  <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/slipstream-f1" Mode="rw" Description="Persistent application-data root: catalog, replay/session data, operational and Pirelli state, and future database/settings. Must be writable by the built-in slipstream user (UID 10001)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/slipstream-f1</Config>
+  <Config Name="Runtime Mode" Target="SLIPSTREAM_MODE" Default="full|api-only" Mode="" Description="full = browser UI + REST API/WebSocket (recommended); api-only = headless REST API/WebSocket for custom clients/integrations." Type="Variable" Display="always" Required="true" Mask="false">full</Config>
+  <Config Name="Catalog Years" Target="SLIPSTREAM_CATALOG_YEARS" Default="3" Mode="" Description="Number of recent Formula 1 seasons included in Slipstream's session catalog." Type="Variable" Display="always" Required="true" Mask="false">3</Config>
+</Container>

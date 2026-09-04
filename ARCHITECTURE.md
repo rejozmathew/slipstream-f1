@@ -220,7 +220,7 @@ The production image has a Node build stage and a Python runtime stage. Vite pro
 /api/v1/stream    WebSocket
 ```
 
-There is one runtime process, one container, and one internal port (`3444`). A reverse proxy is an external deployment choice. `api-only` mode omits browser routes but keeps REST and WebSocket behavior.
+There is one runtime process, one container, and one internal port (`3344`). A reverse proxy is an external deployment choice. `api-only` mode omits browser routes but keeps REST and WebSocket behavior.
 
 ## Adding another source
 

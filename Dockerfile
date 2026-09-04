@@ -24,6 +24,6 @@ COPY --from=web-builder /app/dist ./web
 
 USER slipstream
 VOLUME ["/data"]
-EXPOSE 3444
+EXPOSE 3344
 ENTRYPOINT ["python", "-m", "slipstream"]
-CMD ["serve", "/data", "--host", "0.0.0.0", "--port", "3444", "--web-dir", "/app/web"]
+CMD ["serve", "/data", "--host", "0.0.0.0", "--port", "3344", "--web-dir", "/app/web"]

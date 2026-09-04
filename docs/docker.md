@@ -1,6 +1,6 @@
 # Docker deployment
 
-Slipstream is distributed as one Linux container. The image uses Node only to compile the React application; the runtime contains one Python process serving the browser, REST API, and WebSocket on internal port `3444`.
+Slipstream is distributed as one Linux container. The image uses Node only to compile the React application; the runtime contains one Python process serving the browser, REST API, and WebSocket on internal port `3344`.
 
 It runs under Docker Desktop on Windows and macOS, Docker Engine on Linux, and compatible container platforms.
 
@@ -10,14 +10,14 @@ It runs under Docker Desktop on Windows and macOS, Docker Engine on Linux, and c
 docker run -d \
   --name slipstream-f1 \
   --restart unless-stopped \
-  -p 3444:3444 \
-  -v slipstream-recordings:/data \
+  -p 3344:3344 \
+  -v slipstream-data:/data \
   ghcr.io/rejozmathew/slipstream-f1:latest
 ```
 
-Open `http://localhost:3444`.
+Open `http://localhost:3344`.
 
-The named volume stores `catalog.json` and downloaded session recordings. Deleting and recreating the container does not delete the volume.
+The named volume stores Slipstream's persistent application data under `/data`. Deleting and recreating the container does not delete the volume.
 
 ## Build from a checkout
 
@@ -33,10 +33,10 @@ Use this path for development or when you want to build an unmerged checkout. No
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| Container port | `3444` | Internal HTTP and WebSocket port; do not change it in normal deployments |
-| `SLIPSTREAM_PORT` | `3444` | Host-side port used by the repository Compose file |
-| `SLIPSTREAM_RECORDINGS_DIR` | Docker volume | Optional host directory mounted at `/data` by Compose |
-| `SLIPSTREAM_MODE` | `full` | `full` serves browser and API; `api-only` omits browser routes |
+| Container port | `3344` | Internal HTTP and WebSocket port; do not change it in normal deployments |
+| `SLIPSTREAM_PORT` | `3344` | Host-side port used by the repository Compose file |
+| `SLIPSTREAM_DATA_DIR` | `slipstream-data` named volume | Optional host directory mounted at `/data` by the root Compose file; use an absolute path for a bind mount |
+| `SLIPSTREAM_MODE` | `full` | `full` serves browser UI + REST API + WebSocket; `api-only` serves headless REST API + WebSocket |
 | `SLIPSTREAM_CATALOG_YEARS` | `3` | Replay-catalog seasons; an explicit `serve --catalog-years` value overrides it |
 | `SLIPSTREAM_PIRELLI_SEED` | `1` | Validate and idempotently import the bundled normalized Pirelli seed on writable startup |
 | `SLIPSTREAM_PIRELLI_SEED_PATH` | bundled artifact | Optional replacement normalized seed path |
@@ -48,7 +48,7 @@ The Pirelli historical horizon is a fixed ten-season product policy, not an end-
 Choose another host port by changing only the published side:
 
 ```sh
-docker run -d --name slipstream-f1 -p 7444:3444 -v slipstream-recordings:/data ghcr.io/rejozmathew/slipstream-f1:latest
+docker run -d --name slipstream-f1 -p 7444:3344 -v slipstream-data:/data ghcr.io/rejozmathew/slipstream-f1:latest
 ```
 
 With Compose on Linux or macOS:
@@ -66,7 +66,11 @@ docker compose up -d --build
 
 ## Storage and permissions
 
-The image runs as a non-root user. A fresh named volume inherits writable ownership from the image. For a bind mount, make sure the chosen host directory is writable by the container user or explicitly run the container with a UID/GID appropriate for that host.
+The image runs as its built-in non-root `slipstream` user (UID 10001). A fresh named volume inherits writable ownership from the image. For a bind mount, prepare the host directory so UID 10001 can write to it; keep the built-in image user.
+
+`/data` is Slipstream's persistent application-data root. It may contain catalog metadata, downloaded replay/session data, `.slipstream` operational state, Pirelli state, and future persistent database/settings. Application code remains inside the image under `/app`; `/data` is not the application installation directory. Back up the entire data root.
+
+On Unraid, the mapping is `/mnt/user/appdata/slipstream-f1:/data`.
 
 Recordings can be large, especially when `--include-location` is enabled. The catalog is small and does not contain timing data.
 
@@ -90,16 +94,20 @@ docker compose run --rm slipstream fetch 9165 --output /data/session-9165.json
 
 Add `--include-location` only when source X/Y history is worth the additional download and storage.
 
-## API-only mode
+## Runtime modes
 
-API-only mode keeps REST and WebSocket routes while returning no browser application:
+`full` is the default and recommended installation: Slipstream browser UI + REST API + WebSocket.
+
+`api-only` provides headless REST API + WebSocket without the bundled browser UI, for custom clients and integrations. The browser depends on the API/WebSocket, so a browser-only runtime mode is not supported.
+
+To run API-only mode:
 
 ```sh
 docker run -d \
   --name slipstream-f1 \
   -e SLIPSTREAM_MODE=api-only \
-  -p 3444:3444 \
-  -v slipstream-recordings:/data \
+  -p 3344:3344 \
+  -v slipstream-data:/data \
   ghcr.io/rejozmathew/slipstream-f1:latest
 ```
 
@@ -122,7 +130,7 @@ docker compose up -d --build
 
 ## Reverse proxy
 
-A reverse proxy is optional. Route one hostname to container port `3444` and enable WebSocket forwarding. The website, `/api/v1/*`, and `/api/v1/stream` must remain on the same upstream origin.
+A reverse proxy is optional. Route one hostname to container port `3344` and enable WebSocket forwarding. The website, `/api/v1/*`, and `/api/v1/stream` must remain on the same upstream origin.
 
 Slipstream does not bundle Nginx, open multiple application ports, join a particular Docker network, or configure TLS. Those remain host-level decisions.
 
