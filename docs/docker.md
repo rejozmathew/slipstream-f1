@@ -66,7 +66,7 @@ docker compose up -d --build
 
 ## Storage and permissions
 
-The image runs as its built-in non-root `slipstream` user (UID 10001). A fresh named volume inherits writable ownership from the image. For a bind mount, prepare the host directory so UID 10001 can write to it; keep the built-in image user.
+The container entrypoint initially runs as root, creates `/data` if needed, and sets ownership of that directory itself to the built-in `slipstream` user (UID/GID 10001), with owner read/write/traverse permission. It then uses `gosu` to drop privileges and exec Slipstream as UID 10001. Fresh root-owned bind directories and named volumes require no manual ownership setup or user override. Startup does not recursively change ownership of existing replay/session files or subdirectories.
 
 `/data` is Slipstream's persistent application-data root. It may contain catalog metadata, downloaded replay/session data, `.slipstream` operational state, Pirelli state, and future persistent database/settings. Application code remains inside the image under `/app`; `/data` is not the application installation directory. Back up the entire data root.
 
@@ -81,10 +81,12 @@ Do not store credentials or authenticated captures under a repository checkout. 
 The browser can download any finished session listed by the catalog. CLI acquisition is also available inside the running container:
 
 ```sh
-docker exec slipstream-f1 python -m slipstream fetch 9165 --output /data/session-9165.json
-docker exec slipstream-f1 python -m slipstream fetch-weekend 1219 --output-dir /data
-docker exec slipstream-f1 python -m slipstream fetch-season 2023 --output-dir /data
+docker exec slipstream-f1 slipstream-entrypoint fetch 9165 --output /data/session-9165.json
+docker exec slipstream-f1 slipstream-entrypoint fetch-weekend 1219 --output-dir /data
+docker exec slipstream-f1 slipstream-entrypoint fetch-season 2023 --output-dir /data
 ```
+
+Use `slipstream-entrypoint` for these `docker exec` commands so CLI writes also run as UID 10001.
 
 For the repository Compose service:
 

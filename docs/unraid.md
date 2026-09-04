@@ -19,7 +19,7 @@ Create one Unraid container with:
 | Variable | `SLIPSTREAM_CATALOG_YEARS=3` |
 | Network | `bridge` by default; adapt to your server if needed |
 
-The image runs as its built-in non-root `slipstream` user (UID 10001). Prepare the host appdata directory so UID 10001 can write to it, and retain the image's built-in user. A host bind mount supplies its own permissions; it does not inherit the image directory's ownership. Validate a clean writable directory before relying on the installation.
+The container entrypoint initially runs as root, creates `/data` if needed, and sets ownership of that directory itself to the built-in `slipstream` user (UID/GID 10001), with owner read/write/traverse permission. It then uses `gosu` to drop privileges and exec Slipstream as UID 10001. Fresh root-owned bind directories and named volumes require no manual ownership setup or user override. Startup does not recursively change ownership of existing replay/session files or subdirectories.
 
 Start the container and open `http://UNRAID-IP:3344` (or the selected host port).
 
@@ -48,9 +48,9 @@ Application code stays inside the image under `/app`. `/data` is not the applica
 Use the browser's **Download replay** action for finished sessions, or run (use `slipstream-f1` as the container name for the Compose installation):
 
 ```sh
-docker exec Slipstream python -m slipstream fetch 9165 --output /data/session-9165.json
-docker exec Slipstream python -m slipstream fetch-weekend 1219 --output-dir /data
-docker exec Slipstream python -m slipstream fetch-season 2023 --output-dir /data
+docker exec Slipstream slipstream-entrypoint fetch 9165 --output /data/session-9165.json
+docker exec Slipstream slipstream-entrypoint fetch-weekend 1219 --output-dir /data
+docker exec Slipstream slipstream-entrypoint fetch-season 2023 --output-dir /data
 ```
 
 Add `--include-location` only when you want the much larger historical source X/Y data.
@@ -94,7 +94,7 @@ An image shown as orphaned or unused means no current container references it. R
 
 ## Compose alternative
 
-Copy `deploy/unraid/compose.yaml` and `deploy/unraid/refresh.sh` into `/mnt/user/appdata/slipstream-f1`. The Compose file is self-contained: it uses the official image, `3344:3344`, full mode, a three-season catalog, and `/mnt/user/appdata/slipstream-f1:/data`. It retains the built-in image user, always pulls the image, restarts unless stopped, and checks `http://127.0.0.1:3344/api/v1/catalog`. No `.env` file is required. Edit the YAML directly when the host needs different values.
+Copy `deploy/unraid/compose.yaml` and `deploy/unraid/refresh.sh` into `/mnt/user/appdata/slipstream-f1`. The Compose file is self-contained: it uses the official image, `3344:3344`, full mode, a three-season catalog, and `/mnt/user/appdata/slipstream-f1:/data`. Its entrypoint prepares the data-root permissions and launches Slipstream as UID 10001; it always pulls the image, restarts unless stopped, and checks `http://127.0.0.1:3344/api/v1/catalog`. No `.env` file is required. Edit the YAML directly when the host needs different values.
 
 ```sh
 docker compose up -d --wait

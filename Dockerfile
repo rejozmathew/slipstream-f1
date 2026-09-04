@@ -15,15 +15,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SLIPSTREAM_MODE=full
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 RUN pip install --no-cache-dir ".[pirelli-pdf]" \
-    && useradd --create-home --uid 10001 slipstream \
+    && groupadd --gid 10001 slipstream \
+    && useradd --create-home --uid 10001 --gid slipstream slipstream \
     && install -d -o slipstream -g slipstream /data
 COPY --from=web-builder /app/dist ./web
 
-USER slipstream
+COPY --chmod=755 deploy/docker-entrypoint.sh /usr/local/bin/slipstream-entrypoint
+
+# The entrypoint prepares the mount root, then execs Slipstream as UID 10001.
+USER root
 VOLUME ["/data"]
 EXPOSE 3344
-ENTRYPOINT ["python", "-m", "slipstream"]
+ENTRYPOINT ["slipstream-entrypoint"]
 CMD ["serve", "/data", "--host", "0.0.0.0", "--port", "3344", "--web-dir", "/app/web"]
