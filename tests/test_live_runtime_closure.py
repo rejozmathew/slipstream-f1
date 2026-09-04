@@ -172,7 +172,8 @@ def test_replay_ready_session_rolls_over_to_upcoming_session_without_restart(
 
         return rows()
 
-    now = lambda: datetime(2026, 8, 23, 15, 30, tzinfo=UTC)
+    def now():
+        return datetime(2026, 8, 23, 15, 30, tzinfo=UTC)
     live = PublicLiveSession(
         row_source=row_source, finalization_drain=0.01, now=now
     )
@@ -441,7 +442,8 @@ def test_recovered_live_state_is_reconnecting_not_unavailable(
             yield {}
         raise OSError("test reconnect failure")
 
-    now = lambda: datetime(2026, 8, 23, 14, 1, tzinfo=UTC)
+    def now():
+        return datetime(2026, 8, 23, 14, 1, tzinfo=UTC)
     live = PublicLiveSession(
         row_source=unavailable_rows, now=now, maximum_backoff=0.01
     )
@@ -506,7 +508,8 @@ def test_connected_viewer_hands_session_a_to_its_replay_when_b_takes_live(
         yield _completion_rows("100")[1]
         await asyncio.sleep(1)
 
-    now = lambda: datetime(2026, 8, 23, 15, 30, tzinfo=UTC)
+    def now():
+        return datetime(2026, 8, 23, 15, 30, tzinfo=UTC)
     live = PublicLiveSession(row_source=rows, now=now, finalization_drain=0.01)
 
     with TestClient(

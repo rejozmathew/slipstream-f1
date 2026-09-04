@@ -17,7 +17,7 @@ Adding optional fields is compatible within version 1. Removing a field, changin
 
 `session.session_kind` distinguishes `practice_1`, `practice_2`, `practice_3`, `qualifying`, `sprint_qualifying`, `sprint`, `race`, and `unknown`. `session.layout_family` maps those discovered kinds to the shared `practice`, `qualifying`, `race`, or `unsupported` presentation family. Catalog entries expose the same values as `sessionKind` and `layoutFamily`.
 
-Qualifying session facts use `session.qualifying_phase` (`Q1`, `Q2`, `Q3`, `SQ1`, `SQ2`, `SQ3`, or `UNKNOWN`), `session.session_clock`, `session.session_clock_running`, and stable `session.eligible_field_size`. Driver facts add source-observed `activity` (`ON_TRACK`, `IN_PIT`, or `UNKNOWN`), `progress_observed_at_lap`, `qualifying_eliminated`, session-end `qualifying_results`/`qualifying_phase_reached`, and `tyre_usage` (`NEW`, `USED`, or `UNKNOWN`).
+Practice and Qualifying source-clock facts use `session.qualifying_phase` (`Q1`, `Q2`, `Q3`, `SQ1`, `SQ2`, `SQ3`, or `UNKNOWN`), `session.session_clock`, `session.session_clock_running`, and stable `session.eligible_field_size`. Driver facts add source-observed `activity` (`ON_TRACK`, `IN_PIT`, or `UNKNOWN`), `progress_observed_at_lap`, `qualifying_eliminated`, session-end `qualifying_results`/`qualifying_phase_reached`, and `tyre_usage` (`NEW`, `USED`, or `UNKNOWN`).
 
 F1 provider lifecycle is split into current `source_condition` (`RUNNING`, `IN_PIT`, `STOPPED`, `RETIRED_INDICATED`, or `UNKNOWN`), raw/current `source_retired` and `source_stopped` booleans, and irreversible `classification` (`FINISHED`, `DNF`, `DNS`, `DSQ`, or an authoritative `RETIRED`). Explicit false and positive progress may recover a current condition. STOPPED and RETIRED_INDICATED are not final classification; final facts never project backward. `status` remains a compatibility projection. `NO_RECENT_PROGRESS` is not derived in M3.5.
 
@@ -59,7 +59,7 @@ REST state responses and WebSocket snapshots use:
 
 `analytics` is optional and additive. Replay and live WebSocket snapshots include it when the analytics service is available. It is always reconstructed at the same inclusive `seq` and `sessionTime` as `data`; it is not part of canonical `RaceState`.
 
-Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, and the connection-owned `delaySeconds`. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`. A live socket whose selected session becomes replay-ready sends one final `mode: "replay", handoff: "REPLAY_READY"` snapshot from the refreshed replay resource, then closes normally. The client retains the selected session and reconnects in Replay mode.
+Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, the connection-owned `delaySeconds`, and cursor-scoped `positionMode`. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`. A live socket whose selected session becomes replay-ready sends one final `mode: "replay", handoff: "REPLAY_READY"` snapshot from the refreshed replay resource, then closes normally. The client retains the selected session and reconnects in Replay mode.
 
 ## HTTP API
 
@@ -155,7 +155,9 @@ Playback advances in clock batches and emits snapshots at the transport cadence 
 
 With `mode=live`, only `snapshot`, `delay`, and `reset`/`live` are accepted. Delay is clamped to 0–300 seconds and selects an inclusive cursor from the shared live event history. `reset`/`live` returns that viewer to delay zero. Live has no pause, backward seek, step, or speed command, and one viewer's delay never mutates another viewer.
 
-The protocol range is distinct from current browser affordances. The M3.5 Live UI offers 0, 5, 10, 15, and 30-second presets; API/WebSocket consumers may request any valid value in the 0–300-second range.
+The Live UI offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry (0:00–5:00). Invalid syntax, seconds components above 59, and values beyond five minutes are rejected. GO LIVE returns to zero; the active label and selected preset follow the server-confirmed `live.delaySeconds`.
+
+Practice, Qualifying, and Sprint Qualifying display source-backed remaining time. The shared server helper extrapolates normalized ExtrapolatedClock observations only while `session_clock_running` is true, to the same inclusive viewer cursor and exact playhead as drivers and analytics. Source UTC anchors are honored on subscription/reconnect. Missing source clocks remain null; no session duration is assumed. Qualifying analytics reuse this helper, including between events at the same sequence. Race and Sprint retain session LAP current / total.
 
 ## Capability vocabulary
 
@@ -200,7 +202,7 @@ Whole-track contamination is derived from timestamped intervals opened only by g
 
 `RaceState.circuit.path` is an ordered array of `[x, y]` points. `rotation` is the source display rotation and `source` preserves geometry provenance.
 
-`circuit_shape` means the outline is available. `location_xy` means driver source coordinates may be present in `x`, `y`, and optional `z`. Placement prefers a driver's X/Y when present and otherwise retains that driver's timing-derived `track_position`; a sparse provider packet does not erase either value. Static catalog geometry is seeded independently and survives later live session updates. When neither per-car mode exists, the circuit remains visible and product UI says that car position is not available for the replay rather than exposing an internal capability enum.
+`circuit_shape` means the outline is available. `location_xy` means driver source coordinates may be present in `x`, `y`, and optional `z`. Placement prefers a driver's X/Y when present and otherwise retains that driver's timing-derived `track_position`; a sparse provider packet does not erase either value. Static catalog geometry is seeded independently and survives later live session updates. When neither per-car mode exists, the circuit remains visible and product UI uses Live- or Replay-specific unavailable wording. Public Live publishes `timing_estimate` only when the cursor contains a complete three-sector mini-sector inventory and defensible timing progress; it never declares X/Y. The Live envelope owns this cursor-specific mode so delayed viewers cannot inherit position capability from future evidence.
 
 Weather carries observation time, air and track temperature in degrees Celsius, humidity percentage, pressure in hPa, rain detection, wind speed in m/s, and wind direction in degrees. Rain detection is a sensor observation; it must not be presented as a guaranteed wet/dry surface classification.
 

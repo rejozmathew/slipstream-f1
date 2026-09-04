@@ -84,8 +84,8 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.doesNotMatch(replayControls, /`SEQ \$\{/);
   assert.match(replayControls, /ELAPSED/);
   assert.match(replayControls, /SESSION/);
-  assert.match(liveControls, /\[0, 5, 10, 15, 30\]/);
-  assert.match(liveControls, /RESET \/ LIVE/);
+  assert.match(liveControls, /LIVE_DELAY_PRESETS/);
+  assert.match(liveControls, /GO LIVE/);
   assert.doesNotMatch(liveControls, /seek|pause|speed/);
   assert.match(replayLibrary, /aria-label="Season"/);
   assert.match(replayLibrary, /aria-label="Race weekend"/);

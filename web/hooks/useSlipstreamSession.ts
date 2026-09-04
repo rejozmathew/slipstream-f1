@@ -48,6 +48,8 @@ export function useSlipstreamSession() {
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
   const [viewingMode, setViewingMode] = useState<ViewingMode>("replay");
   const [liveStatus, setLiveStatus] = useState<LiveConnectionStatus>("OFFLINE");
+  const [liveDelaySeconds, setLiveDelaySeconds] = useState(0);
+  const [livePositionMode, setLivePositionMode] = useState<import("../domain/protocol").PositionMode>("unavailable");
   const [livePhase, setLivePhase] = useState<LiveProductPhase>("UNAVAILABLE");
   const [playhead, setPlayhead] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -127,6 +129,8 @@ export function useSlipstreamSession() {
       setPlayhead(envelope.sessionTime ?? envelope.data.updated_at);
       setIsPlaying(viewingMode === "replay" && (envelope.playback?.playing ?? false));
       if (viewingMode === "live") {
+        setLiveDelaySeconds(envelope.live?.delaySeconds ?? 0);
+        setLivePositionMode(envelope.live?.positionMode ?? "unavailable");
         setLiveStatus(envelope.live?.status ?? "UNAVAILABLE");
         setLivePhase(envelope.live?.phase ?? "UNAVAILABLE");
         if (envelope.mode === "replay" && envelope.handoff === "REPLAY_READY") {
@@ -323,6 +327,8 @@ export function useSlipstreamSession() {
     viewingMode,
     liveStatus,
     livePhase,
+    liveDelaySeconds,
+    livePositionMode,
     playhead,
     isPlaying,
     transport,

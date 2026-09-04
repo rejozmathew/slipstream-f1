@@ -22,7 +22,7 @@ Pre-event UI shows the official start when known and a countdown derived from se
 
 ## Viewer delay
 
-The server owns one upstream connection per application instance. The Live protocol accepts an independent 0–300-second delay per viewer; the current browser exposes 0, 5, 10, 15, and 30-second presets. Both `RaceState` and `AnalyticsSnapshot` are built from the same delayed cursor. Returning to LIVE resets only that viewer to zero.
+The server owns one upstream connection per application instance. The Live protocol accepts an independent 0–300-second delay per viewer; the browser exposes 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry such as 2:17. The active label follows the server-confirmed delay. Both `RaceState` and `AnalyticsSnapshot` are built from the same delayed cursor. Returning to LIVE resets only that viewer to zero.
 
 Live viewing has no pause, seek, relative-seek, or speed command. Those controls belong only to replay.
 
@@ -54,7 +54,7 @@ M3.5 does not derive or render `NO_RECENT_PROGRESS`. A missing timing update, la
 
 Global status is server-authored from independent sporting/control and marshal facts. Public Live can keep a suspended/red state through later marshal changes and clears it only on explicit session-level resumption. Historical OpenF1 may legitimately degrade differently: when a red-flag message is known but the actual sporting restart is not represented, it does not create a persistent suspension/red latch; after later marshal evidence the global badge is omitted until another explicit sporting-control/session transition is available. `TRACK CLEAR` never resumes the session. Sector flags remain scoped race-control evidence and do not replace global status.
 
-Static circuit geometry is preloaded catalog data. Precise per-car X/Y is used only when the selected source declares and supplies that capability. Timing progress is mapped approximately onto the circuit only when the selected descriptor declares `timing_estimate`; sparse packets retain the last factual estimate. If neither car-position mode is declared—as in the current public Live product—car position is unavailable rather than fabricated.
+Static circuit geometry is preloaded catalog data. Precise per-car X/Y is used only when the selected source declares and supplies that capability. Timing progress is mapped approximately onto the circuit only when the selected descriptor declares `timing_estimate`; sparse packets retain the last factual estimate. Public Live enables timing estimates only after complete mini-sector evidence reaches the viewer cursor, labelled POSITION · APPROX · TIMING-DERIVED. Without that evidence it displays CAR POSITION NOT AVAILABLE IN PUBLIC LIVE FEED; Replay retains its own unavailable wording.
 
 Marker eligibility is lifecycle-aware. A current running car can be placed only when the selected source declares usable position evidence. Stopped, retired-indicated, and final-out cars are removed from stale circulating markers and may receive a separate factual label. A transient `IN_PIT` car may be omitted when its physical position is not meaningful, but it is never added to `OUT / STOPPED`. A recovered `STOPPED` car can return when positive source evidence and position capability support it.
 
@@ -67,3 +67,11 @@ A factual pit event remains visible even when duration detail is absent. Pit His
 ## Missing-data presentation
 
 Internal availability enums remain part of diagnostics and protocol state, but they are not default product copy. Stable source/session capability decides whether a whole column or element exists. Within a supported field, a missing row value renders `—`; a capability-wide absence omits the element, with at most one quiet explanatory note where useful. Capability-authored desktop and TV views never substitute plausible sample values.
+
+## Timed-session synchronization and Practice
+
+Practice shows REMAINING in the common Session/Driver header and TV Mode. Qualifying and Sprint Qualifying show the server-authored Q1/Q2/Q3 or SQ1/SQ2/SQ3 phase alongside the same source clock. Missing clocks show an em dash. The countdown uses ExtrapolatedClock evidence at the viewer's delayed cursor, freezes when the source stops it, and resumes from sourced values; React does not run a separate timer. Race/Sprint use session LAP current / total. Pre-event start countdown behavior is unchanged.
+
+Practice timing shows P, DRIVER, TYRE, AGE, LAST, BEST, GAP, STINT, STOPS, and STATUS. GAP is the server-authored best-lap difference to the driver immediately above in the classification at the inclusive viewing cursor. It is unavailable for the leader, when either best lap is missing, or when the immediately preceding position is absent; it never falls forward to another driver. Normal running rows are quiet; IN PIT, STOPPED, and terminal classifications require lifecycle evidence. Narrow rows retain tyre, best lap, gap, and factual status.
+
+Practice Driver Focus retains compound/age, stint laps, timing, pace evidence, factual pit history, driver read, Track Map, and Conditions. It excludes Grand Prix Pirelli comparisons, published race stop windows, and dry-compound legality. Backend dry-tyre requirements are NOT_APPLICABLE for Practice and Qualifying, including Sprint Qualifying; Race and the verified Sprint profile retain their existing semantics.

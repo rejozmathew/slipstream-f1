@@ -10,7 +10,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/domain.test.mjs",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/domain.test.mjs tests/session-components.test.mjs",
     "lint": "eslint . --ignore-pattern dist"
   },
   "dependencies": {
@@ -29,6 +29,7 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
+    "jsdom": "26.1.0",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",

@@ -20,6 +20,14 @@ class StrategyRuleProfile:
 def strategy_rule_profile(year: int, session_kind: str) -> StrategyRuleProfile:
     """Return narrow verified facts; historical/event overrides remain unknown."""
 
+    if session_kind in {"practice_1", "practice_2", "practice_3", "qualifying", "sprint_qualifying"}:
+        return StrategyRuleProfile(
+            profile_version="non-race-session-scope-v1",
+            mandatory_pit_stops=None,
+            dry_compound_obligation="not_applicable",
+            evidence=("Grand Prix dry-compound requirements do not apply to timed sessions",),
+            dry_requirement="not_applicable",
+        )
     if year == 2026 and session_kind == "sprint":
         return StrategyRuleProfile(
             profile_version="fia-2026-section-b-issue-08",

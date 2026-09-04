@@ -9,6 +9,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from .pirelli.seed import import_bundled_pirelli_seed, import_pirelli_seed
 from .pirelli.store import PirelliAvailability, PirelliEvidenceStore
 from .playback import ReplayController
 from .serialization import state_envelope
+from .state import RaceState
 from .storage import delete_replay_artifacts
 from .weekend import (
     ContextAvailability,
@@ -452,6 +454,11 @@ def create_app(
             and descriptor.key == selected.descriptor.key
         )
 
+    def live_position_mode(state: RaceState) -> str:
+        return "timing_estimate" if any(
+            driver.track_position is not None for driver in state.drivers.values()
+        ) else "unavailable"
+
     def live_state_envelope(
         selected: ReplayResource, *, delay_seconds: float = 0
     ) -> dict[str, Any]:
@@ -503,6 +510,7 @@ def create_app(
             )
         envelope = state_envelope(
             state,
+            events=events,
             sequence=sequence,
             session_time=playhead,
             analytics=analytics,
@@ -511,11 +519,13 @@ def create_app(
         envelope["live"] = live_payload(
             selected.descriptor.key, delay_seconds=delay_seconds
         )
+        envelope["live"]["positionMode"] = live_position_mode(state) if has_live_state else "unavailable"
         return envelope
 
     def replay_handoff_envelope(selected: ReplayResource) -> dict[str, Any]:
         envelope = state_envelope(
             selected.final_state,
+            events=selected.events,
             sequence=len(selected.events),
             session_time=(selected.events[-1].occurred_at if selected.events else None),
         )
@@ -544,6 +554,7 @@ def create_app(
             return live_state_envelope(selected)
         envelope = state_envelope(
             selected.final_state,
+            events=selected.events,
             sequence=len(selected.events),
             session_time=selected.events[-1].occurred_at if selected.events else None,
         )
@@ -555,12 +566,13 @@ def create_app(
         selected = resource(session_key)
         source = live.view(selected.descriptor.key)
         live_available = live_mode_available(selected)
+        live_mode = live_position_mode(live.state) if source.target_session_key == selected.descriptor.key else "unavailable"
         capabilities = dict(selected.descriptor.capabilities)
         if live_available:
             capabilities.update(
                 {
                     "live_timing": True,
-                    "positions": False,
+                    "positions": live_mode == "timing_estimate",
                     "intervals": True,
                     "sector_timing": True,
                     "location_xy": False,
@@ -584,7 +596,8 @@ def create_app(
             "replayReady": selected.replay_available or source.replay_ready,
             "isLive": selected.is_live,
             "positionMode": (
-                "unavailable" if live_available else selected.descriptor.position_mode
+                (live_position_mode(live.state) if source.target_session_key == selected.descriptor.key else "unavailable")
+                if live_available else selected.descriptor.position_mode
             ),
         }
 
@@ -617,7 +630,8 @@ def create_app(
             "replayReady": selected.replay_available or source.replay_ready,
             "isLive": selected.is_live,
             "positionMode": (
-                "unavailable" if live_available else selected.descriptor.position_mode
+                (live_position_mode(live.state) if source.target_session_key == selected.descriptor.key else "unavailable")
+                if live_available else selected.descriptor.position_mode
             ),
         }
 
@@ -739,8 +753,11 @@ def create_app(
                         continue
                     message_type = message.get("type")
                     if message_type == "delay":
-                        requested_delay = float(message.get("seconds", 0))
-                        if requested_delay < 0 or requested_delay > 300:
+                        try:
+                            requested_delay = float(message.get("seconds", 0))
+                        except (ValueError, TypeError):
+                            requested_delay = float("nan")
+                        if not isfinite(requested_delay) or not 0 <= requested_delay <= 300:
                             await websocket.send_json(
                                 {
                                     "v": 1,
@@ -1042,6 +1059,7 @@ async def _send_snapshot(
 ) -> None:
     payload = state_envelope(
         controller.state,
+        events=controller.events,
         sequence=controller.cursor,
         session_time=controller.playhead,
         playing=controller.is_playing,

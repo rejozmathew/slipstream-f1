@@ -25,6 +25,7 @@ from .f1_timing import (
 )
 from .live_recording import NormalizedLiveRecorder
 from .session import classify_session
+from .session_clock import extrapolate_clock
 from .state import RaceState
 
 RECORD_SEPARATOR = "\x1e"
@@ -496,6 +497,7 @@ class F1LiveAdapter:
         self._seen_race_control: set[str] = set()
         self._seen_status_series: set[str] = set()
         self._qualifying_phase = "UNKNOWN"
+        self._clock_observation: tuple[str | None, bool, str] | None = None
         self._pit_counts: dict[str, int] = {}
         self._in_pit: dict[str, bool] = {}
         self._pending_pits: dict[str, dict[str, Any]] = {}
@@ -560,7 +562,7 @@ class F1LiveAdapter:
         if stream == "SessionData":
             return self._session_data_events(merged, occurred_at)
         if stream == "ExtrapolatedClock":
-            return self._clock_events(merged, occurred_at)
+            return self._clock_events(merged, occurred_at, patch)
         if stream == "DriverList":
             return self._driver_events(merged, occurred_at)
         if stream == "TimingData":
@@ -645,23 +647,30 @@ class F1LiveAdapter:
         return []
 
     def _clock_events(
-        self, payload: dict[str, Any], occurred_at: str
+        self, payload: dict[str, Any], occurred_at: str, patch: Any
     ) -> list[NormalizedEvent]:
-        remaining = payload.get("Remaining")
-        if not isinstance(remaining, str) or remaining.count(":") != 2:
+        if not isinstance(patch, dict):
             return []
-        return [
-            NormalizedEvent(
-                "session",
-                occurred_at,
-                self.source,
-                {
-                    "session_clock": remaining,
-                    "session_clock_running": _truthy(payload.get("Extrapolating")),
-                },
-                received_at=occurred_at,
+        running = _truthy(payload.get("Extrapolating"))
+        if "Remaining" in patch or self._clock_observation is None:
+            remaining = extrapolate_clock(
+                payload.get("Remaining"), running=running,
+                observed_at=str(patch.get("Utc") or occurred_at), as_of=occurred_at,
+                preserve_fraction=True,
             )
-        ]
+        else:
+            # Sparse running/UTC changes cannot re-anchor an old Remaining value.
+            previous, was_running, observed_at = self._clock_observation
+            remaining = extrapolate_clock(
+                previous, running=was_running, observed_at=observed_at, as_of=occurred_at,
+                preserve_fraction=True,
+            )
+        self._clock_observation = (remaining, running, occurred_at)
+        return [NormalizedEvent(
+            "session", occurred_at, self.source,
+            {"session_clock": remaining, "session_clock_running": running},
+            received_at=occurred_at,
+        )]
 
     def _session_data_events(
         self, payload: dict[str, Any], occurred_at: str

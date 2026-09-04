@@ -7,13 +7,13 @@ import { PirelliBaseline, RaceNow } from "../components/analysis/PublishedStrate
 import { TrackMap } from "../components/analysis/TrackMap";
 import { TimingTower } from "../components/timing/TimingTower";
 import { applyRacePreset, type AnalysisModuleId, type RaceLayoutConfig, type TowerView } from "../domain/layout";
-import type { AnalyticsSnapshot, PositionMode, RaceState } from "../domain/protocol";
+import type { AnalyticsSnapshot, PositionMode, ViewingMode, RaceState } from "../domain/protocol";
 
 type RaceViewProps = {
   state: RaceState;
   analytics: AnalyticsSnapshot | null;
   replayAvailable: boolean;
-  positionMode: PositionMode;
+  positionMode: PositionMode; viewingMode: ViewingMode;
   layout: RaceLayoutConfig;
   onLayoutChange: (layout: RaceLayoutConfig) => void;
   onOpenLayoutEditor: () => void;
@@ -23,12 +23,12 @@ type RaceViewProps = {
   onOpenStrategy: () => void;
 };
 
-export function RaceView({ state, analytics, replayAvailable, positionMode, layout, onLayoutChange, onOpenLayoutEditor, onSelectDriver, towerView, onTowerViewChange, onOpenStrategy }: RaceViewProps) {
+export function RaceView({ state, analytics, replayAvailable, positionMode, viewingMode, layout, onLayoutChange, onOpenLayoutEditor, onSelectDriver, towerView, onTowerViewChange, onOpenStrategy }: RaceViewProps) {
   const [mobileTab, setMobileTab] = useState<"timing" | "strategy" | "map" | "control">("timing");
   const drivers = Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
   const modules: Record<AnalysisModuleId, ReactNode> = {
     strategy: <SessionStrategySnapshot analytics={analytics} onOpenStrategy={onOpenStrategy} compact={layout.moduleSizes.strategy === "compact"} />,
-    map: <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} />,
+    map: <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} />,
     conditions: <Conditions weather={state.weather} session={state.session} />,
     raceControl: <RaceControl messages={state.race_control} />,
   };
@@ -68,10 +68,10 @@ export function RaceView({ state, analytics, replayAvailable, positionMode, layo
           <div className="mobile-primary">
             {mobileTab === "timing" && <TimingTower drivers={drivers} variant="race" analytics={analytics} replayAvailable={replayAvailable} onSelectDriver={onSelectDriver} />}
         {mobileTab === "strategy" && <div className="mobile-strategy-foundation"><PirelliBaseline baseline={analytics?.publishedStrategy?.baseline} compact /><RaceNow analytics={analytics} compact /></div>}
-            {mobileTab === "map" && <div className="mobile-map-stack"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} /><Conditions weather={state.weather} session={state.session} /></div>}
+            {mobileTab === "map" && <div className="mobile-map-stack"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} /><Conditions weather={state.weather} session={state.session} /></div>}
             {mobileTab === "control" && <RaceControl messages={state.race_control} />}
           </div>
-          <div className="landscape-companion">{mobileTab === "control" ? <Conditions weather={state.weather} session={state.session} /> : <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} />}</div>
+          <div className="landscape-companion">{mobileTab === "control" ? <Conditions weather={state.weather} session={state.session} /> : <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} />}</div>
         </div>
       </div>
     </div>
