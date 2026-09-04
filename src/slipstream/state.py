@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field, replace
 from datetime import timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from .events import NormalizedEvent, parse_timestamp
 
@@ -22,6 +23,7 @@ class DriverState:
     interval_to_ahead: str | None = None
     last_lap: str | None = None
     best_lap: str | None = None
+    best_lap_delta_to_ahead: str | None = None
     compound: str | None = None
     tyre_age: int | None = None
     stint_laps: int | None = None
@@ -154,10 +156,12 @@ class RaceState:
                 session = _with_display_status(session)
             elif legacy_track_status is not None:
                 session = replace(session, track_status=str(legacy_track_status))
+            session = _with_local_time(session, event.occurred_at)
             return replace(
                 self,
                 updated_at=event.occurred_at,
-                session=_with_local_time(session, event.occurred_at),
+                session=session,
+                drivers=_with_practice_best_lap_deltas(session, self.drivers),
             )
         if event.kind == "circuit":
             updates = dict(event.payload)
@@ -191,11 +195,13 @@ class RaceState:
                 )
             updates = _with_driver_lifecycle_projection(current, updates)
             item = replace(current, **updates)
+            drivers = _with_monotonic_gaps({**self.drivers, number: item})
+            drivers = _with_practice_best_lap_deltas(self.session, drivers)
             return replace(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(self.session, event.occurred_at),
-                drivers=_with_monotonic_gaps({**self.drivers, number: item}),
+                drivers=drivers,
             )
         if event.kind == "timing":
             number = str(event.payload["number"])
@@ -245,11 +251,13 @@ class RaceState:
                 **explicit_availability,
             }
             item = replace(current, **updates, availability=availability)
+            drivers = _with_monotonic_gaps({**self.drivers, number: item})
+            drivers = _with_practice_best_lap_deltas(session, drivers)
             return replace(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(session, event.occurred_at),
-                drivers=_with_monotonic_gaps({**self.drivers, number: item}),
+                drivers=drivers,
             )
         if event.kind == "weather":
             updates = dict(event.payload)
@@ -280,6 +288,72 @@ class RaceState:
                 race_control=(*self.race_control, item),
             )
         raise ValueError(f"Unsupported event kind: {event.kind}")
+
+
+def _with_practice_best_lap_deltas(
+    session: SessionState, drivers: dict[str, DriverState]
+) -> dict[str, DriverState]:
+    """Author adjacent classified best-lap deltas for Practice."""
+
+    if session.layout_family != "practice":
+        return drivers
+
+    by_position: dict[int, list[DriverState]] = {}
+    for driver in drivers.values():
+        if isinstance(driver.position, int) and driver.position > 0:
+            by_position.setdefault(driver.position, []).append(driver)
+
+    result = dict(drivers)
+    for driver in drivers.values():
+        delta = None
+        if isinstance(driver.position, int) and driver.position > 1:
+            current = by_position.get(driver.position, [])
+            ahead = by_position.get(driver.position - 1, [])
+            if len(current) == 1 and len(ahead) == 1:
+                current_ms = _lap_time_milliseconds(driver.best_lap)
+                ahead_ms = _lap_time_milliseconds(ahead[0].best_lap)
+                if current_ms is not None and ahead_ms is not None:
+                    delta = _format_millisecond_delta(current_ms - ahead_ms)
+        availability = {
+            **driver.availability,
+            "best_lap_delta_to_ahead": (
+                "available" if delta is not None else "unavailable"
+            ),
+        }
+        result[driver.number] = replace(
+            driver,
+            best_lap_delta_to_ahead=delta,
+            availability=availability,
+        )
+    return result
+
+
+def _lap_time_milliseconds(value: str | None) -> int | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parts = value.strip().replace(",", ".").split(":")
+    if len(parts) not in {1, 2}:
+        return None
+    try:
+        minutes = int(parts[0]) if len(parts) == 2 else 0
+        seconds = Decimal(parts[-1])
+    except (InvalidOperation, ValueError):
+        return None
+    if (
+        minutes < 0
+        or not seconds.is_finite()
+        or seconds < 0
+        or (len(parts) == 2 and seconds >= 60)
+    ):
+        return None
+    milliseconds = (Decimal(minutes * 60) + seconds) * 1000
+    return int(milliseconds.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def _format_millisecond_delta(milliseconds: int) -> str:
+    sign = "-" if milliseconds < 0 else "+"
+    seconds, remainder = divmod(abs(milliseconds), 1000)
+    return f"{sign}{seconds}.{remainder:03d}"
 
 
 def _with_monotonic_gaps(drivers: dict[str, DriverState]) -> dict[str, DriverState]:

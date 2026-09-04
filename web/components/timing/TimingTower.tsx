@@ -114,7 +114,7 @@ function PracticeRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverN
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.last_lap} availability={driver.availability.last_lap} />
     <DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} />
-    <DataValue compact value={driver.position === 1 ? "BENCHMARK" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} />
+    <DataValue compact value={driver.best_lap_delta_to_ahead} availability={driver.availability.best_lap_delta_to_ahead} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
     <span className="practice-driver-status">{lifecycle.label}</span>
@@ -149,7 +149,7 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
     {!replayAvailable && <div className="panel-empty">TIMING DATA NOT AVAILABLE FOR THIS SESSION</div>}
     {replayAvailable && drivers.length === 0 && <div className="panel-empty">NO TIMING ROWS YET</div>}
     <div className={`timing-table timing-${rowClass}`} role="table">
-      <div className={`timing-header timing-${rowClass}${variant === "qualifying" && qualifyingFinal ? " timing-qualifying-final" : ""}${variant === "race" && mode === "strategy" ? " timing-race-strategy-detail" : ""}${variant === "qualifying" && sectorTimingAvailable ? " timing-qualifying-sectors" : ""}`} role="row">{headersForView.map((header) => <span key={header}>{header}</span>)}</div>
+      <div className={`timing-header timing-${rowClass}${variant === "qualifying" && qualifyingFinal ? " timing-qualifying-final" : ""}${variant === "race" && mode === "strategy" ? " timing-race-strategy-detail" : ""}${variant === "qualifying" && sectorTimingAvailable ? " timing-qualifying-sectors" : ""}`} role="row">{headersForView.map((header) => <span key={header} className={variant === "practice" && header === "GAP" ? "timing-header-help" : undefined} title={variant === "practice" && header === "GAP" ? "Best-lap difference to the driver above." : undefined}>{header}</span>)}</div>
       {drivers.map((driver) => variant === "race" && mode === "timing"
         ? <RaceTimingRow driver={driver} leader={raceLeader} onSelect={onSelectDriver} key={driver.number} />
         : variant === "race" && mode === "strategy"

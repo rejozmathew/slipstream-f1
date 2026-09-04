@@ -71,14 +71,8 @@ def normalize_f1_timing(
         updates: dict[str, Any] = {
             "position": _number(item.get("Position"), integer=True),
             "lap": _number(item.get("NumberOfLaps"), integer=True),
-            "gap_to_leader": _classification_value(
-                item, race_key="GapToLeader", timed_key="TimeDiffToFastest"
-            ),
-            "interval_to_ahead": _classification_value(
-                item,
-                race_key="IntervalToPositionAhead",
-                timed_key="TimeDiffToPositionAhead",
-            ),
+            "gap_to_leader": _value(item.get("GapToLeader")),
+            "interval_to_ahead": _value(item.get("IntervalToPositionAhead")),
             "last_lap": _value(item.get("LastLapTime")),
             "best_lap": _value(item.get("BestLapTime")),
             "pit_count": _number(item.get("NumberOfPitStops"), integer=True) or 0,
@@ -277,15 +271,6 @@ def _ordered_values(value: object) -> list[Any]:
 
 def _value(value: object) -> Any:
     return value.get("Value") if isinstance(value, dict) else value
-
-
-def _classification_value(
-    line: Mapping[str, Any], *, race_key: str, timed_key: str
-) -> Any:
-    """Keep Race gaps intact while accepting timed-session classification fields."""
-
-    key = race_key if race_key in line else timed_key
-    return _value(line.get(key))
 
 
 def _number(value: object, *, integer: bool = False) -> int | float | None:

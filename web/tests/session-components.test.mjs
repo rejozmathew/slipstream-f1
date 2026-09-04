@@ -29,6 +29,7 @@ const driver = {
   number: "1", code: "ONE", name: "Driver One", team: "Team", position: 3, lap: 12,
   compound: "SOFT", tyre_age: 5, stint_laps: 5, pit_count: 2,
   gap_to_leader: "+0.685", last_lap: "1:24.123", best_lap: "1:23.456",
+  best_lap_delta_to_ahead: "+0.249",
   source_condition: "RUNNING", status: "RUNNING", activity: "ON_TRACK",
   classification: null, availability: {}, track_position: null, x: null, y: null,
 };
@@ -47,11 +48,13 @@ test("TrackMap has explicit Live/Replay absence and approximate-only position la
 
 test("Practice renders normalized GAP, factual statuses and quiet running rows", () => {
   const html = render(TimingTower, { variant: "practice", replayAvailable: true, drivers: [
-    { ...driver, position: 1, gap_to_leader: null }, { ...driver, number: "2", source_condition: "IN_PIT" },
+    { ...driver, position: 1, best_lap_delta_to_ahead: null }, { ...driver, number: "2", source_condition: "IN_PIT" },
     { ...driver, number: "3", source_condition: "STOPPED" },
     { ...driver, number: "4", classification: "DNF" },
   ] });
-  for (const label of ["GAP", "STOPS", "STATUS", "BENCHMARK", "+0.685", "IN PIT", "STOPPED", "DNF"]) assert.ok(html.includes(label), label);
+  for (const label of ["GAP", "STOPS", "STATUS", "+0.249", "IN PIT", "STOPPED", "DNF"]) assert.ok(html.includes(label), label);
+  assert.match(html, /title="Best-lap difference to the driver above\."/);
+  assert.doesNotMatch(html, /BENCHMARK|\+0\.685/);
   assert.match(html, /class="practice-driver-status"><\/span>/);
   assert.doesNotMatch(html, />PIT<|NO_RECENT_PROGRESS/);
 });

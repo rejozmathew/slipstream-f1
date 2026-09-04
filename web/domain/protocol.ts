@@ -12,6 +12,7 @@ export type Driver = {
   interval_to_ahead: string | null;
   last_lap: string | null;
   best_lap: string | null;
+  best_lap_delta_to_ahead: string | null;
   compound: string | null;
   tyre_age: number | null;
   stint_laps: number | null;

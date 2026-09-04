@@ -109,6 +109,8 @@ def test_qualifying_contract_authors_phase_clock_cut_and_attempts(
     assert snapshot["final"] is False
     assert snapshot["sessionClock"] == "00:05:42"
     assert snapshot["benchmark"]["driverNumber"] == "1"
+    assert snapshot["drivers"]["1"]["benchmarkDelta"] == 0
+    assert snapshot["drivers"]["2"]["benchmarkDelta"] is None
     assert snapshot["cutLine"]["advancePosition"] == 16
     assert snapshot["cutLine"]["cutoff"]["driverNumber"] == "16"
     assert snapshot["cutLine"]["firstOut"]["driverNumber"] == "17"

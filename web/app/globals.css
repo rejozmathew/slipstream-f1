@@ -143,6 +143,7 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .timing-table { flex: 1; min-height: 0; overflow: auto; font-family: var(--mono); }
 .timing-header, .timing-row { display: grid; align-items: center; min-height: 38px; border-bottom: 1px solid var(--line-soft); }
 .timing-header { position: sticky; top: 0; z-index: 2; min-height: 25px; color: var(--quiet); background: #090d12; font: 650 var(--type-meta)/1 var(--sans); letter-spacing: .09em; }
+.timing-header-help { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
 .timing-race { grid-template-columns: 38px minmax(170px, 1.4fr) minmax(82px, .7fr) minmax(82px, .7fr) 44px 44px minmax(84px, .72fr) 38px; }
 .timing-qualifying { grid-template-columns: 38px minmax(170px, 1.5fr) 76px repeat(3, minmax(68px, .62fr)) minmax(86px, .8fr) 44px; }
 .timing-practice { grid-template-columns: 30px minmax(125px, 1fr) 36px 34px minmax(72px, .8fr) minmax(72px, .8fr) 65px 40px 40px 72px; }

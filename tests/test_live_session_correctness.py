@@ -66,28 +66,75 @@ def segments():
     return [{"Segments": [{"Status": 0} for _ in range(8)]} for _ in range(3)]
 
 
-def test_practice_classification_delta_uses_official_timed_session_fields():
-    # Representative values from the authentic FastF1 2020 Styrian GP FP2
-    # TimingData reference stream. Practice does not publish GapToLeader.
-    practice_events = normalize(
+def test_practice_gap_uses_adjacent_classified_best_laps_without_provider_gaps():
+    times = ["1:23.008", "1:23.312", "1:23.561", "1:23.644", "1:23.712"]
+    events = normalize(
         [
             session_row(),
             row(
                 "TimingData",
                 {
                     "Lines": {
-                        "20": {
-                            "RacingNumber": "20",
+                        str(position): {
+                            "RacingNumber": str(position),
+                            "Position": str(position),
+                            "BestLapTime": {"Value": lap_time, "Lap": 4},
+                        }
+                        for position, lap_time in enumerate(times, start=1)
+                    }
+                },
+                1,
+            ),
+        ]
+    )
+
+    state = replay(events)
+    ordered = [state.drivers[str(position)] for position in range(1, 6)]
+    assert [driver.best_lap_delta_to_ahead for driver in ordered] == [
+        None,
+        "+0.304",
+        "+0.249",
+        "+0.083",
+        "+0.068",
+    ]
+    assert all(driver.gap_to_leader is None for driver in ordered)
+    assert ordered[0].availability["best_lap_delta_to_ahead"] == "unavailable"
+    assert all(
+        driver.availability["best_lap_delta_to_ahead"] == "available"
+        for driver in ordered[1:]
+    )
+
+    envelope = state_envelope(state, sequence=len(events), events=events)
+    assert envelope["data"]["drivers"]["3"]["best_lap_delta_to_ahead"] == "+0.249"
+
+
+def test_practice_layout_testing_session_derives_adjacent_best_lap_gap():
+    events = normalize(
+        [
+            row(
+                "SessionInfo",
+                {
+                    "Key": 999,
+                    "Name": "Day 1",
+                    "Type": "Practice",
+                    "StartDate": at(0),
+                    "EndDate": at(3600),
+                    "Meeting": {"Key": 1293, "Name": "Pre-Season Testing"},
+                },
+            ),
+            row(
+                "TimingData",
+                {
+                    "Lines": {
+                        "1": {
+                            "RacingNumber": "1",
                             "Position": "1",
-                            "TimeDiffToFastest": "",
-                            "TimeDiffToPositionAhead": "",
+                            "BestLapTime": {"Value": "1:23.008", "Lap": 4},
                         },
-                        "8": {
-                            "RacingNumber": "8",
-                            "Position": "3",
-                            "TimeDiffToFastest": "+0.685",
-                            "TimeDiffToPositionAhead": "+0.056",
-                            "BestLapTime": {"Value": "1:28.153", "Lap": 2},
+                        "2": {
+                            "RacingNumber": "2",
+                            "Position": "2",
+                            "BestLapTime": {"Value": "1:23.312", "Lap": 4},
                         },
                     }
                 },
@@ -95,16 +142,147 @@ def test_practice_classification_delta_uses_official_timed_session_fields():
             ),
         ]
     )
-    practice = replay(practice_events)
 
-    assert practice.drivers["8"].gap_to_leader == "+0.685"
-    assert practice.drivers["8"].interval_to_ahead == "+0.056"
-    assert practice.drivers["8"].availability["gap_to_leader"] == "available"
-    envelope = state_envelope(
-        practice, sequence=len(practice_events), events=practice_events
+    state = replay(events)
+    assert state.session.session_kind == "unknown"
+    assert state.session.layout_family == "practice"
+    assert state.drivers["1"].best_lap_delta_to_ahead is None
+    assert state.drivers["2"].best_lap_delta_to_ahead == "+0.304"
+
+
+def test_practice_gap_recomputes_for_best_lap_and_classification_changes():
+    events = normalize(
+        [
+            session_row(),
+            row(
+                "TimingData",
+                {
+                    "Lines": {
+                        "1": {
+                            "RacingNumber": "1",
+                            "Position": "1",
+                            "BestLapTime": {"Value": "1:23.008", "Lap": 4},
+                        },
+                        "2": {
+                            "RacingNumber": "2",
+                            "Position": "2",
+                            "BestLapTime": {"Value": "1:23.312", "Lap": 4},
+                        },
+                        "3": {
+                            "RacingNumber": "3",
+                            "Position": "3",
+                            "BestLapTime": {"Value": "1:23.561", "Lap": 4},
+                        },
+                    }
+                },
+                1,
+            ),
+            row(
+                "TimingData",
+                {
+                    "Lines": {
+                        "2": {
+                            "Position": "2",
+                            "BestLapTime": {"Value": "1:23.100", "Lap": 5},
+                        }
+                    }
+                },
+                2,
+            ),
+            row(
+                "TimingData",
+                {
+                    "Lines": {
+                        "3": {
+                            "Position": "2",
+                            "BestLapTime": {"Value": "1:23.050", "Lap": 6},
+                        },
+                        "2": {"Position": "3"},
+                    }
+                },
+                3,
+            ),
+        ]
     )
-    assert envelope["data"]["drivers"]["8"]["gap_to_leader"] == "+0.685"
+    before_improvement = next(
+        index for index, event in enumerate(events) if event.occurred_at == at(2)
+    )
+    before_reclassification = next(
+        index for index, event in enumerate(events) if event.occurred_at == at(3)
+    )
 
+    initial = replay(events, event_limit=before_improvement)
+    assert initial.drivers["2"].best_lap_delta_to_ahead == "+0.304"
+    assert initial.drivers["3"].best_lap_delta_to_ahead == "+0.249"
+
+    improved = replay(events, event_limit=before_reclassification)
+    assert improved.drivers["2"].best_lap_delta_to_ahead == "+0.092"
+    assert improved.drivers["3"].best_lap_delta_to_ahead == "+0.461"
+
+    ambiguous = replay(events, event_limit=before_reclassification + 1)
+    assert ambiguous.drivers["2"].position == 2
+    assert ambiguous.drivers["3"].position == 2
+    assert ambiguous.drivers["2"].best_lap_delta_to_ahead is None
+    assert ambiguous.drivers["3"].best_lap_delta_to_ahead is None
+
+    reclassified = replay(events)
+    assert reclassified.drivers["3"].position == 2
+    assert reclassified.drivers["3"].best_lap_delta_to_ahead == "+0.042"
+    assert reclassified.drivers["2"].position == 3
+    assert reclassified.drivers["2"].best_lap_delta_to_ahead == "+0.050"
+
+
+def test_practice_gap_keeps_missing_tied_and_inconsistent_ordering_explicit():
+    events = normalize(
+        [
+            session_row(),
+            row(
+                "TimingData",
+                {
+                    "Lines": {
+                        "1": {
+                            "RacingNumber": "1",
+                            "Position": "1",
+                            "BestLapTime": {"Value": "1:23.008", "Lap": 4},
+                        },
+                        "2": {"RacingNumber": "2", "Position": "2"},
+                        "3": {
+                            "RacingNumber": "3",
+                            "Position": "3",
+                            "BestLapTime": {"Value": "1:23.500", "Lap": 4},
+                        },
+                        "4": {
+                            "RacingNumber": "4",
+                            "Position": "4",
+                            "BestLapTime": {"Value": "1:23.500", "Lap": 4},
+                        },
+                        "5": {
+                            "RacingNumber": "5",
+                            "Position": "5",
+                            "BestLapTime": {"Value": "1:23.400", "Lap": 4},
+                        },
+                        "7": {
+                            "RacingNumber": "7",
+                            "Position": "7",
+                            "BestLapTime": {"Value": "1:24.000", "Lap": 4},
+                        },
+                    }
+                },
+                1,
+            ),
+        ]
+    )
+
+    state = replay(events)
+    assert state.drivers["1"].best_lap_delta_to_ahead is None
+    assert state.drivers["2"].best_lap_delta_to_ahead is None
+    assert state.drivers["3"].best_lap_delta_to_ahead is None
+    assert state.drivers["4"].best_lap_delta_to_ahead == "+0.000"
+    assert state.drivers["5"].best_lap_delta_to_ahead == "-0.100"
+    assert state.drivers["7"].best_lap_delta_to_ahead is None
+
+
+def test_race_provider_gaps_keep_their_existing_semantics():
     race = replay(
         normalize(
             [
@@ -120,6 +298,7 @@ def test_practice_classification_delta_uses_official_timed_session_fields():
                                 "IntervalToPositionAhead": {"Value": "+1.250"},
                                 "TimeDiffToFastest": "+0.685",
                                 "TimeDiffToPositionAhead": "+0.056",
+                                "BestLapTime": {"Value": "1:23.312", "Lap": 4},
                             }
                         }
                     },
@@ -131,6 +310,7 @@ def test_practice_classification_delta_uses_official_timed_session_fields():
 
     assert race.drivers["8"].gap_to_leader == "+5.000"
     assert race.drivers["8"].interval_to_ahead == "+1.250"
+    assert race.drivers["8"].best_lap_delta_to_ahead is None
 
 
 def test_public_position_requires_full_inventory_and_known_progress():
