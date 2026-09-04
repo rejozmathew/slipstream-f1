@@ -71,8 +71,14 @@ def normalize_f1_timing(
         updates: dict[str, Any] = {
             "position": _number(item.get("Position"), integer=True),
             "lap": _number(item.get("NumberOfLaps"), integer=True),
-            "gap_to_leader": _value(item.get("GapToLeader")),
-            "interval_to_ahead": _value(item.get("IntervalToPositionAhead")),
+            "gap_to_leader": _classification_value(
+                item, race_key="GapToLeader", timed_key="TimeDiffToFastest"
+            ),
+            "interval_to_ahead": _classification_value(
+                item,
+                race_key="IntervalToPositionAhead",
+                timed_key="TimeDiffToPositionAhead",
+            ),
             "last_lap": _value(item.get("LastLapTime")),
             "best_lap": _value(item.get("BestLapTime")),
             "pit_count": _number(item.get("NumberOfPitStops"), integer=True) or 0,
@@ -273,6 +279,15 @@ def _value(value: object) -> Any:
     return value.get("Value") if isinstance(value, dict) else value
 
 
+def _classification_value(
+    line: Mapping[str, Any], *, race_key: str, timed_key: str
+) -> Any:
+    """Keep Race gaps intact while accepting timed-session classification fields."""
+
+    key = race_key if race_key in line else timed_key
+    return _value(line.get(key))
+
+
 def _number(value: object, *, integer: bool = False) -> int | float | None:
     value = _value(value)
     if value in {None, ""}:
@@ -317,9 +332,7 @@ def _qualifying_phase_reached(value: object, current_phase: str) -> str | None:
     if results is not None:
         prefix = "SQ" if str(current_phase).upper().startswith("SQ") else "Q"
         reached = max(
-            index
-            for index, result in enumerate(results, start=1)
-            if result is not None
+            index for index, result in enumerate(results, start=1) if result is not None
         )
         return f"{prefix}{reached}"
     phase = str(current_phase or "UNKNOWN").upper()
@@ -355,8 +368,11 @@ def _timing_track_position(
         return None
     inventories = [sector["Segments"] for sector in merged_sectors]
     if any(
-        not segments or any(not isinstance(segment, dict) or "Status" not in segment
-                            for segment in segments)
+        not segments
+        or any(
+            not isinstance(segment, dict) or "Status" not in segment
+            for segment in segments
+        )
         for segments in inventories
     ):
         return None
@@ -364,16 +380,18 @@ def _timing_track_position(
     total_segments = sum(sector_sizes)
     patch_sectors = line_patch.get("Sectors")
     if not isinstance(patch_sectors, (dict, list)):
-        return 0.0 if (_number(line_patch.get("NumberOfLaps"), integer=True) or 0) > 0 else None
+        return (
+            0.0
+            if (_number(line_patch.get("NumberOfLaps"), integer=True) or 0) > 0
+            else None
+        )
 
     latest: int | None = None
     for sector_index, sector_patch in _indexed_values(patch_sectors):
         if sector_index >= len(sector_sizes) or not isinstance(sector_patch, dict):
             continue
         sector_size = sector_sizes[sector_index]
-        for segment_index, segment in _indexed_values(
-            sector_patch.get("Segments")
-        ):
+        for segment_index, segment in _indexed_values(sector_patch.get("Segments")):
             if (
                 segment_index < sector_size
                 and isinstance(segment, dict)
@@ -390,11 +408,7 @@ def _indexed_values(value: object) -> list[tuple[int, Any]]:
         return list(enumerate(value))
     if not isinstance(value, dict):
         return []
-    return [
-        (int(key), item)
-        for key, item in value.items()
-        if str(key).isdigit()
-    ]
+    return [(int(key), item) for key, item in value.items() if str(key).isdigit()]
 
 
 def _sort_key(value: object) -> tuple[int, object]:

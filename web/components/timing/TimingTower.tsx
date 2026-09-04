@@ -114,7 +114,7 @@ function PracticeRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverN
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.last_lap} availability={driver.availability.last_lap} />
     <DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} />
-    <DataValue compact value={driver.gap_to_leader} availability={driver.availability.gap_to_leader} />
+    <DataValue compact value={driver.position === 1 ? "BENCHMARK" : driver.gap_to_leader} availability={driver.availability.gap_to_leader} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
     <span className="practice-driver-status">{lifecycle.label}</span>

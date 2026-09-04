@@ -28,7 +28,7 @@ const render = (component, props) => renderToStaticMarkup(createElement(componen
 const driver = {
   number: "1", code: "ONE", name: "Driver One", team: "Team", position: 3, lap: 12,
   compound: "SOFT", tyre_age: 5, stint_laps: 5, pit_count: 2,
-  gap_to_leader: "+0.321", last_lap: "1:24.123", best_lap: "1:23.456",
+  gap_to_leader: "+0.685", last_lap: "1:24.123", best_lap: "1:23.456",
   source_condition: "RUNNING", status: "RUNNING", activity: "ON_TRACK",
   classification: null, availability: {}, track_position: null, x: null, y: null,
 };
@@ -47,11 +47,11 @@ test("TrackMap has explicit Live/Replay absence and approximate-only position la
 
 test("Practice renders normalized GAP, factual statuses and quiet running rows", () => {
   const html = render(TimingTower, { variant: "practice", replayAvailable: true, drivers: [
-    driver, { ...driver, number: "2", source_condition: "IN_PIT" },
+    { ...driver, position: 1, gap_to_leader: null }, { ...driver, number: "2", source_condition: "IN_PIT" },
     { ...driver, number: "3", source_condition: "STOPPED" },
     { ...driver, number: "4", classification: "DNF" },
   ] });
-  for (const label of ["GAP", "STOPS", "STATUS", "+0.321", "IN PIT", "STOPPED", "DNF"]) assert.ok(html.includes(label), label);
+  for (const label of ["GAP", "STOPS", "STATUS", "BENCHMARK", "+0.685", "IN PIT", "STOPPED", "DNF"]) assert.ok(html.includes(label), label);
   assert.match(html, /class="practice-driver-status"><\/span>/);
   assert.doesNotMatch(html, />PIT<|NO_RECENT_PROGRESS/);
 });
@@ -74,7 +74,8 @@ test("source countdown is shared, kind-aware and never synthesized from session 
   assert.equal(render(SessionProgress, { session }), render(SessionProgress, { session: { ...session, session_clock_running: true } }), "running changes do not create a browser clock");
   assert.match(render(SessionProgress, { session: { ...session, session_clock: null } }), /REMAINING.*—/);
   for (const [kind, prefix] of [["qualifying", "Q"], ["sprint_qualifying", "SQ"]]) for (const phase of [1, 2, 3]) {
-    assert.match(render(SessionProgress, { session: { ...session, session_kind: kind, qualifying_phase: `${prefix}${phase}` } }), new RegExp(`${prefix}${phase}.*42:17`));
+    const progress = render(SessionProgress, { session: { ...session, session_kind: kind, qualifying_phase: `${prefix}${phase}` } });
+    assert.match(progress, new RegExp(`session-progress-phase[^>]*>${prefix}${phase}.*42:17`));
   }
   for (const kind of ["race", "sprint"]) {
     const race = render(SessionProgress, { session: { ...session, session_kind: kind, lap: 27, total_laps: 53 } });

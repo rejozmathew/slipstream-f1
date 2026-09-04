@@ -66,6 +66,73 @@ def segments():
     return [{"Segments": [{"Status": 0} for _ in range(8)]} for _ in range(3)]
 
 
+def test_practice_classification_delta_uses_official_timed_session_fields():
+    # Representative values from the authentic FastF1 2020 Styrian GP FP2
+    # TimingData reference stream. Practice does not publish GapToLeader.
+    practice_events = normalize(
+        [
+            session_row(),
+            row(
+                "TimingData",
+                {
+                    "Lines": {
+                        "20": {
+                            "RacingNumber": "20",
+                            "Position": "1",
+                            "TimeDiffToFastest": "",
+                            "TimeDiffToPositionAhead": "",
+                        },
+                        "8": {
+                            "RacingNumber": "8",
+                            "Position": "3",
+                            "TimeDiffToFastest": "+0.685",
+                            "TimeDiffToPositionAhead": "+0.056",
+                            "BestLapTime": {"Value": "1:28.153", "Lap": 2},
+                        },
+                    }
+                },
+                1,
+            ),
+        ]
+    )
+    practice = replay(practice_events)
+
+    assert practice.drivers["8"].gap_to_leader == "+0.685"
+    assert practice.drivers["8"].interval_to_ahead == "+0.056"
+    assert practice.drivers["8"].availability["gap_to_leader"] == "available"
+    envelope = state_envelope(
+        practice, sequence=len(practice_events), events=practice_events
+    )
+    assert envelope["data"]["drivers"]["8"]["gap_to_leader"] == "+0.685"
+
+    race = replay(
+        normalize(
+            [
+                session_row("Race"),
+                row(
+                    "TimingData",
+                    {
+                        "Lines": {
+                            "8": {
+                                "RacingNumber": "8",
+                                "Position": "2",
+                                "GapToLeader": "+5.000",
+                                "IntervalToPositionAhead": {"Value": "+1.250"},
+                                "TimeDiffToFastest": "+0.685",
+                                "TimeDiffToPositionAhead": "+0.056",
+                            }
+                        }
+                    },
+                    1,
+                ),
+            ]
+        )
+    )
+
+    assert race.drivers["8"].gap_to_leader == "+5.000"
+    assert race.drivers["8"].interval_to_ahead == "+1.250"
+
+
 def test_public_position_requires_full_inventory_and_known_progress():
     assert "Position.z" not in PUBLIC_TOPICS and "CarData.z" not in PUBLIC_TOPICS
     initial = [
