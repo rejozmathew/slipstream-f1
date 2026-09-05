@@ -6,8 +6,12 @@ The adapter produces source-neutral canonical events and normalized recordings.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+import logging
+from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,7 +30,10 @@ from .f1_timing import (
 from .live_recording import NormalizedLiveRecorder
 from .session import classify_session
 from .session_clock import extrapolate_clock
+from .session_completion import SessionCompletion, session_completion
 from .state import RaceState
+
+logger = logging.getLogger(__name__)
 
 RECORD_SEPARATOR = "\x1e"
 RECORDING_FORMAT = "slipstream.f1-signalr-recording.v1"
@@ -256,10 +263,7 @@ class PublicLiveRecorder:
                     try:
                         message = await asyncio.wait_for(websocket.receive(), remaining)
                     except TimeoutError as error:
-                        if (
-                            duration is not None
-                            and asyncio.get_running_loop().time() - started >= duration
-                        ):
+                        if duration is not None and remaining < idle_timeout:
                             break
                         raise LiveSourceError(
                             f"No live data received for {idle_timeout:g} seconds"
@@ -412,6 +416,18 @@ def _session_status(payload: dict[str, Any]) -> str:
     return "UNKNOWN"
 
 
+def _session_status_updates(payload: dict[str, Any]) -> dict[str, Any]:
+    updates: dict[str, Any] = {"status": _session_status(payload)}
+    status = str(payload.get("Status") or payload.get("SessionStatus") or "").upper()
+    # Finished also occurs at Q1/Q2 boundaries. Finalised/Ends are the
+    # provider's overall session lifecycle, retained separately on the wire.
+    if status in {"FINALISED", "FINALIZED", "ENDS", "CANCELLED", "CANCELED"}:
+        updates["session_complete"] = True
+        if status in {"CANCELLED", "CANCELED"}:
+            updates["status"] = "CANCELLED"
+    return updates
+
+
 def _track_status_updates(payload: dict[str, Any]) -> dict[str, str]:
     message = str(payload.get("Message") or "").upper()
     if "DOUBLE YELLOW" in message:
@@ -503,8 +519,10 @@ class F1LiveAdapter:
         self._pending_pits: dict[str, dict[str, Any]] = {}
         self._emitted_pits: set[tuple[str, int]] = set()
         self._lap_annotations: dict[str, dict[int, dict[str, bool]]] = {}
+        self.event_topics: dict[int, str] = {}
 
     def ingest(self, row: dict[str, Any]) -> tuple[NormalizedEvent, ...]:
+        self.event_topics = {}
         stream = str(row.get("stream") or "")
         if stream not in PUBLIC_TOPICS:
             return ()
@@ -529,17 +547,19 @@ class F1LiveAdapter:
         occurred_at = str(row.get("source_timestamp") or received_at)
         if not self._published_initial:
             self._published_initial = True
-            events = [
-                event
-                for name in self._ORDER
-                for event in self._events_for(
+            events = []
+            for name in self._ORDER:
+                emitted = self._events_for(
                     name, self.streams.get(name), occurred_at, self.streams.get(name)
                 )
-            ]
+                self.event_topics.update((id(event), name) for event in emitted)
+                events.extend(emitted)
             return tuple(events)
-        return tuple(
+        events = tuple(
             self._events_for(stream, self.streams[stream], occurred_at, payload)
         )
+        self.event_topics = {id(event): stream for event in events}
+        return events
 
     def _events_for(
         self, stream: str, merged: Any, occurred_at: str, patch: Any
@@ -549,13 +569,12 @@ class F1LiveAdapter:
         if stream == "SessionInfo":
             return self._session_info_events(merged, occurred_at)
         if stream == "SessionStatus":
-            status = _session_status(merged)
             return [
                 NormalizedEvent(
                     "session",
                     occurred_at,
                     self.source,
-                    {"status": status},
+                    _session_status_updates(merged),
                     received_at=occurred_at,
                 )
             ]
@@ -654,23 +673,32 @@ class F1LiveAdapter:
         running = _truthy(payload.get("Extrapolating"))
         if "Remaining" in patch or self._clock_observation is None:
             remaining = extrapolate_clock(
-                payload.get("Remaining"), running=running,
-                observed_at=str(patch.get("Utc") or occurred_at), as_of=occurred_at,
+                payload.get("Remaining"),
+                running=running,
+                observed_at=str(patch.get("Utc") or occurred_at),
+                as_of=occurred_at,
                 preserve_fraction=True,
             )
         else:
             # Sparse running/UTC changes cannot re-anchor an old Remaining value.
             previous, was_running, observed_at = self._clock_observation
             remaining = extrapolate_clock(
-                previous, running=was_running, observed_at=observed_at, as_of=occurred_at,
+                previous,
+                running=was_running,
+                observed_at=observed_at,
+                as_of=occurred_at,
                 preserve_fraction=True,
             )
         self._clock_observation = (remaining, running, occurred_at)
-        return [NormalizedEvent(
-            "session", occurred_at, self.source,
-            {"session_clock": remaining, "session_clock_running": running},
-            received_at=occurred_at,
-        )]
+        return [
+            NormalizedEvent(
+                "session",
+                occurred_at,
+                self.source,
+                {"session_clock": remaining, "session_clock_running": running},
+                received_at=occurred_at,
+            )
+        ]
 
     def _session_data_events(
         self, payload: dict[str, Any], occurred_at: str
@@ -681,9 +709,11 @@ class F1LiveAdapter:
                 continue
             updates: dict[str, Any] = {}
             if item.get("SessionStatus") is not None:
-                status = _session_status({"Status": item.get("SessionStatus")})
-                if status != "UNKNOWN":
-                    updates["status"] = status
+                status_updates = _session_status_updates(
+                    {"Status": item.get("SessionStatus")}
+                )
+                if status_updates["status"] != "UNKNOWN":
+                    updates.update(status_updates)
             if item.get("TrackStatus") is not None:
                 updates.update(_status_series_track_updates(item.get("TrackStatus")))
             if updates:
@@ -712,11 +742,12 @@ class F1LiveAdapter:
                 if isinstance(item, dict)
             )
         phase: str | None = None
-        for item in candidates:
+        for item in sorted(
+            candidates,
+            key=lambda item: parse_timestamp(str(item.get("Utc") or occurred_at)),
+        ):
             qualifying_part = item.get("QualifyingPart")
-            raw_value = str(
-                item.get("Value") or qualifying_part or ""
-            ).upper()
+            raw_value = str(item.get("Value") or qualifying_part or "").upper()
             if raw_value in {"Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"}:
                 phase = raw_value
             elif raw_value in {"1", "2", "3"} and (
@@ -767,6 +798,9 @@ class F1LiveAdapter:
         updates.update(
             {key: value for key, value in optional.items() if value not in {None, ""}}
         )
+        from .source_time import session_boundaries
+
+        updates = session_boundaries(updates)
         if session_name or session_type:
             updates.update(
                 session_kind=classification.kind.value,
@@ -774,7 +808,7 @@ class F1LiveAdapter:
             )
         status = _session_status(payload)
         if status != "UNKNOWN":
-            updates["status"] = status
+            updates.update(_session_status_updates(payload))
         return [
             NormalizedEvent(
                 "session",
@@ -834,9 +868,7 @@ class F1LiveAdapter:
         merged_lines = (
             merged.get("Lines") if isinstance(merged.get("Lines"), dict) else {}
         )
-        patch_lines = (
-            patch.get("Lines") if isinstance(patch, dict) else None
-        )
+        patch_lines = patch.get("Lines") if isinstance(patch, dict) else None
         if isinstance(patch_lines, dict):
             for raw_number, line_patch in patch_lines.items():
                 if not isinstance(line_patch, dict):
@@ -985,7 +1017,11 @@ class F1LiveAdapter:
                 if isinstance(new_stint, dict)
                 else ""
             )
-            if not new_compound or new_compound == "UNKNOWN" or key in self._emitted_pits:
+            if (
+                not new_compound
+                or new_compound == "UNKNOWN"
+                or key in self._emitted_pits
+            ):
                 continue
             events.append(
                 NormalizedEvent(
@@ -1218,6 +1254,7 @@ class PublicLiveSession:
         self._state = RaceState()
         self._evidence = SessionEvidence()
         self._task: asyncio.Task[None] | None = None
+        self._collecting = False
         self._finalization_task: asyncio.Task[None] | None = None
         self._normalized_recorder: NormalizedLiveRecorder | None = None
         self._completion_observed = False
@@ -1227,6 +1264,13 @@ class PublicLiveSession:
         self._final_recording: Path | None = None
         self._phase_history: list[str] = []
         self._adapter: F1LiveAdapter | None = None
+        self._completion = SessionCompletion()
+        self._received_counts: Counter[str] = Counter()
+        self._normalized_counts: Counter[str] = Counter()
+        self._persisted_counts: Counter[str] = Counter()
+        self._connections = 0
+        self._failures = 0
+        self._last_transport_at: str | None = None
 
     @property
     def state(self) -> RaceState:
@@ -1247,6 +1291,25 @@ class PublicLiveSession:
     @property
     def phase_history(self) -> tuple[str, ...]:
         return tuple(self._phase_history)
+
+    @property
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "connections": self._connections,
+            "failures": self._failures,
+            "taskRunning": self._task is not None and not self._task.done(),
+            "lastTransportAt": self._last_transport_at,
+            "completionReason": self._completion.reason,
+            "completionAt": self._completion.at,
+            "topics": {
+                name: {
+                    "received": self._received_counts[name],
+                    "normalized": self._normalized_counts[name],
+                    "persisted": self._persisted_counts[name],
+                }
+                for name in PUBLIC_TOPICS
+            },
+        }
 
     def configure_recording(
         self,
@@ -1282,9 +1345,7 @@ class PublicLiveSession:
     ) -> None:
         key = str(session_key)
         seeded = tuple(seed_events)
-        if key == self._target_session_key and (
-            (self._task is not None and not self._task.done()) or self._events
-        ):
+        if key == self._target_session_key and self._events:
             static_circuit = tuple(
                 event
                 for event in seeded
@@ -1298,6 +1359,12 @@ class PublicLiveSession:
                 self._events.extend(static_circuit)
                 self._events.sort(key=lambda event: parse_timestamp(event.occurred_at))
                 self._rebuild_projection()
+            if not self._completion_observed and (
+                self._task is None or self._task.done()
+            ):
+                logger.warning("Restarting stopped live task for session %s", key)
+                self._collecting = True
+                self._task = asyncio.create_task(self._run(key))
             return
         await self.stop()
         self._target_session_key = key
@@ -1315,6 +1382,12 @@ class PublicLiveSession:
         self._replay_ready = False
         self._final_recording = None
         self._phase_history = []
+        self._completion = SessionCompletion()
+        self._received_counts.clear()
+        self._normalized_counts.clear()
+        self._persisted_counts.clear()
+        self._connections = 0
+        self._failures = 0
         self._normalized_recorder = (
             NormalizedLiveRecorder(self._normalized_recording_dir, key)
             if self._normalized_recording_dir is not None
@@ -1326,9 +1399,11 @@ class PublicLiveSession:
             self._schedule_finalization()
         else:
             self._set_phase(self._phase_for_schedule("CONNECTING"))
+        self._collecting = True
         self._task = asyncio.create_task(self._run(key))
 
     async def stop(self) -> None:
+        self._collecting = False
         task = self._task
         self._task = None
         if task is not None and not task.done():
@@ -1348,6 +1423,12 @@ class PublicLiveSession:
         self._status = "OFFLINE"
         self._target_session_key = None
 
+    async def finish_pending(self) -> None:
+        """Let observed completion publish before switching acquisition."""
+        task = self._finalization_task
+        if task is not None and task is not asyncio.current_task():
+            await asyncio.shield(task)
+
     async def apply_rows(
         self, session_key: str, rows: Iterable[dict[str, Any]]
     ) -> None:
@@ -1363,7 +1444,7 @@ class PublicLiveSession:
         adapter = F1LiveAdapter(str(session_key))
         self._adapter = adapter
         for row in rows:
-            self._apply(adapter.ingest(row), str(row.get("received_at") or utc_now()))
+            self._ingest_row(adapter, row)
         if self._events and not self._completion_observed:
             self._status = "LIVE"
             self._set_phase("LIVE")
@@ -1387,10 +1468,7 @@ class PublicLiveSession:
             key=lambda event: parse_timestamp(event.occurred_at),
         )
         self._rebuild_projection()
-        self._completion_observed = False
-        for event in self._events:
-            if self._event_completes_session(event):
-                self._completion_observed = True
+        self._reconcile_completion()
         if recovered:
             self._ever_connected = True
             latest = max(
@@ -1401,36 +1479,53 @@ class PublicLiveSession:
             )
             self._last_received_at = latest.received_at or latest.occurred_at
 
-    @staticmethod
-    def _event_completes_session(event: NormalizedEvent) -> bool:
-        status = str(event.payload.get("status") or "").upper()
-        return event.kind == "session" and status in {
-            "FINISHED",
-            "ENDED",
-            "COMPLETE",
-            "FINAL",
-            "FINALIZED",
-            "FINALISED",
-        }
+    def _reconcile_completion(self) -> None:
+        self._completion = session_completion(
+            self._events, session_kind=self._state.session.session_kind
+        )
+        self._completion_observed = self._completion.complete
+        if not self._completion_observed and self._finalization_task is not None:
+            self._finalization_task.cancel()
+            self._finalization_task = None
+
+    def _ingest_row(self, adapter: F1LiveAdapter, row: dict[str, Any]) -> bool:
+        topic = str(row.get("stream") or "")
+        if topic in PUBLIC_TOPICS:
+            self._received_counts[topic] += 1
+        self._last_transport_at = self._now().isoformat()
+        events = adapter.ingest(row)
+        self._normalized_counts.update(adapter.event_topics.values())
+        return self._apply(events, str(row.get("received_at") or utc_now()))
 
     def _apply(self, events: Iterable[NormalizedEvent], received_at: str) -> bool:
         batch = tuple(events)
         if self._normalized_recorder is not None:
             batch = self._normalized_recorder.append(batch)
+            if self._adapter is not None:
+                self._persisted_counts.update(
+                    self._adapter.event_topics[id(event)]
+                    for event in batch
+                    if id(event) in self._adapter.event_topics
+                )
         if not batch:
             self._last_received_at = received_at
             return False
 
         previous_count = len(self._events)
-        ordered = sorted(
-            (*self._events, *batch),
-            key=lambda event: parse_timestamp(event.occurred_at),
-        )
-        append_only = ordered[:previous_count] == self._events
-        self._events = ordered
+        incoming = sorted(batch, key=lambda event: parse_timestamp(event.occurred_at))
+        append_only = not self._events or parse_timestamp(
+            incoming[0].occurred_at
+        ) >= parse_timestamp(self._events[-1].occurred_at)
+        if append_only:
+            self._events.extend(incoming)
+        else:
+            self._events = sorted(
+                (*self._events, *incoming),
+                key=lambda event: parse_timestamp(event.occurred_at),
+            )
         if append_only:
             for sequence, event in enumerate(
-                ordered[previous_count:],
+                incoming,
                 start=previous_count + 1,
             ):
                 self._state = self._state.apply(event)
@@ -1442,10 +1537,10 @@ class PublicLiveSession:
         else:
             self._rebuild_projection()
 
-        for event in batch:
-            if self._event_completes_session(event):
-                self._completion_observed = True
-                self._set_phase("FINALIZING")
+        if any(event.kind == "session" for event in batch):
+            self._reconcile_completion()
+        if self._completion_observed:
+            self._set_phase("FINALIZING")
         self._last_received_at = received_at
         self._status = "LIVE"
         self._ever_connected = True
@@ -1469,7 +1564,7 @@ class PublicLiveSession:
     def _phase_for_schedule(self, fallback: str) -> str:
         if self._scheduled_start:
             try:
-                if self._now() < datetime.fromisoformat(self._scheduled_start):
+                if self._now() < parse_timestamp(self._scheduled_start):
                     return "PRE_EVENT"
             except ValueError:
                 pass
@@ -1481,13 +1576,44 @@ class PublicLiveSession:
         self._phase = phase
         if not self._phase_history or self._phase_history[-1] != phase:
             self._phase_history.append(phase)
+            del self._phase_history[:-64]
+            logger.info(
+                "Live session %s phase=%s events=%d completion=%s",
+                self._target_session_key,
+                phase,
+                len(self._events),
+                self._completion.reason,
+            )
 
     def _schedule_finalization(self) -> None:
         # Every factual post-chequered packet extends the deterministic drain.
         # This preserves late classification/timing updates before atomic close.
         if self._finalization_task is not None and not self._finalization_task.done():
             self._finalization_task.cancel()
-        self._finalization_task = asyncio.create_task(self._finalize_after_drain())
+        self._finalization_task = asyncio.create_task(self._finalize_with_retry())
+
+    async def _finalize_with_retry(self) -> None:
+        backoff = min(1.0, self._maximum_backoff)
+        while self._completion_observed and not self._replay_ready:
+            try:
+                await self._finalize_after_drain()
+                if self._normalized_recorder is None or self._replay_ready:
+                    return
+                raise RuntimeError("Completed recording is not yet visible")
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 - completion publication must recover observably
+                self._error = (
+                    f"Recording publication failed ({type(error).__name__}); retrying"
+                )
+                self._set_phase("FINALIZING")
+                logger.warning(
+                    "Live session %s finalization failed: %s; retrying",
+                    self._target_session_key,
+                    type(error).__name__,
+                )
+                await asyncio.sleep(max(0.01, backoff))
+                backoff = min(backoff * 2, self._maximum_backoff)
 
     async def _finalize_after_drain(self) -> None:
         if self._finalization_drain:
@@ -1515,28 +1641,32 @@ class PublicLiveSession:
         self._reconnecting = False
         self._error = None
         await self._stop_completed_upstream()
-        final_path = self._normalized_recorder.finalize()
+        final_path = await asyncio.to_thread(self._normalized_recorder.finalize)
         self._final_recording = final_path
         ready = True
         if self._on_recording_finalized is not None:
-            ready = bool(self._on_recording_finalized(final_path))
+            result = self._on_recording_finalized(final_path)
+            ready = bool(await result if inspect.isawaitable(result) else result)
         self._replay_ready = ready
         if ready:
+            self._error = None
             self._set_phase("REPLAY_READY")
 
     async def _stop_completed_upstream(self) -> None:
+        self._collecting = False
         task = self._task
         if task is None or task is asyncio.current_task() or task.done():
             return
         self._task = None
         task.cancel()
-        await asyncio.sleep(0)
+        with suppress(asyncio.CancelledError):
+            await task
 
     async def _wait_for_scheduled_start(self, session_key: str) -> None:
         while self._target_session_key == session_key and self._scheduled_start:
             try:
                 seconds = (
-                    datetime.fromisoformat(self._scheduled_start) - self._now()
+                    parse_timestamp(self._scheduled_start) - self._now()
                 ).total_seconds()
             except ValueError:
                 return
@@ -1548,16 +1678,24 @@ class PublicLiveSession:
     async def _run(self, session_key: str) -> None:
         await self._wait_for_scheduled_start(session_key)
         backoff = 1.0
-        while self._target_session_key == session_key and not self._replay_ready:
+        while (
+            self._target_session_key == session_key
+            and not self._replay_ready
+            and self._collecting
+        ):
             adapter = F1LiveAdapter(session_key)
             self._adapter = adapter
             self._status = "CONNECTING" if not self._ever_connected else "STALE"
             self._reconnecting = self._ever_connected
             self._set_phase("RECONNECTING" if self._reconnecting else "CONNECTING")
+            iterator = None
             try:
+                self._connections += 1
                 iterator = self._row_source().__aiter__()
                 while (
-                    self._target_session_key == session_key and not self._replay_ready
+                    self._target_session_key == session_key
+                    and not self._replay_ready
+                    and self._collecting
                 ):
                     try:
                         row = await asyncio.wait_for(
@@ -1570,16 +1708,19 @@ class PublicLiveSession:
                         self._set_phase("STALE")
                         self._error = f"No public live data received for {self._stale_after:g} seconds"
                         raise LiveSourceError(self._error) from error
-                    emitted = self._apply(
-                        adapter.ingest(row),
-                        str(row.get("received_at") or utc_now()),
-                    )
+                    emitted = self._ingest_row(adapter, row)
                     if emitted and self._completion_observed:
                         self._schedule_finalization()
                     backoff = 1.0
             except asyncio.CancelledError:
                 raise
-            except (LiveSourceError, aiohttp.ClientError, OSError) as error:
+            except Exception as error:  # noqa: BLE001 - task failures must reconnect observably
+                self._failures += 1
+                logger.warning(
+                    "Live session %s connection/task failure: %s; retrying",
+                    session_key,
+                    type(error).__name__,
+                )
                 if self._completion_observed:
                     if (
                         self._finalization_task is None
@@ -1588,8 +1729,16 @@ class PublicLiveSession:
                         self._schedule_finalization()
                     return
                 self._status = "UNAVAILABLE" if not self._ever_connected else "STALE"
-                self._error = str(error)
+                self._error = (
+                    str(error)[:240]
+                    if isinstance(error, LiveSourceError)
+                    else f"Live processing failed ({type(error).__name__}); reconnecting"
+                )
                 self._reconnecting = self._ever_connected
                 self._set_phase("RECONNECTING" if self._reconnecting else "UNAVAILABLE")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, self._maximum_backoff)
+            finally:
+                if iterator is not None and hasattr(iterator, "aclose"):
+                    with suppress(Exception):
+                        await iterator.aclose()

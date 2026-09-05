@@ -130,6 +130,9 @@ export type StateEnvelope = {
   live?: LiveSourceState;
   data: RaceState;
   analytics?: AnalyticsSnapshot;
+  metadata?: ReplayMetadata;
+  capabilities?: SourceCapabilities;
+  playbackReady?: boolean;
   error?: string;
 };
 
@@ -663,7 +666,7 @@ export type CatalogSession = {
 
 export type ReplayCatalog = {
   v: 1;
-  defaultSessionKey: string;
+  defaultSessionKey: string | null;
   downloadsEnabled: boolean;
   liveSessionKey: string | null;
   liveStatus: LiveConnectionStatus;

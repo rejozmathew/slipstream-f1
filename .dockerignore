@@ -1,4 +1,7 @@
 .git
+.codex-tmp
+local-server*.log
+local-server.pid
 .github
 .pytest_cache
 .ruff_cache

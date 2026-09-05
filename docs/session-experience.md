@@ -36,7 +36,9 @@ Reconstruction remains deterministic: the inclusive event cursor determines both
 
 Historical replay ends at the settled factual product boundary rather than necessarily at the first chequered packet. Late classification facts included in the normalized recording remain reachable, and backward seeks reconstruct the earlier cursor without projecting those final results into the past.
 
-Replay download/preparation UX is still deferred. The product does not yet claim complete progress feedback, an explicit `DOWNLOADING` / `PREPARING` / `READY` lifecycle, elimination of the blank or partial post-download shell or possible refresh, immediate control/slider readiness, removal of the end-to-start initialization flash, or optimized bootstrap latency.
+Replay opening now shows initialization/retry status until a canonical cursor snapshot, bounds and capabilities are ready together. The first view starts at the official start without a final-state flash. A failed connection retains already confirmed timing, disables unavailable commands, and reconnects automatically; successful catalog refresh does not clear a timing error. Analytics arrives independently at the same cursor. Replay downloads expose server job progress/failure and survive browser refresh. Preparation is lazy and in memory; the first seek into an unprepared large recording may still exceed the approved latency budget (see the combined P0 repair report).
+
+Browser preferences distinguish deliberate replay selection from follow-live intent. Deliberate selection survives refresh and later live targets; GO LIVE opts into following the collector. During completion, a delayed viewer consumes the old session's remaining tail before changing to Replay. The next live collector can proceed independently. A partial local recording is usable historical evidence but does not trap an active session in Replay after restart.
 
 ## Qualifying
 

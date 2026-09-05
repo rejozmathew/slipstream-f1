@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .events import NormalizedEvent, parse_timestamp
@@ -86,6 +87,16 @@ class SessionEvidence:
         *,
         cutoff: str | None = None,
     ) -> SessionEvidence:
+        return cls.reduce_events(events, cutoff=cutoff)[1]
+
+    @classmethod
+    def reduce_events(
+        cls,
+        events: tuple[NormalizedEvent, ...],
+        *,
+        cutoff: str | None = None,
+        on_state: Callable[[int, RaceState], None] | None = None,
+    ) -> tuple[RaceState, SessionEvidence]:
         """Build evidence from normalized events.
 
         v2.1 Scenario 20: when ``cutoff`` is provided (the session's evidence
@@ -102,6 +113,8 @@ class SessionEvidence:
         state = RaceState()
         for sequence, event in enumerate(events, start=1):
             state = state.apply(event)
+            if on_state is not None:
+                on_state(sequence, state)
             payload = event.payload.get("lap_observation")
             pit_payload = event.payload.get("pit_observation")
             driver_number = event.payload.get("number")
@@ -170,7 +183,7 @@ class SessionEvidence:
                         gap_seconds=gap,
                     )
                 )
-        return cls(tuple(observations), tuple(completed_gaps), tuple(pit_events))
+        return state, cls(tuple(observations), tuple(completed_gaps), tuple(pit_events))
 
     def append(
         self,

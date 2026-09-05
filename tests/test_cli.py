@@ -19,8 +19,21 @@ def _run_serve(monkeypatch, tmp_path, *extra_args):
         "sync_catalog",
         lambda *_args, **_kwargs: {"sessions": [], "meetings": []},
     )
-    monkeypatch.setattr(api_module, "create_app", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(uvicorn, "run", lambda *_args, **_kwargs: None)
+
+    def create_app(*_args, **kwargs):
+        assert requested_catalog_years == [], (
+            "Remote catalog must not gate app construction"
+        )
+        return kwargs["refresh_catalog"]
+
+    def serve(app, **kwargs):
+        assert requested_catalog_years == [], (
+            "HTTP startup must own the background refresh"
+        )
+        app()
+
+    monkeypatch.setattr(api_module, "create_app", create_app)
+    monkeypatch.setattr(uvicorn, "run", serve)
     monkeypatch.setattr(
         sys,
         "argv",

@@ -68,6 +68,12 @@ public F1 SignalR ---> F1LiveAdapter ---> shared ordered NormalizedEvent history
 
 ## Core invariants
 
+Replay discovery reads identity/capability metadata without applying timing events. Remote catalog refresh, Pirelli seed import and enrichment run after HTTP startup; failures remain visible and retryable. A viewer opens through one retryable WebSocket path: its first canonical start/cursor snapshot carries bounds, capabilities and `playbackReady` together. Complete state, evidence and in-memory checkpoints are prepared together only after that first snapshot. Optional analytics never gate basic controls.
+
+`ReplayLibrary` coalesces loads and preparation, keeps private viewer controllers, and pins resources used by connected replay viewers. Its LRU defaults to three resources within a conservative 512 MiB reservation budget, with a 300 MiB per-resource admission ceiling. A full pinned cache rejects another resource with a retryable error. Reservations estimate retained objects and preparation space, not process RSS; allocator/transient memory must be measured separately. No disk preparation format is introduced. Background live identity discovery does not displace prepared historical resources.
+
+Replay downloads are bounded in-process jobs (`QUEUED`, `DOWNLOADING`, `FINALIZING`, `AVAILABLE`, `FAILED`), serialized and coalesced per session. Browser refresh reconnects to job status; process restart does not persist jobs. A successful publication refreshes only the affected recording descriptor.
+
 1. `RaceState` is the canonical current factual state; calculated analytics remain a separate versioned sidecar.
 2. Provider payloads are translated by adapters before reaching state or transports.
 3. State reduction is deterministic and independent of HTTP, WebSocket, and UI concerns.

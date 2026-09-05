@@ -123,7 +123,7 @@ class PirelliRuntimeCoordinator:
         issues: list[str] = []
         try:
             for descriptor in sorted(meeting_targets, key=lambda item: item.date_start):
-                target = self._target(
+                target = await asyncio.to_thread(self._target,
                     meeting_key, descriptor, inventory, resource_loader
                 )
                 report = await self.service.refresh(target, now=attempted)

@@ -59,6 +59,8 @@ REST state responses and WebSocket snapshots use:
 
 `analytics` is optional and additive. Replay and live WebSocket snapshots include it when the analytics service is available. It is always reconstructed at the same inclusive `seq` and `sessionTime` as `data`; it is not part of canonical `RaceState`.
 
+The first replay WebSocket snapshot additionally carries `metadata`, `capabilities` and `playbackReady: true`. It represents the official start or requested `seq`, never a transient final state. Complete reconstruction and evidence preparation begin after this snapshot. Clients enable controls only after a valid state envelope and keep timing-initialization errors separate from successful catalog polling. Reconnects can pass `seq`; REST fallback uses `at=start` or the last confirmed `seq`. `GET /api/v1/state` without a cursor retains its legacy final-state behavior.
+
 Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, the connection-owned `delaySeconds`, and cursor-scoped `positionMode`. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`. A live socket whose selected session becomes replay-ready sends one final `mode: "replay", handoff: "REPLAY_READY"` snapshot from the refreshed replay resource, then closes normally. The client retains the selected session and reconnects in Replay mode.
 
 ## HTTP API
@@ -72,12 +74,14 @@ Live envelopes additionally carry `mode: "live"` and a `live` object containing 
 | `GET /api/v1/driver-history` | Return one driver's normalized lap evidence on demand, outside high-frequency state snapshots |
 | `GET /api/v1/analytics` | Return the versioned analytics sidecar at an optional inclusive `at` or `seq` cutoff and start non-blocking Weekend Context preparation |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
+| `GET /api/v1/jobs` | Return bounded in-process download job status |
+| `GET /api/v1/diagnostics` | Return bounded collector counters, replay cache and initialization status |
 | `DELETE /api/v1/replay` | Remove one session's rebuildable replay/timing artifacts while retaining durable context |
 | `WS /api/v1/stream` | Create an independent replay controller or delayed-live cursor for one client |
 
 Pass `session_key` as a query parameter where a session can be selected. Omitting it uses the library default.
 
-`POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past. Downloads are serialized per application instance. After a successful write, the library is refreshed and the session becomes available without restarting the process.
+`POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past and returns HTTP 202 with a job. Jobs report `QUEUED`, `DOWNLOADING`, `FINALIZING`, `AVAILABLE` or `FAILED`; duplicate active requests coalesce, failures can be retried, and downloads are serialized per instance. `GET /api/v1/jobs` returns `{v: 1, jobs: [...]}`. Job status survives browser refresh but not process restart. Successful publication refreshes the affected session without rebuilding the library.
 
 `DELETE /api/v1/replay?session_key=...` removes supported canonical/raw timing recordings and rebuildable Weekend Context for exactly one session. Catalog metadata, circuit geometry, immutable Pirelli artifacts/releases, and the small source manifest remain. The catalog session immediately becomes `available: false` and can be downloaded again using the normal preferred-source path.
 
@@ -124,6 +128,8 @@ Catalog session fields have specific meanings:
 
 `isLive` is schedule status, not proof that a live source is connected or that the sporting state is `RUNNING`. Schedule metadata never writes sporting state into `RaceState`. `replayAvailable`, `liveAvailable`, `liveConnected`, `liveStale`, `liveStatus`, `livePhase`, and `replayReady` are separate. Sporting suspension/red flag is likewise independent from transport availability: a suspended race can remain connected and Live-capable. The catalog also exposes `liveSessionKey`; an active scheduled session is selected in live mode by default, while a viewer already watching replay is not forcibly switched.
 
+File presence does not imply genuine completion. Replay metadata exposes additive `complete`; a partial local recording can be replayed while collection resumes. Source-authored `session.session_complete` is optional. Chronological session evidence reconciles segment finishes with later activity: Q1/Q2 `FINISHED` does not complete Qualifying; Q3 finish or explicit whole-session completion does. Active sessions can overrun scheduled end and explicitly completed sessions can finish early. F1 timezone-less session boundaries are interpreted using the supplied `gmt_offset`, once; canonical event ordering compares UTC instants before applying a cursor.
+
 For an active scheduled session, replay `endTime` is capped at the earlier of the scheduled end and the current time. Clients must not create future seek targets.
 
 For historical races, `session.total_laps` is derived from recorded race-result metadata and is available from the session-start snapshot. Practice and qualifying sessions leave it `null` because they have no meaningful scheduled lap denominator.
@@ -154,6 +160,8 @@ Invalid input produces a versioned error frame:
 Playback advances in clock batches and emits snapshots at the transport cadence rather than once per source event.
 
 With `mode=live`, only `snapshot`, `delay`, and `reset`/`live` are accepted. Delay is clamped to 0–300 seconds and selects an inclusive cursor from the shared live event history. `reset`/`live` returns that viewer to delay zero. Live has no pause, backward seek, step, or speed command, and one viewer's delay never mutates another viewer.
+
+Live WebSocket and REST opening accept `delay_seconds` (0–300), including reconnects. A completed session's delayed viewer continues consuming its retained tail before receiving `handoff: "REPLAY_READY"`; its state, analytics and clock share that same cursor while the collector may acquire the next session. Publication failure remains visibly `FINALIZING` with bounded-backoff retry.
 
 The Live UI offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry (0:00–5:00). Invalid syntax, seconds components above 59, and values beyond five minutes are rejected. GO LIVE returns to zero; the active label and selected preset follow the server-confirmed `live.delaySeconds`.
 

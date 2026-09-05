@@ -101,7 +101,9 @@ def test_catalog_exposes_season_weekend_and_session_metadata() -> None:
     ]
 
 
-def test_recording_directory_can_switch_between_library_sessions(tmp_path: Path) -> None:
+def test_recording_directory_can_switch_between_library_sessions(
+    tmp_path: Path,
+) -> None:
     for source in RECORDING.parent.glob("*.json"):
         shutil.copy2(source, tmp_path / source.name)
 
@@ -154,8 +156,12 @@ def test_websocket_uses_per_client_seek_cursor() -> None:
         sought = socket.receive_json()
 
     assert initial["data"]["session"]["status"] == "RUNNING"
-    assert initial["analytics"]["type"] == "analytics.snapshot"
-    assert initial["analytics"]["sequence"] == initial["seq"]
+    assert initial["playbackReady"] is True
+    assert initial["metadata"]["available"] is True
+    assert initial["capabilities"]["replayAvailable"] is True
+    assert "analytics" not in initial
+    assert sought["analytics"]["type"] == "analytics.snapshot"
+    assert sought["analytics"]["sequence"] == sought["seq"]
     assert sought["data"]["session"]["status"] == "RUNNING"
     assert sought["seq"] > initial["seq"]
 
@@ -338,7 +344,9 @@ def test_race_replay_end_waits_for_complete_classification(tmp_path: Path) -> No
         final = client.get("/api/v1/state").json()
 
     assert replay["endTime"] == "2026-08-23T15:08:30Z"
-    assert {driver["classification"] for driver in final["data"]["drivers"].values()} == {"FINISHED", "DNF"}
+    assert {
+        driver["classification"] for driver in final["data"]["drivers"].values()
+    } == {"FINISHED", "DNF"}
 
 
 def test_qualifying_replay_end_uses_final_phase_terminal(tmp_path: Path) -> None:
@@ -460,13 +468,14 @@ def test_catalog_session_can_be_downloaded_and_used_without_restart(
     ) as client:
         before = client.get("/api/v1/catalog").json()
         downloaded = client.post("/api/v1/download?session_key=999")
+        job = _wait_download_job(client, "999")
         after = client.get("/api/v1/catalog").json()
         state = client.get("/api/v1/state?session_key=999").json()
 
     assert before["downloadsEnabled"] is True
     assert before["sessions"][0]["available"] is False
-    assert downloaded.status_code == 200
-    assert downloaded.json()["status"] == "available"
+    assert downloaded.status_code == 202
+    assert job["status"] == "AVAILABLE"
     assert after["sessions"][0]["available"] is True
     assert state["data"]["session"]["key"] == "999"
     assert (tmp_path / "openf1-999.json").exists()
@@ -553,6 +562,7 @@ def test_delete_replay_keeps_durable_context_and_redownload_restores_it(
         deleted = client.delete("/api/v1/replay?session_key=999")
         after = client.get("/api/v1/catalog").json()["sessions"][0]
         restored = client.post("/api/v1/download?session_key=999")
+        assert _wait_download_job(client, "999")["status"] == "AVAILABLE"
         final = client.get("/api/v1/catalog").json()["sessions"][0]
 
     assert before["available"] is True
@@ -564,11 +574,13 @@ def test_delete_replay_keeps_durable_context_and_redownload_restores_it(
     assert not context.exists()
     assert not raw.exists()
     assert unrelated.is_file()
-    assert restored.status_code == 200
+    assert restored.status_code == 202
     assert final["available"] is True
 
 
-def test_download_never_reports_available_for_an_unusable_recording(tmp_path: Path) -> None:
+def test_download_never_reports_available_for_an_unusable_recording(
+    tmp_path: Path,
+) -> None:
     catalog = {
         "format": CATALOG_FORMAT,
         "schema_version": 1,
@@ -600,7 +612,26 @@ def test_download_never_reports_available_for_an_unusable_recording(tmp_path: Pa
         )
     ) as client:
         response = client.post("/api/v1/download?session_key=999")
+        job = _wait_download_job(client, "999")
         after = client.get("/api/v1/catalog").json()["sessions"][0]
 
-    assert response.status_code == 502
+    assert response.status_code == 202
+    assert job["status"] == "FAILED"
+    assert job["error"]
     assert after["available"] is False
+
+
+def _wait_download_job(client, key):
+    import time
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        job = next(
+            item
+            for item in client.get("/api/v1/jobs").json()["jobs"]
+            if item["sessionKey"] == key
+        )
+        if job["status"] in {"AVAILABLE", "FAILED"}:
+            return job
+        time.sleep(0.01)
+    raise AssertionError("Download job did not finish")

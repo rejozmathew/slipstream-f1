@@ -4,11 +4,10 @@ import argparse
 import asyncio
 import os
 import re
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .adapters.openf1 import OpenF1Client, OpenF1Error, write_recording
+from .adapters.openf1 import OpenF1Client, write_recording
 from .catalog import recent_seasons, sync_catalog
 from .pirelli.config import DEFAULT_PIRELLI_HISTORY_YEARS
 from .playback import ReplayController
@@ -294,17 +293,12 @@ def main() -> None:
 
         from .api import create_app
 
-        if args.catalog_years and args.path.is_dir():
-            try:
+        def refresh_served_catalog():
+            if args.catalog_years and args.path.is_dir():
                 sync_catalog(
                     args.path / "catalog.json",
                     recent_seasons(args.catalog_years),
                     max_age=timedelta(hours=args.catalog_max_age_hours),
-                )
-            except OpenF1Error as error:
-                print(
-                    f"Catalog refresh unavailable; serving the existing local library: {error}",
-                    file=sys.stderr,
                 )
 
         web_dir = args.web_dir if args.mode == "full" else None
@@ -312,6 +306,7 @@ def main() -> None:
             create_app(
                 args.path,
                 web_dir=web_dir,
+                refresh_catalog=refresh_served_catalog,
             ),
             host=args.host,
             port=args.port,
