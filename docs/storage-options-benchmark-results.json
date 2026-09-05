@@ -1,0 +1,33 @@
+{
+  "session_key": "11353",
+  "event_count": 109067,
+  "raw_size_mb": 39.59,
+  "option1_chunked_directory": {
+    "prep_time_s": 2.113,
+    "disk_size_mb": 41.61,
+    "disk_overhead_ratio": 1.05,
+    "cold_open_ms": 32.4,
+    "seek_25_ms": 65.75,
+    "seek_50_ms": 61.62,
+    "seek_75_ms": 58.73,
+    "seek_95_ms": 59.79,
+    "rss_delta_mb": 0.1
+  },
+  "option2_sqlite_package": {
+    "prep_time_s": 2.04,
+    "disk_size_mb": 41.7,
+    "disk_overhead_ratio": 1.05,
+    "cold_open_ms": 1.65,
+    "seek_25_ms": 12.47,
+    "seek_50_ms": 7.95,
+    "seek_75_ms": 6.81,
+    "seek_95_ms": 8.62,
+    "rss_delta_mb": 0.2
+  },
+  "option3_monolithic_compressed": {
+    "prep_time_s": 0.192,
+    "disk_size_mb": 0.16,
+    "disk_overhead_ratio": 0.0,
+    "cold_open_ms": 21.26
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "idle": {
+    "catalog_avg_ms": 6.23,
+    "catalog_max_ms": 10.49,
+    "ws_snapshot_avg_ms": 7.51,
+    "ws_snapshot_max_ms": 12.13
+  },
+  "synchronous_blocked": {
+    "heavy_load_duration_s": 8.376,
+    "catalog_blocked_latency_ms": 1815.07,
+    "ws_blocked_latency_ms": 3.01,
+    "degradation_factor": 291.6
+  },
+  "threading_to_thread": {
+    "reduction_duration_s": 4.081,
+    "catalog_during_thread_avg_ms": 275.2,
+    "catalog_during_thread_max_ms": 372.91,
+    "event_loop_unblocked": false
+  },
+  "multi_thread_contention": {
+    "dual_thread_duration_s": 7.525,
+    "single_thread_duration_s": 4.081,
+    "gil_slowdown_ratio": 1.84,
+    "catalog_avg_ms": 1421.97,
+    "catalog_max_ms": 6272.63
+  }
+}

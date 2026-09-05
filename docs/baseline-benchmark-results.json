@@ -1,0 +1,117 @@
+{
+  "timestamp": "2026-09-05T02:46:39Z",
+  "sessions": [
+    {
+      "name": "British GP 2024 Race (Canonical F1)",
+      "session_key": "11353",
+      "kind": "race",
+      "source_type": "canonical_f1",
+      "file_size_mb": 39.59,
+      "event_count": 109067,
+      "rss_before_mb": 56.9,
+      "rss_after_mb": 213.0,
+      "rss_delta_mb": 156.1,
+      "parse_time_s": 0.226,
+      "normalization_time_s": 0.127,
+      "reduction_time_s": 3.268,
+      "evidence_build_time_s": 4.194,
+      "analytics_time_s": 0.032,
+      "seek_50_s": 2.13,
+      "seek_95_s": 4.135,
+      "total_compute_s": 7.847
+    },
+    {
+      "name": "British GP 2024 Qualifying (Canonical F1)",
+      "session_key": "11349",
+      "kind": "qualifying",
+      "source_type": "canonical_f1",
+      "file_size_mb": 10.58,
+      "event_count": 32534,
+      "rss_before_mb": 63.6,
+      "rss_after_mb": 98.9,
+      "rss_delta_mb": 35.3,
+      "parse_time_s": 0.067,
+      "normalization_time_s": 0.057,
+      "reduction_time_s": 0.887,
+      "evidence_build_time_s": 0.969,
+      "analytics_time_s": 0.098,
+      "seek_50_s": 0.466,
+      "seek_95_s": 0.857,
+      "total_compute_s": 2.079
+    },
+    {
+      "name": "Spanish GP 2024 Race (OpenF1)",
+      "session_key": "11299",
+      "kind": "race",
+      "source_type": "openf1",
+      "file_size_mb": 8.08,
+      "event_count": 32279,
+      "rss_before_mb": 67.6,
+      "rss_after_mb": 94.8,
+      "rss_delta_mb": 27.2,
+      "parse_time_s": 0.036,
+      "normalization_time_s": 0.234,
+      "reduction_time_s": 1.136,
+      "evidence_build_time_s": 1.094,
+      "analytics_time_s": 0.031,
+      "seek_50_s": 0.581,
+      "seek_95_s": 1.053,
+      "total_compute_s": 2.531
+    },
+    {
+      "name": "British GP 2024 Qualifying (OpenF1)",
+      "session_key": "11349",
+      "kind": "qualifying",
+      "source_type": "openf1",
+      "file_size_mb": 0.74,
+      "event_count": 1923,
+      "rss_before_mb": 73.2,
+      "rss_after_mb": 73.3,
+      "rss_delta_mb": 0.1,
+      "parse_time_s": 0.003,
+      "normalization_time_s": 0.009,
+      "reduction_time_s": 0.044,
+      "evidence_build_time_s": 0.046,
+      "analytics_time_s": 0.015,
+      "seek_50_s": 0.025,
+      "seek_95_s": 0.058,
+      "total_compute_s": 0.116
+    }
+  ],
+  "scenarios": {
+    "cold_startup_s": 9.859,
+    "first_open": {
+      "rest_state_s": 9.025,
+      "metadata_caps_s": 0.056,
+      "ws_snapshot_s": 0.222,
+      "controls_usable_s": 9.303
+    },
+    "repeat_open": {
+      "rest_state_s": 0.011,
+      "ws_snapshot_s": 0.132,
+      "controls_usable_s": 0.143
+    },
+    "a_b_a_selection": {
+      "b_open_s": 78.875,
+      "a_again_rest_s": 7.677,
+      "a_again_ws_s": 0.108,
+      "a_again_controls_usable_s": 7.785
+    },
+    "restart_followed_by_open": {
+      "restart_s": 9.769,
+      "open_after_restart_s": 29.203,
+      "total_s": 38.973
+    },
+    "post_download": {
+      "library_rescan_s": 5.528
+    },
+    "simultaneous_viewers": {
+      "viewer1_seek_20k_s": 0.664,
+      "viewer2_seek_80k_s": 2.842
+    },
+    "live_delay_simulation": {
+      "delay_45s_seek_s": 3.486,
+      "delay_137s_seek_s": 3.525
+    }
+  }
+}
