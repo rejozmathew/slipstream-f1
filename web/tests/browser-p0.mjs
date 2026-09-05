@@ -29,6 +29,10 @@ await context.addInitScript(() => {
   };
 });
 const last = () => snapshots.at(-1);
+async function waitForSnapshotTime(at) {
+  for (let attempt = 0; attempt < 100 && Date.parse(last()?.sessionTime) !== Date.parse(at); attempt++) await page.waitForTimeout(50);
+  assert.equal(Date.parse(last()?.sessionTime), Date.parse(at));
+}
 async function seek(at) {
   const before = snapshots.length;
   await page.evaluate((target) => window.__acceptanceSockets.at(-1).send(JSON.stringify({ type: "seek", at: target })), at);
@@ -60,10 +64,10 @@ try {
   // Exercise the actual controls after proving the exact evidence cursor.
   await page.getByRole("slider", { name: "Replay position" }).press("ArrowRight");
   await page.waitForFunction(() => document.querySelector('[aria-label="Replay position"]').value === "801");
-  assert.equal(Date.parse(last().sessionTime), Date.parse("2026-09-05T14:13:21Z"));
+  await waitForSnapshotTime("2026-09-05T14:13:21Z");
   await page.getByRole("button", { name: "+30s", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[aria-label="Replay position"]').value === "831");
-  assert.equal(Date.parse(last().sessionTime), Date.parse("2026-09-05T14:13:51Z"));
+  await waitForSnapshotTime("2026-09-05T14:13:51Z");
   results.checks.push({ name: "Replay slider keyboard and relative-seek button", status: "PASS" });
 
   // Fail both initial transports long enough for a successful catalog poll.

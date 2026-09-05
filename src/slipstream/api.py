@@ -96,27 +96,50 @@ def create_app(
     completed_live: dict[str, tuple[ReplayResource, Any, datetime]] = {}
     live_reconcile_lock = asyncio.Lock()
 
+    def retain_drained_session(key: str) -> None:
+        completed_live[key] = (
+            ReplayResource(
+                library_ref[0].descriptors[key],
+                live.events,
+                live.state,
+                live.evidence,
+                replay_available=False,
+            ),
+            live.view(key),
+            clock(),
+        )
+        while len(completed_live) > 3:
+            completed_live.pop(next(iter(completed_live)))
+        asyncio.get_running_loop().call_soon(
+            lambda: asyncio.create_task(reconcile_live_source())
+        )
+
     async def expose_live_recording(_path: Path) -> bool:
-        key = live.target_session_key
-        if key:
-            await compute(library_ref[0].refresh_session, key, _path)
+        # Publication may finish after the one collector has moved to another key.
+        key = _path.name.removeprefix("live-").removesuffix(".json")
+        await compute(library_ref[0].refresh_session, key, _path)
         ready = bool(
             key
             and library_ref[0].descriptors.get(key)
             and library_ref[0].descriptors[key].available
         )
         if key and ready:
+            archived = completed_live.get(key)
+            if archived is None:
+                return ready
             selected = ReplayResource(
                 library_ref[0].descriptors[key],
-                live.events,
-                live.state,
-                live.evidence,
+                archived[0].events,
+                archived[0].final_state,
+                archived[0].evidence,
                 replay_available=True,
             )
             completed_live[key] = (
                 selected,
-                replace(live.view(key), phase="REPLAY_READY", replay_ready=True),
-                clock(),
+                replace(
+                    live.view(key), phase="REPLAY_READY", replay_ready=True, error=None
+                ),
+                archived[2],
             )
             while len(completed_live) > 3:
                 completed_live.pop(next(iter(completed_live)))
@@ -126,7 +149,9 @@ def create_app(
         return ready
 
     if downloads_enabled:
-        live.configure_recording(recording_path, expose_live_recording)
+        live.configure_recording(
+            recording_path, expose_live_recording, retain_drained_session
+        )
     pirelli_store = PirelliEvidenceStore(recording_path) if downloads_enabled else None
     pirelli_refresh_enabled = os.getenv(
         "SLIPSTREAM_PIRELLI_REFRESH", "1"
@@ -360,7 +385,7 @@ def create_app(
         selected = current_live_descriptor()
         if selected is None:
             if live.target_session_key is not None:
-                await live.stop()
+                await live.stop(preserve_publications=True)
             return
         if (
             selected.path is not None
@@ -621,7 +646,9 @@ def create_app(
     def live_state_envelope(
         selected: ReplayResource, *, delay_seconds: float = 0, archived=None
     ) -> dict[str, Any]:
-        source = archived[1] if archived else live.view(selected.descriptor.key)
+        source = live.view(selected.descriptor.key)
+        if archived and source.target_session_key != selected.descriptor.key:
+            source = archived[1]
         has_live_state = (
             source.target_session_key == selected.descriptor.key and source.sequence > 0
         )
@@ -705,8 +732,9 @@ def create_app(
         )
         if archived:
             envelope["live"].update(
-                phase="REPLAY_READY",
-                replayReady=True,
+                phase=source.phase,
+                replayReady=source.replay_ready,
+                error=source.error,
                 connected=False,
                 status="OFFLINE",
             )
@@ -757,7 +785,11 @@ def create_app(
             envelope = live_state_envelope(
                 selected, delay_seconds=delay_seconds, archived=archived
             )
-            if archived and envelope["seq"] >= len(archived[0].events):
+            if (
+                archived
+                and envelope["live"]["replayReady"]
+                and envelope["seq"] >= len(archived[0].events)
+            ):
                 envelope.update(mode="replay", handoff="REPLAY_READY")
             return envelope
         if at is not None and seq is not None:
@@ -1002,7 +1034,7 @@ def create_app(
             archived = None
             try:
                 while True:
-                    archived = archived or completed_live.get(selected.descriptor.key)
+                    archived = completed_live.get(selected.descriptor.key) or archived
                     if not live_mode_available(selected) and archived is None:
                         refreshed = await compute(resource, selected.descriptor.key)
                         if refreshed.replay_available:
@@ -1020,7 +1052,11 @@ def create_app(
                         capabilities=capability_payload(selected),
                         playbackReady=True,
                     )
-                    if archived and envelope["seq"] >= len(archived[0].events):
+                    if (
+                        archived
+                        and envelope["live"]["replayReady"]
+                        and envelope["seq"] >= len(archived[0].events)
+                    ):
                         envelope.update(mode="replay", handoff="REPLAY_READY")
                     await websocket.send_json(envelope)
                     if envelope.get("handoff"):

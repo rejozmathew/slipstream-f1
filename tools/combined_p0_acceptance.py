@@ -394,8 +394,24 @@ async def probe(args):
                         await ws.send_json({"type": "snapshot"})
                         assert (await snapshot(ws))["seq"] == target
                         metrics["twoReplayMemory"] = await get("/__fixture/status")
-        # Allow the deliberate reconnect even when warm rounds finish very quickly.
-        await asyncio.sleep(2)
+        # Retain the monitor and normal background schedules during a quiet soak.
+        busy_samples = sorted(samples)
+        metrics["busyHttpSamples"] = len(busy_samples)
+        metrics["busyHttpP95Seconds"] = busy_samples[int(len(busy_samples) * 0.95)]
+        metrics["busyHttpMaxSeconds"] = max(busy_samples)
+        before_soak = await get("/api/v1/diagnostics")
+        await asyncio.sleep(args.soak_seconds)
+        async with client.ws_connect(
+            args.url + "/api/v1/stream?session_key=11353&mode=replay"
+        ) as refresh:
+            after_soak = await snapshot(refresh)
+            assert after_soak["metadata"]["sessionKey"] == "11353"
+        after_soak_diagnostics = await get("/api/v1/diagnostics")
+        assert (
+            after_soak_diagnostics["replay"]["loads"] == before_soak["replay"]["loads"]
+        ), "The live monitor must not evict the unchanged historical replay"
+        metrics["monitorSoakSeconds"] = args.soak_seconds
+        metrics["afterSoak"] = await get("/__fixture/status")
         await live_ws.send_json({"type": "snapshot"})
         live = await snapshot(live_ws)
         while live["seq"] <= live_cursor:
@@ -604,6 +620,7 @@ def main():
     parser.add_argument("--port", type=int, default=18344)
     parser.add_argument("--url", default="http://127.0.0.1:18344")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--soak-seconds", type=float, default=20)
     args = parser.parse_args()
     if args.mode == "setup":
         setup(args)

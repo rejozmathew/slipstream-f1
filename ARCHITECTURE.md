@@ -120,7 +120,7 @@ Replay downloads are bounded in-process jobs (`QUEUED`, `DOWNLOADING`, `FINALIZI
 - `drivers`: identity, classification, timing, tyre/stint and NEW/USED evidence, sectors, source-observed activity, terminal lifecycle, final Qualifying segment facts, estimated progress, optional source X/Y, field availability, and current factual values
 - `race_control`: ordered messages with track, sector, driver, and lap scope where provided
 
-Every event produces a new snapshot. Seeking resets the reducer and reapplies all events through the inclusive target time or cursor. This is intentionally simple and deterministic; checkpointing can be added later without changing the state contract.
+Every event preserves immutable snapshot semantics. Seeking starts from the nearest earlier in-memory checkpoint or the viewer's earlier state and applies the remaining events through the inclusive target time or cursor. A backward seek never imports later facts.
 
 Full lap history is not part of `RaceState`. `SessionEvidence` reconstructs append-only normalized lap observations from the same deterministic event stream and supports queries by replay timestamp or event cursor. Observations retain duration, sectors, compound/stint context, tyre age, pit-in/out evidence, and quality reasons without being retransmitted in every state snapshot. Strategy and representative-pace calculations will consume this sidecar in tested backend logic; they do not belong in `RaceState` or a parallel frontend truth model.
 

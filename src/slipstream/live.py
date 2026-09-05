@@ -12,7 +12,7 @@ import logging
 from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -1222,6 +1222,13 @@ class LiveSourceView:
     final_recording: str | None
 
 
+@dataclass
+class _RecordingPublication:
+    recorder: NormalizedLiveRecorder
+    view: LiveSourceView
+    task: asyncio.Task[None] | None = None
+
+
 class PublicLiveSession:
     """Own one public upstream, canonical state, and normalized session artifact."""
 
@@ -1243,6 +1250,9 @@ class PublicLiveSession:
         self._normalized_recording_dir = normalized_recording_dir
         self._finalization_drain = max(0.0, finalization_drain)
         self._on_recording_finalized = on_recording_finalized
+        self._on_recording_drained: Callable[[str], None] | None = None
+        self._publications: dict[str, _RecordingPublication] = {}
+        self._drain_finished = asyncio.Event()
         self._target_session_key: str | None = None
         self._scheduled_start: str | None = None
         self._scheduled_end: str | None = None
@@ -1301,6 +1311,14 @@ class PublicLiveSession:
             "lastTransportAt": self._last_transport_at,
             "completionReason": self._completion.reason,
             "completionAt": self._completion.at,
+            "publications": {
+                key: {
+                    "phase": publication.view.phase,
+                    "error": publication.view.error,
+                    "replayReady": publication.view.replay_ready,
+                }
+                for key, publication in self._publications.items()
+            },
             "topics": {
                 name: {
                     "received": self._received_counts[name],
@@ -1315,11 +1333,18 @@ class PublicLiveSession:
         self,
         directory: Path,
         on_finalized: Callable[[Path], bool] | None = None,
+        on_drained: Callable[[str], None] | None = None,
     ) -> None:
         self._normalized_recording_dir = directory
         self._on_recording_finalized = on_finalized
+        self._on_recording_drained = on_drained
 
     def view(self, session_key: str | None = None) -> LiveSourceView:
+        publication = self._publications.get(
+            str(session_key or self._target_session_key)
+        )
+        if publication is not None:
+            return publication.view
         matches = session_key is None or str(session_key) == self._target_session_key
         status = self._status if matches else "OFFLINE"
         return LiveSourceView(
@@ -1366,7 +1391,8 @@ class PublicLiveSession:
                 self._collecting = True
                 self._task = asyncio.create_task(self._run(key))
             return
-        await self.stop()
+        await self.stop(preserve_publications=True)
+        self._drain_finished = asyncio.Event()
         self._target_session_key = key
         self._scheduled_start = scheduled_start
         self._scheduled_end = scheduled_end
@@ -1402,7 +1428,7 @@ class PublicLiveSession:
         self._collecting = True
         self._task = asyncio.create_task(self._run(key))
 
-    async def stop(self) -> None:
+    async def stop(self, *, preserve_publications: bool = False) -> None:
         self._collecting = False
         task = self._task
         self._task = None
@@ -1420,14 +1446,32 @@ class PublicLiveSession:
                 await finalization_task
             except asyncio.CancelledError:
                 pass
+        if not preserve_publications:
+            pending = [
+                p.task for p in self._publications.values() if p.task is not None
+            ]
+            for publication_task in pending:
+                publication_task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            self._publications.clear()
         self._status = "OFFLINE"
         self._target_session_key = None
 
     async def finish_pending(self) -> None:
-        """Let observed completion publish before switching acquisition."""
+        """Wait for the factual drain, never for disk publication retries."""
         task = self._finalization_task
         if task is not None and task is not asyncio.current_task():
-            await asyncio.shield(task)
+            drained = asyncio.create_task(self._drain_finished.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    (task, drained), return_when=asyncio.FIRST_COMPLETED
+                )
+                if task in done:
+                    await task
+            finally:
+                drained.cancel()
+                with suppress(asyncio.CancelledError):
+                    await drained
 
     async def apply_rows(
         self, session_key: str, rows: Iterable[dict[str, Any]]
@@ -1593,23 +1637,50 @@ class PublicLiveSession:
         self._finalization_task = asyncio.create_task(self._finalize_with_retry())
 
     async def _finalize_with_retry(self) -> None:
+        # Disk publication has independent ownership once the factual drain ends.
+        await self._finalize_after_drain()
+
+    async def _publish_recording(self, publication: _RecordingPublication) -> None:
+        key = publication.recorder.session_key
         backoff = min(1.0, self._maximum_backoff)
-        while self._completion_observed and not self._replay_ready:
+        while not publication.view.replay_ready:
             try:
-                await self._finalize_after_drain()
-                if self._normalized_recorder is None or self._replay_ready:
-                    return
-                raise RuntimeError("Completed recording is not yet visible")
+                final_path = await asyncio.to_thread(publication.recorder.finalize)
+                if self._on_recording_finalized is not None:
+                    result = self._on_recording_finalized(final_path)
+                    ready = bool(
+                        await result if inspect.isawaitable(result) else result
+                    )
+                    if not ready:
+                        raise RuntimeError("Completed recording is not yet visible")
+                publication.view = replace(
+                    publication.view,
+                    phase="REPLAY_READY",
+                    replay_ready=True,
+                    final_recording=str(final_path),
+                    error=None,
+                )
+                if self._target_session_key == key:
+                    self._final_recording = final_path
+                    self._replay_ready = True
+                    self._error = None
+                    self._set_phase("COMPLETE")
+                    self._set_phase("REPLAY_READY")
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # noqa: BLE001 - completion publication must recover observably
-                self._error = (
+                message = (
                     f"Recording publication failed ({type(error).__name__}); retrying"
                 )
-                self._set_phase("FINALIZING")
+                publication.view = replace(
+                    publication.view, phase="FINALIZING", error=message
+                )
+                if self._target_session_key == key:
+                    self._error = message
+                    self._set_phase("FINALIZING")
                 logger.warning(
                     "Live session %s finalization failed: %s; retrying",
-                    self._target_session_key,
+                    key,
                     type(error).__name__,
                 )
                 await asyncio.sleep(max(0.01, backoff))
@@ -1634,23 +1705,29 @@ class PublicLiveSession:
                 ),
                 at,
             )
-        self._set_phase("COMPLETE")
         if self._normalized_recorder is None:
+            self._set_phase("COMPLETE")
+            self._drain_finished.set()
             return
         self._status = "OFFLINE"
         self._reconnecting = False
-        self._error = None
         await self._stop_completed_upstream()
-        final_path = await asyncio.to_thread(self._normalized_recorder.finalize)
-        self._final_recording = final_path
-        ready = True
-        if self._on_recording_finalized is not None:
-            result = self._on_recording_finalized(final_path)
-            ready = bool(await result if inspect.isawaitable(result) else result)
-        self._replay_ready = ready
-        if ready:
-            self._error = None
-            self._set_phase("REPLAY_READY")
+        key = self._normalized_recorder.session_key
+        publication = _RecordingPublication(self._normalized_recorder, self.view(key))
+        self._publications[key] = publication
+        while len(self._publications) > 3:
+            oldest = self._publications.pop(next(iter(self._publications)))
+            if oldest.task is not None and not oldest.task.done():
+                oldest.task.cancel()
+                logger.error(
+                    "Publication retry retention limit reached for session %s; canonical journal retained for recovery",
+                    oldest.recorder.session_key,
+                )
+        if self._on_recording_drained is not None:
+            self._on_recording_drained(key)
+        publication.task = asyncio.create_task(self._publish_recording(publication))
+        self._drain_finished.set()
+        await asyncio.shield(publication.task)
 
     async def _stop_completed_upstream(self) -> None:
         self._collecting = False

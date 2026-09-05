@@ -6,6 +6,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from slipstream.api import create_app
@@ -75,13 +76,25 @@ def test_publication_failure_is_visible_and_retries(tmp_path, monkeypatch):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("failed_publication", [False, True])
 def test_fp3_delayed_tail_survives_qualifying_target_and_rest_reconnect(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, failed_publication
 ):
     monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
     monkeypatch.setenv("SLIPSTREAM_PIRELLI_BACKFILL", "0")
     clock = [datetime(2026, 9, 5, 13, 59, 58, tzinfo=UTC)]
     finish = threading.Event()
+    allow_publication = threading.Event()
+    if not failed_publication:
+        allow_publication.set()
+    original_finalize = NormalizedLiveRecorder.finalize
+
+    def finalize(recorder):
+        if recorder.session_key == "100" and not allow_publication.is_set():
+            raise OSError("SYNTHETIC publication unavailable while next session begins")
+        return original_finalize(recorder)
+
+    monkeypatch.setattr(NormalizedLiveRecorder, "finalize", finalize)
     catalog = {
         "format": CATALOG_FORMAT,
         "schema_version": 1,
@@ -166,7 +179,10 @@ def test_fp3_delayed_tail_survives_qualifying_target_and_rest_reconnect(
             yield row("Heartbeat", {}, "2026-09-05T14:00:02Z")
 
     live = PublicLiveSession(
-        row_source=rows, now=lambda: clock[0], finalization_drain=0.01
+        row_source=rows,
+        now=lambda: clock[0],
+        finalization_drain=0.01,
+        maximum_backoff=0.01,
     )
     with TestClient(
         create_app(
@@ -200,6 +216,16 @@ def test_fp3_delayed_tail_survives_qualifying_target_and_rest_reconnect(
             assert delayed["data"]["session"]["key"] == "100"
             assert delayed["data"]["drivers"]["44"]["lap"] == 11
             assert delayed.get("handoff") is None
+            if failed_publication:
+                assert delayed["live"]["phase"] == "FINALIZING"
+                assert "retrying" in delayed["live"]["error"]
+                assert not delayed["live"]["replayReady"]
+            allow_publication.set()
+            for _ in range(100):
+                if live.view("100").replay_ready:
+                    break
+                time.sleep(0.005)
+            assert live.view("100").replay_ready
             clock[0] += timedelta(seconds=140)
             viewer.send_json({"type": "snapshot"})
             for _ in range(10):
