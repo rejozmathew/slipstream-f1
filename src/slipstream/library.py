@@ -11,7 +11,7 @@ import time
 from collections import Counter, OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +62,16 @@ class SessionDescriptor:
         return self.path is not None
 
     @property
+    def recording_version(self) -> str | None:
+        if self.path is None:
+            return None
+        try:
+            info = self.path.stat()
+        except OSError:
+            return None
+        return f"{self.path.name}:{info.st_mtime_ns}:{info.st_size}"
+
+    @property
     def circuit_shape_available(self) -> bool:
         return bool(
             self.capabilities.get("circuit_shape")
@@ -106,6 +116,7 @@ class SessionDescriptor:
             "dateEnd": self.date_end,
             "gmtOffset": self.gmt_offset,
             "available": self.available,
+            "recordingVersion": self.recording_version,
             "isLive": self.is_live(now),
             "downloadable": self.is_downloadable(now),
             "circuitShapeAvailable": self.circuit_shape_available,
@@ -159,11 +170,13 @@ class ReplayResource:
         is_live=False,
         *,
         clock=None,
+        recording_version=None,
     ):
         for name, value in {
             "descriptor": descriptor,
             "events": tuple(events),
             "replay_available": replay_available,
+            "recording_version": recording_version or descriptor.recording_version,
             "_is_live": is_live,
             "_clock": clock,
             "_prepare_lock": threading.Lock(),
@@ -301,6 +314,67 @@ class ReplayLibrary:
             raise ValueError(f"No supported sessions found at {source_path}")
         self.descriptors = descriptors
 
+    def recoverable_live_key(self) -> str | None:
+        """Find a recent unfinished local capture after a process restart.
+
+        This bounded startup inspection never makes old journals live merely
+        because their final persisted status happened to be RUNNING. The live
+        adapter still verifies the upstream session identity on reconnect.
+        """
+        from .live_recording import IN_PROGRESS_SUFFIX, NormalizedLiveRecorder
+
+        if not self.source_path.is_dir():
+            return None
+        now = self._now()
+        candidates = []
+        for descriptor in tuple(self.descriptors.values()):
+            if descriptor.complete is True or not descriptor.key.isdecimal():
+                continue
+            try:
+                end = parse_timestamp(descriptor.date_end)
+                start = parse_timestamp(descriptor.date_start)
+            except (TypeError, ValueError):
+                continue
+            if not (start <= end <= now and now - end <= timedelta(hours=6)):
+                continue
+            journal = self.source_path / f"live-{descriptor.key}{IN_PROGRESS_SUFFIX}"
+            final = self.source_path / f"live-{descriptor.key}.json"
+            if journal.is_file() or final.is_file():
+                candidates.append(descriptor)
+        for descriptor in sorted(
+            candidates, key=lambda item: item.date_start, reverse=True
+        )[:3]:
+            try:
+                events = NormalizedLiveRecorder(self.source_path, descriptor.key).events
+                if not events:
+                    continue
+                ordered = sorted(
+                    events, key=lambda event: parse_timestamp(event.occurred_at)
+                )
+                last = parse_timestamp(ordered[-1].occurred_at)
+                if not timedelta(0) <= now - last <= timedelta(hours=2):
+                    continue
+                identity = {}
+                for event in ordered:
+                    if event.kind == "session":
+                        identity.update(event.payload)
+                if (
+                    str(identity.get("key")) != descriptor.key
+                    or identity.get("status")
+                    not in {"RUNNING", "SUSPENDED", "FINISHED"}
+                    or session_completion(
+                        ordered, session_kind=descriptor.session_kind
+                    ).complete
+                ):
+                    continue
+                return descriptor.key
+            except (OSError, RuntimeError, TypeError, ValueError, KeyError):
+                logger.warning(
+                    "Skipping invalid live recovery candidate session=%s",
+                    descriptor.key,
+                )
+        return None
+
     @property
     def default_key(self) -> str | None:
         now = self._now()
@@ -333,11 +407,21 @@ class ReplayLibrary:
         started = time.perf_counter()
         if descriptor.path is not None:
             # Refresh capability and completeness truth for the one opened file.
-            raw = self.refresh_session(selected_key, descriptor.path)
+            raw, signature = self.refresh_session(
+                selected_key, descriptor.path, with_signature=True
+            )
             descriptor = self.descriptors[selected_key]
             events = _with_preloaded_circuit(
                 tuple(events_from_recording(raw)), descriptor
             )
+            if descriptor.complete is None:
+                descriptor = replace(
+                    descriptor,
+                    complete=session_completion(
+                        events, session_kind=descriptor.session_kind
+                    ).complete,
+                )
+                self.descriptors[selected_key] = descriptor
         else:
             events = _preview_events(
                 descriptor, live=descriptor.is_live(self._now()), now=self._now()
@@ -347,6 +431,11 @@ class ReplayLibrary:
             events=events,
             replay_available=descriptor.available,
             clock=self._now,
+            recording_version=(
+                f"{descriptor.path.name}:{signature[2]}:{signature[1]}"
+                if descriptor.path is not None
+                else None
+            ),
         )
         # Reserve room for the lazy evidence, timeline and in-memory checkpoints
         # as well as the measured Python event graph. No per-viewer event copies.
@@ -380,7 +469,7 @@ class ReplayLibrary:
             self._signatures.pop(victim, None)
         self._sizes[id(resource)] = size
         self._cache[selected_key] = resource
-        self._signatures[selected_key] = _file_signature(descriptor.path)
+        self._signatures[selected_key] = signature
         self.loads += 1
         logger.info(
             "Replay loaded session=%s events=%d seconds=%.3f reserved_bytes=%d",
@@ -416,7 +505,14 @@ class ReplayLibrary:
             descriptor, live=descriptor.is_live(self._now()), now=self._now()
         )
 
-    def refresh_session(self, key: str, path: Path | None = None):
+    def refresh_session(
+        self,
+        key: str,
+        path: Path | None = None,
+        *,
+        with_signature: bool = False,
+        inspect_completion: bool = False,
+    ):
         with self._lock:
             paths = set(self._recordings.get(key, {}))
             if path is not None:
@@ -425,7 +521,19 @@ class ReplayLibrary:
             contents = {}
             for candidate in paths:
                 try:
-                    raw = json.loads(candidate.read_text(encoding="utf-8"))
+                    # Publication can replace a file while it is being read.
+                    # Bind the loaded events to the version actually read, so a
+                    # later replacement cannot masquerade as the cached data.
+                    for _attempt in range(2):
+                        signature = _file_signature(candidate)
+                        content = candidate.read_text(encoding="utf-8")
+                        if signature == _file_signature(candidate):
+                            break
+                    else:
+                        raise ReplayBusyError(
+                            "Selected replay is being published; retry"
+                        )
+                    raw = json.loads(content)
                 except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                     continue
                 local = _read_descriptor(candidate, raw)
@@ -434,7 +542,7 @@ class ReplayLibrary:
                     candidates[candidate] = (
                         _attach_local_recording(base, local) if base else local
                     )
-                    contents[candidate] = raw
+                    contents[candidate] = (raw, signature)
             self._recordings[key] = candidates
             if candidates:
                 self.descriptors[key] = max(
@@ -449,7 +557,18 @@ class ReplayLibrary:
             if old is not None and not self._pins[id(old)]:
                 self._sizes.pop(id(old), None)
             selected = self.descriptors.get(key)
-            return contents.get(selected.path) if selected else None
+            loaded = contents.get(selected.path) if selected else None
+            if inspect_completion and loaded and selected.complete is None:
+                self.descriptors[key] = replace(
+                    selected,
+                    complete=session_completion(
+                        events_from_recording(loaded[0]),
+                        session_kind=selected.session_kind,
+                    ).complete,
+                )
+            if with_signature:
+                return loaded or (None, (None,))
+            return loaded[0] if loaded else None
 
     def refresh_catalog(self) -> None:
         """Publish only the changed inventory, retaining unchanged resources."""

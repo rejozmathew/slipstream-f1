@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { slipstreamApi, type DownloadJob } from "../api/client";
 import { connectReplaySocket, type ReplaySocket } from "../api/replaySocket";
@@ -70,13 +70,15 @@ export function useSlipstreamSession() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [libraryRevision, setLibraryRevision] = useState(0);
   const followLiveRef = useRef(savedIntent().followLive);
-  const cursorRef = useRef<{ key: string; seq: number; revision: number; replayAvailable: boolean } | null>(null);
+  const cursorRef = useRef<{ key: string; seq: number; revision: number; replayAvailable: boolean; recordingVersion?: string | null } | null>(null);
+  const pendingPublicationRef = useRef<{ key: string; revision: number } | null>(null);
   const catalogRef = useRef<ReplayCatalog | null>(null);
   const jobStatusesRef = useRef(new Map<string, DownloadJob["status"]>());
   const delayRef = useRef(0);
   const socketRef = useRef<ReplaySocket | null>(null);
   const selectedSessionKeyRef = useRef<string | null>(null);
   const viewingModeRef = useRef<ViewingMode>("replay");
+  const livePhaseRef = useRef<LiveProductPhase>("UNAVAILABLE");
 
   const selectedCatalogSession = useMemo(
     () => catalog?.sessions.find((item) => item.sessionKey === selectedSessionKey) ?? null,
@@ -99,6 +101,27 @@ export function useSlipstreamSession() {
     setIsPlaying(false);
   };
 
+  const reopenPublishedReplay = useCallback((key: string, version?: string | null, force = false) => {
+    const opened = cursorRef.current;
+    if (selectedSessionKeyRef.current !== key || viewingModeRef.current !== "replay"
+      || opened?.key !== key || pendingPublicationRef.current?.key === key) return;
+    if (!force && opened.replayAvailable
+      && (!version || version === opened.recordingVersion)) return;
+    pendingPublicationRef.current = { key, revision: opened.revision };
+    cursorRef.current = null;
+    setCommandAvailable(false);
+    setIsPlaying(false);
+    setTransport("connecting");
+    setLibraryRevision((value) => value + 1);
+  }, []);
+
+  const acceptCatalog = useCallback((result: ReplayCatalog) => {
+    setCatalog(result);
+    catalogRef.current = result;
+    const published = result.sessions.find((item) => item.sessionKey === selectedSessionKeyRef.current);
+    if (published?.available) reopenPublishedReplay(published.sessionKey, published.recordingVersion);
+  }, [reopenPublishedReplay]);
+
   useEffect(() => {
     selectedSessionKeyRef.current = selectedSessionKey;
     viewingModeRef.current = viewingMode;
@@ -114,8 +137,7 @@ export function useSlipstreamSession() {
       try {
         const result = await slipstreamApi.catalog();
         if (!active) return;
-        setCatalog(result);
-        catalogRef.current = result;
+        acceptCatalog(result);
         if (!initialized && result.sessions.length) {
           initialized = true;
           const intent = savedIntent();
@@ -129,7 +151,11 @@ export function useSlipstreamSession() {
           resetSessionView();
           setSelectedSessionKey(resolvedKey);
           setViewingMode(intent.followLive ? (resolvedSession?.liveAvailable ? "live" : "replay") : intent.mode === "live" && !resolvedSession?.liveAvailable ? "replay" : intent.mode);
-        } else if (followLiveRef.current && viewingModeRef.current !== "live" && result.liveSessionKey) {
+        } else if (followLiveRef.current && result.liveSessionKey && (
+          viewingModeRef.current !== "live"
+          || (result.liveSessionKey !== selectedSessionKeyRef.current
+            && livePhaseRef.current === "UNAVAILABLE" && delayRef.current === 0)
+        )) {
           resetSessionView();
           cursorRef.current = null;
           setSelectedSessionKey(result.liveSessionKey);
@@ -146,7 +172,7 @@ export function useSlipstreamSession() {
       active = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [acceptCatalog]);
 
   useEffect(() => {
     if (!selectedSessionKey) return;
@@ -160,6 +186,7 @@ export function useSlipstreamSession() {
     let fallbackPending = false;
     let analyticsRequested = false;
     let replayAvailable = false;
+    let recordingVersion: string | null | undefined;
 
     // Event counts belong to one recording. A catalog placeholder or a prior
     // download revision cannot supply a cursor for the newly published file.
@@ -168,9 +195,14 @@ export function useSlipstreamSession() {
       ? cursorRef.current.seq : undefined;
     const applyEnvelope = (envelope: StateEnvelope) => {
       if (!active) return;
-      if (envelope.metadata) replayAvailable = envelope.metadata.available;
+      if (envelope.metadata) {
+        replayAvailable = envelope.metadata.available;
+        recordingVersion = envelope.metadata.recordingVersion;
+      }
       if (envelope.handoff === "REPLAY_READY") replayAvailable = true;
-      cursorRef.current = { key: selectedSessionKey, seq: envelope.seq, revision: libraryRevision, replayAvailable };
+      cursorRef.current = { key: selectedSessionKey, seq: envelope.seq, revision: libraryRevision, replayAvailable, recordingVersion };
+      if (replayAvailable && pendingPublicationRef.current?.key === selectedSessionKey
+        && libraryRevision > pendingPublicationRef.current.revision) pendingPublicationRef.current = null;
       setState(envelope.data);
       setStateHistory((current) => current.at(-1)?.updated_at === envelope.data.updated_at ? current : [...current, envelope.data].slice(-90));
       setSequence(envelope.seq);
@@ -183,6 +215,13 @@ export function useSlipstreamSession() {
         setLivePositionMode(envelope.live?.positionMode ?? "unavailable");
         setLiveStatus(envelope.live?.status ?? "UNAVAILABLE");
         setLivePhase(envelope.live?.phase ?? "UNAVAILABLE");
+        livePhaseRef.current = envelope.live?.phase ?? "UNAVAILABLE";
+        if (followLiveRef.current && envelope.live?.nextSessionKey
+          && envelope.live.nextSessionKey !== selectedSessionKey) {
+          resetSessionView();
+          cursorRef.current = null;
+          setSelectedSessionKey(envelope.live.nextSessionKey);
+        }
         if (envelope.mode === "replay" && envelope.handoff === "REPLAY_READY") {
           const next = followLiveRef.current ? catalogRef.current?.liveSessionKey : null;
           setCommandAvailable(false);
@@ -287,6 +326,7 @@ export function useSlipstreamSession() {
     followLiveRef.current = false;
     saveIntent(sessionKey, resolvedMode, false);
     cursorRef.current = null;
+    pendingPublicationRef.current = null;
     delayRef.current = 0;
     resetSessionView();
     setSelectedSessionKey(sessionKey);
@@ -316,6 +356,11 @@ export function useSlipstreamSession() {
       const result = await slipstreamApi.download(selectedSessionKey);
       jobStatusesRef.current.set(result.sessionKey, result.status);
       setDownloadJobs((current) => [...current.filter((job) => job.sessionKey !== result.sessionKey), result]);
+      if (result.status === "AVAILABLE") {
+        setDownloadState("idle");
+        reopenPublishedReplay(result.sessionKey);
+        void slipstreamApi.catalog().then(acceptCatalog).catch(() => { /* Catalog polling retries. */ });
+      }
     } catch (error) {
       setDownloadState("error");
       setDownloadError(error instanceof Error ? error.message : "Replay download failed");
@@ -337,7 +382,7 @@ export function useSlipstreamSession() {
             const previous = jobStatusesRef.current.get(job.sessionKey);
             jobStatusesRef.current.set(job.sessionKey, job.status);
             const completed = job.status === "AVAILABLE" && previous != null && previous !== "AVAILABLE";
-            catalogChanged ||= completed;
+            catalogChanged ||= job.status === "AVAILABLE" && previous !== "AVAILABLE";
             if (job.sessionKey !== selectedSessionKeyRef.current) continue;
             if (["QUEUED", "DOWNLOADING", "FINALIZING"].includes(job.status)) setDownloadState("downloading");
             else if (job.status === "FAILED") {
@@ -345,16 +390,12 @@ export function useSlipstreamSession() {
               setDownloadError(job.error ?? "Replay download failed");
             } else {
               setDownloadState("idle");
-              if (completed && viewingModeRef.current === "replay") {
-                setCommandAvailable(false);
-                setTransport("connecting");
-                setLibraryRevision((value) => value + 1);
-              }
+              reopenPublishedReplay(job.sessionKey, undefined, completed);
             }
           }
           if (catalogChanged) {
             void slipstreamApi.catalog().then((catalogResult) => {
-              if (active) { setCatalog(catalogResult); catalogRef.current = catalogResult; }
+              if (active) acceptCatalog(catalogResult);
             }).catch((error) => { if (active) setCatalogError(error instanceof Error ? error.message : "Catalog unavailable"); });
           }
         }
@@ -364,7 +405,7 @@ export function useSlipstreamSession() {
     void pollJobs();
     const timer = window.setInterval(() => void pollJobs(), 2000);
     return () => { active = false; window.clearInterval(timer); };
-  }, []);
+  }, [acceptCatalog, reopenPublishedReplay]);
 
   const sendReplayCommand = (command: ReplayCommand) => {
     const sent = commandAvailable && socketRef.current?.send(command) === true;

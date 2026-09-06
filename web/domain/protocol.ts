@@ -116,6 +116,7 @@ export type LiveSourceState = {
   finalRecording: string | null;
   delaySeconds: number;
   positionMode?: PositionMode;
+  nextSessionKey?: string;
 };
 
 export type StateEnvelope = {
@@ -162,6 +163,7 @@ export type ReplayMetadata = {
   durationSeconds: number;
   available: boolean;
   complete?: boolean | null;
+  recordingVersion?: string | null;
   replayAvailable: boolean;
   liveAvailable: boolean;
   liveConnected: boolean;
@@ -653,6 +655,7 @@ export type CatalogSession = {
   dateEnd: string;
   gmtOffset: string | null;
   available: boolean;
+  recordingVersion?: string | null;
   isLive: boolean;
   liveAvailable: boolean;
   liveConnected: boolean;

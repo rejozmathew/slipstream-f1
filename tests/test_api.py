@@ -87,6 +87,7 @@ def test_catalog_exposes_season_weekend_and_session_metadata() -> None:
             "dateEnd": "2023-09-17T14:00:00+00:00",
             "gmtOffset": "08:00:00",
             "available": True,
+            "recordingVersion": f"{RECORDING.name}:{RECORDING.stat().st_mtime_ns}:{RECORDING.stat().st_size}",
             "isLive": False,
             "liveAvailable": False,
             "liveConnected": False,

@@ -75,12 +75,27 @@ def create_app(
     compute_lock = asyncio.Semaphore(2)
     preparation_lock = asyncio.Semaphore(1)
     background_tasks: set[asyncio.Task] = set()
-    initialization = {"status": "ready", "error": None}
+    initialization = {
+        "status": "refreshing" if refresh_catalog is not None else "ready",
+        "error": None,
+    }
     seed_task: list[asyncio.Task | None] = [None]
 
     async def compute(function, *args, **kwargs):
         async with compute_lock:
-            return await asyncio.to_thread(function, *args, **kwargs)
+            worker = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # Cancelling the await cannot stop a running thread. Keep its
+                # ownership and compute slot until it can no longer mutate a
+                # controller that the next command is about to reuse.
+                while not worker.done():
+                    with suppress(asyncio.CancelledError, Exception):
+                        await asyncio.shield(worker)
+                if not worker.cancelled():
+                    worker.exception()  # Retrieve a failure during cancellation.
+                raise
 
     async def prepare_replay(selected):
         async with preparation_lock:
@@ -95,24 +110,29 @@ def create_app(
     downloads_enabled = recording_path.is_dir() and os.access(recording_path, os.W_OK)
     completed_live: dict[str, tuple[ReplayResource, Any, datetime]] = {}
     live_reconcile_lock = asyncio.Lock()
+    recovery_key: str | None = None
+    recovery_checked = False
 
-    def retain_drained_session(key: str) -> None:
+    def retain_drained_session(key: str, source=None) -> None:
         completed_live[key] = (
             ReplayResource(
-                library_ref[0].descriptors[key],
+                replace(library_ref[0].descriptors[key], complete=False)
+                if source is not None
+                else library_ref[0].descriptors[key],
                 live.events,
                 live.state,
                 live.evidence,
                 replay_available=False,
             ),
-            live.view(key),
+            source or live.view(key),
             clock(),
         )
         while len(completed_live) > 3:
             completed_live.pop(next(iter(completed_live)))
-        asyncio.get_running_loop().call_soon(
-            lambda: asyncio.create_task(reconcile_live_source())
-        )
+        if source is None:
+            asyncio.get_running_loop().call_soon(
+                lambda: asyncio.create_task(reconcile_live_source())
+            )
 
     async def expose_live_recording(_path: Path) -> bool:
         # Publication may finish after the one collector has moved to another key.
@@ -309,6 +329,9 @@ def create_app(
             )
         ):
             return existing
+        recovered = library_ref[0].descriptors.get(recovery_key)
+        if recovered is not None and recovered.complete is not True:
+            return recovered
         upcoming = [
             descriptor
             for descriptor in library_ref[0].descriptors.values()
@@ -382,6 +405,10 @@ def create_app(
             await _reconcile_live_source()
 
     async def _reconcile_live_source() -> None:
+        nonlocal recovery_key, recovery_checked
+        if live_enabled and not recovery_checked and live.target_session_key is None:
+            recovery_key = await compute(library_ref[0].recoverable_live_key)
+            recovery_checked = True
         selected = current_live_descriptor()
         if selected is None:
             if live.target_session_key is not None:
@@ -399,13 +426,32 @@ def create_app(
             live.target_session_key is not None
             and live.target_session_key != selected.key
         ):
+            previous_key = live.target_session_key
             await live.finish_pending()
+            if previous_key not in completed_live and live.events:
+                previous_source = live.view(previous_key)
+                # No terminal packet arrived. Stop the old writer before taking
+                # its last proven state, but leave its journal unfinished.
+                await live.stop(preserve_publications=True)
+                retain_drained_session(
+                    previous_key,
+                    replace(
+                        previous_source,
+                        status="OFFLINE",
+                        connected=False,
+                        stale=True,
+                        phase="STALE",
+                        sequence=len(live.events),
+                        replay_ready=False,
+                    ),
+                )
         await live.start(
             selected.key,
             scheduled_start=selected.date_start,
             scheduled_end=selected.date_end,
             seed_events=library_ref[0].seed_events(selected.key),
         )
+        recovery_key = None
 
     async def monitor_live_source() -> None:
         while True:
@@ -416,8 +462,7 @@ def create_app(
             await asyncio.sleep(15)
 
     async def initialize_optional_data():
-        if seed_task[0] is not None:
-            await seed_task[0]
+        nonlocal recovery_checked
         if refresh_catalog is None:
             return
         while True:
@@ -425,6 +470,7 @@ def create_app(
             try:
                 await asyncio.to_thread(refresh_catalog)
                 await compute(library_ref[0].refresh_catalog)
+                recovery_checked = False
                 initialization.update(status="ready", error=None)
                 await reconcile_live_source()
                 return
@@ -508,6 +554,19 @@ def create_app(
             async with download_lock:
                 job.update(status="DOWNLOADING", error=None)
                 current = library_ref[0].descriptors[session_key]
+                if current.available and current.complete is None:
+                    # Fast discovery deliberately leaves completeness unknown.
+                    # Inspect only this requested artifact before skipping work.
+                    await compute(
+                        library_ref[0].refresh_session,
+                        session_key,
+                        current.path,
+                        inspect_completion=True,
+                    )
+                    current = library_ref[0].descriptors[session_key]
+                if current.available and current.complete is True:
+                    job["status"] = "AVAILABLE"
+                    return
                 if downloader is not None:
                     recording = await asyncio.to_thread(downloader, int(session_key))
                     events = await compute(events_from_recording, recording)
@@ -527,7 +586,12 @@ def create_app(
                         historical_downloader.download, current, recording_path
                     )
                     job["status"] = "FINALIZING"
-                await compute(library_ref[0].refresh_session, session_key, path)
+                await compute(
+                    library_ref[0].refresh_session,
+                    session_key,
+                    path,
+                    inspect_completion=True,
+                )
                 restored = library_ref[0].descriptors.get(session_key)
                 if restored is None or not restored.available:
                     raise RuntimeError("download did not publish a usable replay")
@@ -579,7 +643,7 @@ def create_app(
             download_jobs.pop(old)
         job = {"sessionKey": session_key, "status": "QUEUED", "error": None}
         download_jobs[session_key] = job
-        if descriptor.available and descriptor.complete is not False:
+        if descriptor.available and descriptor.complete is True:
             job["status"] = "AVAILABLE"
         else:
             background(run_download(session_key))
@@ -737,7 +801,21 @@ def create_app(
                 error=source.error,
                 connected=False,
                 status="OFFLINE",
+                stale=source.stale,
+                sequence=source.sequence,
+                lastReceivedAt=source.last_received_at,
+                finalRecording=source.final_recording,
             )
+            next_session = current_live_descriptor()
+            if (
+                source.phase == "STALE"
+                and sequence >= len(events)
+                and next_session is not None
+                and next_session.key != selected.descriptor.key
+            ):
+                # This means only that the retained delayed tail is consumed.
+                # It neither declares sporting completion nor a replay ready.
+                envelope["live"]["nextSessionKey"] = next_session.key
         return envelope
 
     def replay_handoff_envelope(selected: ReplayResource) -> dict[str, Any]:
@@ -823,11 +901,12 @@ def create_app(
         selected = resource(session_key)
         return capability_payload(selected)
 
-    def capability_payload(selected):
-        source = live.view(selected.descriptor.key)
-        live_available = live_mode_available(selected)
+    def capability_payload(selected, archived=None):
+        source = archived[1] if archived else live.view(selected.descriptor.key)
+        live_available = bool(archived) or live_mode_available(selected)
+        retained_state = archived[0].final_state if archived else live.state
         live_mode = (
-            live_position_mode(live.state)
+            live_position_mode(retained_state)
             if source.target_session_key == selected.descriptor.key
             else "unavailable"
         )
@@ -861,7 +940,7 @@ def create_app(
             "isLive": selected.is_live,
             "positionMode": (
                 (
-                    live_position_mode(live.state)
+                    live_position_mode(retained_state)
                     if source.target_session_key == selected.descriptor.key
                     else "unavailable"
                 )
@@ -875,7 +954,7 @@ def create_app(
         selected = resource(session_key)
         return metadata_payload(selected)
 
-    def metadata_payload(selected):
+    def metadata_payload(selected, archived=None):
         start_time = selected.descriptor.date_start
         end_time = _effective_end_time(selected, clock())
         duration = (
@@ -883,8 +962,8 @@ def create_app(
             if start_time and end_time
             else 0
         )
-        source = live.view(selected.descriptor.key)
-        live_available = live_mode_available(selected)
+        source = archived[1] if archived else live.view(selected.descriptor.key)
+        live_available = bool(archived) or live_mode_available(selected)
         return {
             "v": 1,
             "sessionKey": selected.descriptor.key,
@@ -894,6 +973,7 @@ def create_app(
             "durationSeconds": duration,
             "available": selected.replay_available,
             "complete": selected.descriptor.complete,
+            "recordingVersion": selected.recording_version,
             "replayAvailable": selected.replay_available,
             "liveAvailable": live_available,
             "liveConnected": source.connected,
@@ -904,7 +984,9 @@ def create_app(
             "isLive": selected.is_live,
             "positionMode": (
                 (
-                    live_position_mode(live.state)
+                    live_position_mode(
+                        archived[0].final_state if archived else live.state
+                    )
                     if source.target_session_key == selected.descriptor.key
                     else "unavailable"
                 )
@@ -1048,8 +1130,12 @@ def create_app(
                         selected, delay_seconds=delay_seconds, archived=archived
                     )
                     envelope.update(
-                        metadata=metadata_payload(selected),
-                        capabilities=capability_payload(selected),
+                        metadata=metadata_payload(
+                            archived[0] if archived else selected, archived
+                        ),
+                        capabilities=capability_payload(
+                            archived[0] if archived else selected, archived
+                        ),
                         playbackReady=True,
                     )
                     if (

@@ -65,6 +65,12 @@ Live envelopes additionally carry `mode: "live"` and a `live` object containing 
 
 ## HTTP API
 
+If a new scheduled session takes over without an overall completion packet for the old session, existing live viewers retain the old canonical state as `STALE`. Its unfinished journal remains incomplete; no sporting completion or `REPLAY_READY` handoff is invented. A retained viewer receives optional `live.nextSessionKey` only after consuming its old tail at its own delay. Follow Live may then advance; explicit session selections remain selected.
+
+Catalog session entries and replay metadata include optional `recordingVersion`, an opaque local file identity sampled from the existing filename, size and modification time. Metadata freezes the identity of the events actually opened. Clients compare it with later catalog publications and reopen a selected changed replay without reusing its previous event cursor. An unavailable placeholder also reopens when publication is first observed as `AVAILABLE`, including an immediate download response. This adds no persisted manifest or prepared recording format.
+
+On startup after a scheduled end, the collector may recover one recent unfinished local session. Inspection is limited to three recent catalog candidates (scheduled end within six hours and a persisted event within two hours), validates embedded session identity and completion evidence, and still requires the adapter's upstream identity check. A currently scheduled session takes precedence. Essential catalog refresh runs independently of optional Pirelli seeding; initialization reports refresh/retry state until the catalog refresh succeeds.
+
 | Route | Purpose |
 | --- | --- |
 | `GET /api/v1/catalog` | List known seasons, weekends, and sessions; identify the default session and whether downloads are writable |
@@ -84,6 +90,8 @@ Pass `session_key` as a query parameter where a session can be selected. Omittin
 `POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past and returns HTTP 202 with a job. Jobs report `QUEUED`, `DOWNLOADING`, `FINALIZING`, `AVAILABLE` or `FAILED`; duplicate active requests coalesce, failures can be retried, and downloads are serialized per instance. `GET /api/v1/jobs` returns `{v: 1, jobs: [...]}`. Job status survives browser refresh but not process restart. Successful publication refreshes the affected session without rebuilding the library.
 
 `DELETE /api/v1/replay?session_key=...` removes supported canonical/raw timing recordings and rebuildable Weekend Context for exactly one session. Catalog metadata, circuit geometry, immutable Pirelli artifacts/releases, and the small source manifest remain. The catalog session immediately becomes `available: false` and can be downloaded again using the normal preferred-source path.
+
+Fast catalog discovery may leave recording completeness uninspected. A download request verifies that selected artifact before treating it as already complete; an unknown or partial file cannot suppress acquisition solely because it exists. Cancellation of replay work waits for its active compute thread to finish before another command can mutate the same viewer controller.
 
 `GET /api/v1/driver-history?session_key=...&driver_number=...` returns source-neutral completed-lap observations for Driver Focus and future analytics. It is an on-demand viewer endpoint rather than part of `RaceState`; consumers filter the returned evidence against the current replay time or cursor. An unavailable recording returns an empty evidence list with `available: false`.
 
