@@ -84,3 +84,59 @@ def test_failed_publication_releases_drain_and_keeps_retry_error_visible(
             await live.stop()
 
     asyncio.run(scenario())
+
+
+def test_publication_contexts_are_bounded_and_keep_recoverable_journals(
+    tmp_path, monkeypatch
+):
+    """Gemini-authored bounds scenario, extended to verify recovery and cleanup."""
+
+    def failure(_recorder):
+        raise OSError("SYNTHETIC persistent publication failure")
+
+    monkeypatch.setattr(NormalizedLiveRecorder, "finalize", failure)
+
+    async def rows():
+        while True:
+            await asyncio.sleep(1)
+            yield {}
+
+    async def scenario():
+        live = PublicLiveSession(
+            row_source=rows,
+            normalized_recording_dir=tmp_path,
+            finalization_drain=0,
+            maximum_backoff=0.01,
+        )
+        tasks = []
+        try:
+            for key in ("100", "200", "300", "400"):
+                await live.start(
+                    key,
+                    seed_events=[
+                        NormalizedEvent(
+                            "session",
+                            "2026-09-05T14:00:00Z",
+                            "synthetic",
+                            {
+                                "key": key,
+                                "name": "Practice 3",
+                                "status": "FINISHED",
+                                "session_complete": True,
+                            },
+                        )
+                    ],
+                )
+                await asyncio.wait_for(live.finish_pending(), 0.2)
+                tasks.append(live._publications[key].task)
+            assert set(live._publications) == {"200", "300", "400"}
+            assert len(NormalizedLiveRecorder(tmp_path, "100").events) == 1
+        finally:
+            await live.stop()
+        assert all(task.done() for task in tasks)
+        assert all(
+            (tmp_path / f"live-{key}.in-progress.jsonl").exists()
+            for key in ("100", "200", "300", "400")
+        )
+
+    asyncio.run(scenario())

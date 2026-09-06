@@ -66,6 +66,7 @@ def serve(args):
 
     from slipstream.api import create_app
     from slipstream.catalog import recent_seasons, sync_catalog
+    from slipstream.library import ReplayLibrary
     from slipstream.live import PublicLiveSession, decode_signalr_text
     from slipstream.replay import load_events, replay
 
@@ -78,7 +79,32 @@ def serve(args):
         "rows": 0,
         "bursts": 0,
         "connections": 0,
+        "replayLoads": [],
     }
+    original_get = getattr(ReplayLibrary, "_get", None)
+
+    def observed_get(library, key=None):
+        import traceback
+
+        before = library.loads
+        result = original_get(library, key)
+        if library.loads != before:
+            state["replayLoads"].append(
+                {
+                    "key": result.descriptor.key,
+                    "library": id(library),
+                    "resource": id(result),
+                    "seconds": time.monotonic() - origin,
+                    "callers": [
+                        frame.name for frame in traceback.extract_stack(limit=10)
+                    ],
+                }
+            )
+            del state["replayLoads"][:-32]
+        return result
+
+    if original_get is not None:
+        ReplayLibrary._get = observed_get
     numbers = list(replay(load_events(args.data / "live-11357.json")).drivers)
 
     def now():
@@ -400,6 +426,7 @@ async def probe(args):
         metrics["busyHttpP95Seconds"] = busy_samples[int(len(busy_samples) * 0.95)]
         metrics["busyHttpMaxSeconds"] = max(busy_samples)
         before_soak = await get("/api/v1/diagnostics")
+        before_soak_loads = (await get("/__fixture/status"))["replayLoads"]
         await asyncio.sleep(args.soak_seconds)
         async with client.ws_connect(
             args.url + "/api/v1/stream?session_key=11353&mode=replay"
@@ -407,9 +434,17 @@ async def probe(args):
             after_soak = await snapshot(refresh)
             assert after_soak["metadata"]["sessionKey"] == "11353"
         after_soak_diagnostics = await get("/api/v1/diagnostics")
-        assert (
-            after_soak_diagnostics["replay"]["loads"] == before_soak["replay"]["loads"]
-        ), "The live monitor must not evict the unchanged historical replay"
+        metrics["beforeSoakDiagnostics"] = before_soak
+        metrics["afterSoakDiagnostics"] = after_soak_diagnostics
+        metrics["afterSoak"] = await get("/__fixture/status")
+        args.output.write_text(json.dumps(metrics, indent=2))
+        assert [
+            entry
+            for entry in metrics["afterSoak"]["replayLoads"]
+            if entry["key"] == "11353"
+        ] == [entry for entry in before_soak_loads if entry["key"] == "11353"], (
+            "The unchanged historical replay must retain its resource across the live monitor interval"
+        )
         metrics["monitorSoakSeconds"] = args.soak_seconds
         metrics["afterSoak"] = await get("/__fixture/status")
         await live_ws.send_json({"type": "snapshot"})

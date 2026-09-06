@@ -163,7 +163,7 @@ The catalog and recordings solve different problems:
 - `catalog.json` supplies season/weekend/session discovery, dates, local offsets, and circuit outlines.
 - Recording JSON supplies timing and replay events for one session.
 
-`ReplayLibrary` overlays local recordings on catalog descriptors. It normalizes only the selected recording and caches only that selected resource. A catalog-only session produces a small placeholder state so the UI can show its date, circuit, download status, and live schedule window without inventing timing.
+`ReplayLibrary` overlays local recordings on catalog descriptors. It normalizes recordings on demand and retains recently selected resources in the bounded shared cache described above. A catalog-only session produces a small placeholder state so the UI can show its date, circuit, download status, and live schedule window without inventing timing.
 
 When more than one local timing artifact exists for a session, selection is explicit and whole-session: finalized canonical Live (`f1-signalr-public`) precedes official static archive (`f1-static-public`), which precedes OpenF1. Filename order never selects a source and timing facts are never mixed. Catalog circuit geometry and Pirelli remain separately scoped durable inputs.
 
