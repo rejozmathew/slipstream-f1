@@ -93,13 +93,15 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(replayLibrary, /preferredWeekendSession/);
   assert.match(replayLibrary, /removeAttribute\("open"\)/);
   assert.match(sessionHook, /commandAvailable && socketRef\.current\?\.send/);
-  assert.doesNotMatch(sessionHook, /setAnalytics\(null\).*viewingMode === "live"/s);
-  assert.match(sessionHook, /envelope = await slipstreamApi\.state\(selectedSessionKey, viewingMode\)/);
-  assert.match(sessionHook, /Promise\.allSettled/);
+  assert.match(sessionHook, /envelope\.analytics\?\.sessionKey === selectedSessionKey/);
+  assert.match(sessionHook, /envelope\.analytics\.sequence === envelope\.seq/);
+  assert.match(sessionHook, /slipstreamApi\.state\(selectedSessionKey, viewingMode, resumeSequence\(\), delayRef\.current, resumeVersion\(\)\)/);
+  assert.match(sessionHook, /envelope\.playbackReady && envelope\.metadata && envelope\.capabilities/);
   assert.match(sessionHook, /shouldPollAnalytics/);
   assert.match(sessionHook, /analytics\?\.context\.status/);
   assert.match(sessionHook, /analytics\?\.publishedStrategy\.baseline\.status/);
-  assert.ok(sessionHook.indexOf("envelope = await slipstreamApi.state") < sessionHook.indexOf("Promise.allSettled"), "canonical state must bootstrap before auxiliary metadata");
+  const analyticsRequest = sessionHook.indexOf("slipstreamApi.analytics(selectedSessionKey, cursor,");
+  assert.ok(analyticsRequest > 0 && sessionHook.indexOf("setState(envelope.data)") < analyticsRequest, "canonical state must apply before optional analytics requests");
   assert.match(raceView, /\["standard", "timing", "strategy"\]/);
   assert.match(preferences, /slipstream\.device-preferences\.v1/);
   assert.match(preferences, /includedRaceStates/);
@@ -230,11 +232,11 @@ test("uses server-authored status and preserves same-session live replay handoff
   assert.match(protocol, /handoff\?: "REPLAY_READY"/);
   assert.match(sessionHook, /envelope\.mode === "replay" && envelope\.handoff === "REPLAY_READY"/);
   assert.match(sessionHook, /setViewingMode\("replay"\)/);
-  assert.match(sessionHook, /currentSession\?\.replayReady/);
+    assert.match(sessionHook, /followLiveRef\.current \? catalogRef\.current\?\.liveSessionKey/);
   assert.match(sessionHook, /slipstream\.selected-session\.v1/);
-  assert.match(sessionHook, /const persistedKey = savedSessionKey\(\)/);
+    assert.match(sessionHook, /const persistedKey = intent\.followLive \? null : savedSessionKey\(\)/);
   assert.match(sessionHook, /persistedSession\?\.sessionKey \?\? result\.defaultSessionKey/);
-  assert.match(sessionHook, /saveSessionKey\(sessionKey\)/);
+    assert.match(sessionHook, /saveIntent\(sessionKey, resolvedMode, false\)/);
 });
 
 test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", async () => {
@@ -261,7 +263,10 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(timingTower, /"TYRE STRATEGY", "LAST STOP"/);
   assert.match(timingTower, /actualStrategyCompounds/);
   assert.match(timingTower, /driver\.gap_to_leader/);
-  assert.doesNotMatch(timingTower, /interval_to_ahead|NO RECENT PROGRESS|TO AHEAD|TO LEADER/);
+  // PCR-POSTRACE-INTERVAL-20260906: owner requested an additive Race Timing interval.
+  assert.match(timingTower, /interval_to_ahead/);
+  assert.match(timingTower, /variant === "race" && mode === "timing" && intervalsAvailable/);
+  assert.doesNotMatch(timingTower, /NO RECENT PROGRESS|TO AHEAD|TO LEADER/);
   assert.match(lifecycle, /RETIRED: "RET"/);
   assert.match(lifecycle, /WITHDRAWN: "WD"/);
   assert.doesNotMatch(lifecycle, /NO_RECENT_PROGRESS|NO RECENT PROGRESS/);

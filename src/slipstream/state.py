@@ -3,11 +3,29 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field, replace
-from datetime import timedelta, timezone
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from functools import lru_cache
 
 from .events import NormalizedEvent, parse_timestamp
+from .source_time import source_timezone
+
+
+def _replace_snapshot(instance, **updates):
+    """Copy our plain frozen state records without repeated field reflection.
+
+    These records have no init-only fields, slots or post-init hooks. Each
+    snapshot gets a new attribute dictionary; nested immutable values retain
+    the same sharing as dataclasses.replace. Reject unknown source fields.
+    """
+    original = vars(instance)
+    attributes = original | updates
+    if len(attributes) != len(original):
+        unknown = updates.keys() - original.keys()
+        raise TypeError(f"Unknown {type(instance).__name__} fields: {sorted(unknown)}")
+    result = object.__new__(type(instance))
+    object.__setattr__(result, "__dict__", attributes)
+    return result
 
 
 @dataclass(frozen=True)
@@ -73,6 +91,7 @@ class SessionState:
     eligible_field_size: int | None = None
     session_clock: str | None = None
     session_clock_running: bool | None = None
+    session_complete: bool | None = None
     status: str = "UNKNOWN"
 
 
@@ -140,28 +159,35 @@ class RaceState:
                 )
                 if not explicit_resumption:
                     updates.pop("control_status")
-            if (
-                updates.get("status") == "RUNNING"
-                and self.session.status in {"SUSPENDED", "FINISHED", "SCHEDULED"}
-            ):
+            if updates.get("status") == "RUNNING" and self.session.status in {
+                "SUSPENDED",
+                "FINISHED",
+                "SCHEDULED",
+            }:
                 # An explicit session restart/resumption is authoritative. It
                 # may close a terminal segment or suspended interval; a
                 # marshal-only TRACK CLEAR event still cannot do so.
                 updates["control_status"] = "NORMAL"
-            session = replace(self.session, **updates)
+            session = _replace_snapshot(self.session, **updates)
             if (
                 updates.keys() & {"status", "control_status", "marshal_status"}
                 and not explicit_display_status
             ):
                 session = _with_display_status(session)
             elif legacy_track_status is not None:
-                session = replace(session, track_status=str(legacy_track_status))
+                session = _replace_snapshot(
+                    session, track_status=str(legacy_track_status)
+                )
             session = _with_local_time(session, event.occurred_at)
-            return replace(
+            return _replace_snapshot(
                 self,
                 updated_at=event.occurred_at,
                 session=session,
-                drivers=_with_practice_best_lap_deltas(session, self.drivers),
+                drivers=(
+                    _with_practice_best_lap_deltas(session, self.drivers)
+                    if session.layout_family != self.session.layout_family
+                    else self.drivers
+                ),
             )
         if event.kind == "circuit":
             updates = dict(event.payload)
@@ -177,15 +203,17 @@ class RaceState:
                 **self.circuit.availability,
                 **explicit_availability,
             }
-            return replace(
+            return _replace_snapshot(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(self.session, event.occurred_at),
-                circuit=replace(self.circuit, **updates, availability=availability),
+                circuit=_replace_snapshot(
+                    self.circuit, **updates, availability=availability
+                ),
             )
         if event.kind == "driver":
             number = str(event.payload["number"])
-            current = self.drivers.get(number, DriverState(number=number))
+            current = self.drivers.get(number) or DriverState(number=number)
             updates = {k: v for k, v in event.payload.items() if k != "number"}
             if "status" in updates:
                 from .lifecycle import transition_driver_status
@@ -194,10 +222,9 @@ class RaceState:
                     current.status, updates["status"]
                 )
             updates = _with_driver_lifecycle_projection(current, updates)
-            item = replace(current, **updates)
-            drivers = _with_monotonic_gaps({**self.drivers, number: item})
-            drivers = _with_practice_best_lap_deltas(self.session, drivers)
-            return replace(
+            item = _replace_snapshot(current, **updates)
+            drivers = _updated_drivers(self.session, self.drivers, current, item)
+            return _replace_snapshot(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(self.session, event.occurred_at),
@@ -205,7 +232,7 @@ class RaceState:
             )
         if event.kind == "timing":
             number = str(event.payload["number"])
-            current = self.drivers.get(number, DriverState(number=number))
+            current = self.drivers.get(number) or DriverState(number=number)
             updates = {k: v for k, v in event.payload.items() if k != "number"}
             # Completed-lap evidence is retained by SessionEvidence, not repeated in
             # every high-frequency RaceState snapshot.
@@ -226,7 +253,7 @@ class RaceState:
             if isinstance(event_lap, int) and (
                 session.lap is None or event_lap > session.lap
             ):
-                session = replace(session, lap=event_lap)
+                session = _replace_snapshot(session, lap=event_lap)
             if progressed:
                 updates.setdefault("activity", "ON_TRACK")
                 # Store the driver's own last proven lap for the deterministic gap rule.
@@ -250,10 +277,9 @@ class RaceState:
                 },
                 **explicit_availability,
             }
-            item = replace(current, **updates, availability=availability)
-            drivers = _with_monotonic_gaps({**self.drivers, number: item})
-            drivers = _with_practice_best_lap_deltas(session, drivers)
-            return replace(
+            item = _replace_snapshot(current, **updates, availability=availability)
+            drivers = _updated_drivers(session, self.drivers, current, item)
+            return _replace_snapshot(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(session, event.occurred_at),
@@ -267,13 +293,13 @@ class RaceState:
                 **{key: "available" for key in updates if key != "updated_at"},
                 **explicit_availability,
             }
-            weather = replace(
+            weather = _replace_snapshot(
                 self.weather,
                 **updates,
                 updated_at=event.occurred_at,
                 availability=availability,
             )
-            return replace(
+            return _replace_snapshot(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(self.session, event.occurred_at),
@@ -281,13 +307,31 @@ class RaceState:
             )
         if event.kind == "race_control":
             item = RaceControlMessage(occurred_at=event.occurred_at, **event.payload)
-            return replace(
+            return _replace_snapshot(
                 self,
                 updated_at=event.occurred_at,
                 session=_with_local_time(self.session, event.occurred_at),
                 race_control=(*self.race_control, item),
             )
         raise ValueError(f"Unsupported event kind: {event.kind}")
+
+
+def _updated_drivers(session, drivers, previous, current):
+    result = {**drivers, current.number: current}
+    added = current.number not in drivers
+    position_changed = current.position != previous.position
+    if added or position_changed or current.gap_to_leader != previous.gap_to_leader:
+        result = _with_monotonic_gaps(result)
+    if (
+        added
+        or position_changed
+        or current.best_lap != previous.best_lap
+        or current.best_lap_delta_to_ahead != previous.best_lap_delta_to_ahead
+        or current.availability.get("best_lap_delta_to_ahead")
+        != previous.availability.get("best_lap_delta_to_ahead")
+    ):
+        result = _with_practice_best_lap_deltas(session, result)
+    return result
 
 
 def _with_practice_best_lap_deltas(
@@ -320,14 +364,19 @@ def _with_practice_best_lap_deltas(
                 "available" if delta is not None else "unavailable"
             ),
         }
-        result[driver.number] = replace(
-            driver,
-            best_lap_delta_to_ahead=delta,
-            availability=availability,
-        )
+        if (
+            driver.best_lap_delta_to_ahead != delta
+            or driver.availability != availability
+        ):
+            result[driver.number] = _replace_snapshot(
+                driver,
+                best_lap_delta_to_ahead=delta,
+                availability=availability,
+            )
     return result
 
 
+@lru_cache(maxsize=4096)
 def _lap_time_milliseconds(value: str | None) -> int | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -378,7 +427,7 @@ def _with_monotonic_gaps(drivers: dict[str, DriverState]) -> dict[str, DriverSta
             continue
         if value + 1e-9 < largest:
             availability = {**driver.availability, "gap_to_leader": "unavailable"}
-            result[driver.number] = replace(
+            result[driver.number] = _replace_snapshot(
                 driver,
                 gap_to_leader=None,
                 availability=availability,
@@ -388,6 +437,7 @@ def _with_monotonic_gaps(drivers: dict[str, DriverState]) -> dict[str, DriverSta
     return result
 
 
+@lru_cache(maxsize=4096)
 def _numeric_gap_seconds(value: str | None) -> float | None:
     if not value or "LAP" in value.upper():
         return None
@@ -404,16 +454,23 @@ def _with_local_time(session: SessionState, occurred_at: str) -> SessionState:
     if not session.gmt_offset:
         return session
     try:
-        raw = session.gmt_offset
-        sign = -1 if raw.startswith("-") else 1
-        hours, minutes, seconds = (int(part) for part in raw.lstrip("+-").split(":"))
-        offset = timezone(
-            sign * timedelta(hours=hours, minutes=minutes, seconds=seconds)
-        )
-        local_time = parse_timestamp(occurred_at).astimezone(offset).isoformat()
+        offset = source_timezone(session.gmt_offset)
+        if offset is None:
+            return session
+        local_time = _local_time(occurred_at, offset)
     except (TypeError, ValueError):
         return session
-    return replace(session, local_time=local_time)
+    return (
+        session
+        if session.local_time == local_time
+        else _replace_snapshot(session, local_time=local_time)
+    )
+
+
+@lru_cache(maxsize=256)
+def _local_time(occurred_at, offset):
+    # One public timestamp commonly carries updates for the entire field.
+    return parse_timestamp(occurred_at).astimezone(offset).isoformat()
 
 
 def _legacy_track_updates(value: object) -> dict[str, str]:
@@ -458,7 +515,7 @@ def _with_display_status(session: SessionState) -> SessionState:
         display, legacy = "GREEN", "GREEN"
     else:
         display, legacy = "UNKNOWN", None
-    return replace(session, display_status=display, track_status=legacy)
+    return _replace_snapshot(session, display_status=display, track_status=legacy)
 
 
 def _with_driver_lifecycle_projection(

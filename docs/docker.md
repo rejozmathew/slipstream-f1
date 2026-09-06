@@ -136,6 +136,18 @@ A reverse proxy is optional. Route one hostname to container port `3344` and ena
 
 Slipstream does not bundle Nginx, open multiple application ports, join a particular Docker network, or configure TLS. Those remain host-level decisions.
 
-## Health check
+## Health check and readiness
 
-The supplied Compose files check `GET /api/v1/catalog`. A healthy response proves the process is accepting requests and its replay library initialized. It does not prove that a live upstream source is connected.
+The supplied Compose files check `GET /api/v1/catalog`. An HTTP 200 response proves the web process is running and accepting HTTP requests.
+
+Application readiness semantics are decoupled from HTTP 200:
+
+- The catalog payload exposes `initialization.status` reporting `ready`, `refreshing`, or `retrying`. Clients and probes should inspect this field to determine catalog refresh status.
+- Optional Pirelli seed import and enrichment run in the background after startup. A failure or delay in Pirelli seed processing is logged but never blocks the essential catalog, live timing, or replay readiness.
+- A healthy catalog response does not imply that an upstream live connection is connected or active.
+
+For running browser verification harnesses (`web/tests/browser-*.mjs`) against a running container without modifying project dependencies, Playwright can be installed on demand:
+
+```powershell
+npm install --no-save --package-lock=false playwright
+```

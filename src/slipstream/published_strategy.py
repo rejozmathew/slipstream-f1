@@ -420,7 +420,10 @@ def _driver_published_strategy(
 
     facts: list[str] = []
     sequence = _compact_sequence(observed)
-    if relation == "TERMINAL":
+    if relation == "TERMINAL" and terminal == "FINISHED":
+        position = f" P{driver.position}" if driver.position is not None else ""
+        facts.append(f"{driver.code or driver.number} finished{position}.")
+    elif relation == "TERMINAL":
         facts.append(f"{driver.code or driver.number} is {terminal} at this cursor.")
     elif relation == "MATCHING_ONE":
         facts.append(f"Observed {sequence} matches one published Pirelli option.")

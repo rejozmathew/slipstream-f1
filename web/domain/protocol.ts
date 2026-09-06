@@ -116,6 +116,7 @@ export type LiveSourceState = {
   finalRecording: string | null;
   delaySeconds: number;
   positionMode?: PositionMode;
+  nextSessionKey?: string;
 };
 
 export type StateEnvelope = {
@@ -130,6 +131,9 @@ export type StateEnvelope = {
   live?: LiveSourceState;
   data: RaceState;
   analytics?: AnalyticsSnapshot;
+  metadata?: ReplayMetadata;
+  capabilities?: SourceCapabilities;
+  playbackReady?: boolean;
   error?: string;
 };
 
@@ -158,6 +162,8 @@ export type ReplayMetadata = {
   endTime: string | null;
   durationSeconds: number;
   available: boolean;
+  complete?: boolean | null;
+  recordingVersion?: string | null;
   replayAvailable: boolean;
   liveAvailable: boolean;
   liveConnected: boolean;
@@ -551,6 +557,7 @@ export type AnalyticsSnapshot = {
   schemaVersion: 1;
   modelVersion: string;
   sessionKey: string;
+  recordingVersion?: string | null;
   sessionKind: SessionKind;
   layoutFamily: LayoutFamily;
   sequence: number;
@@ -649,6 +656,7 @@ export type CatalogSession = {
   dateEnd: string;
   gmtOffset: string | null;
   available: boolean;
+  recordingVersion?: string | null;
   isLive: boolean;
   liveAvailable: boolean;
   liveConnected: boolean;
@@ -663,7 +671,7 @@ export type CatalogSession = {
 
 export type ReplayCatalog = {
   v: 1;
-  defaultSessionKey: string;
+  defaultSessionKey: string | null;
   downloadsEnabled: boolean;
   liveSessionKey: string | null;
   liveStatus: LiveConnectionStatus;

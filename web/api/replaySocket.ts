@@ -4,6 +4,7 @@ export type ReplaySocketHandlers = {
   onOpen: () => void;
   onSnapshot: (envelope: StateEnvelope) => void;
   onClose: () => void;
+  onError?: (error: string) => void;
 };
 
 export function connectReplaySocket(url: string, handlers: ReplaySocketHandlers) {
@@ -12,7 +13,8 @@ export function connectReplaySocket(url: string, handlers: ReplaySocketHandlers)
   socket.onmessage = (message) => {
     try {
       const envelope = JSON.parse(message.data as string) as StateEnvelope;
-      if (envelope.type !== "error") handlers.onSnapshot(envelope);
+      if (envelope.type === "error") handlers.onError?.(envelope.error ?? "Stream unavailable");
+      else if (envelope.type === "state.snapshot" && envelope.data && Number.isInteger(envelope.seq)) handlers.onSnapshot(envelope);
     } catch {
       // A later state snapshot can recover from one malformed frame.
     }

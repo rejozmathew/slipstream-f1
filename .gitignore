@@ -16,3 +16,6 @@ web/.next/
 web/dist/
 web/.wrangler/
 .codex-tmp/*
+/output/
+/local-server*.log
+/local-server.pid

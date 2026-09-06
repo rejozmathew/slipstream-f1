@@ -38,10 +38,16 @@ class NormalizedEvent:
             raise ValueError(
                 f"Replay event missing fields: {', '.join(sorted(missing))}"
             )
+        payload = raw["payload"]
+        if raw["kind"] == "session" and raw["source"] in {
+            "f1-signalr-public", "f1-static-public"
+        }:
+            from .source_time import session_boundaries
+            payload = session_boundaries(payload)
         return cls(
             kind=raw["kind"],
             occurred_at=raw["occurred_at"],
             source=raw["source"],
-            payload=raw["payload"],
+            payload=payload,
             received_at=raw.get("received_at"),
         )

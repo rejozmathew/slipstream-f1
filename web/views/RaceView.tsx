@@ -13,6 +13,7 @@ type RaceViewProps = {
   state: RaceState;
   analytics: AnalyticsSnapshot | null;
   replayAvailable: boolean;
+  intervalsAvailable?: boolean;
   positionMode: PositionMode; viewingMode: ViewingMode;
   layout: RaceLayoutConfig;
   onLayoutChange: (layout: RaceLayoutConfig) => void;
@@ -23,7 +24,7 @@ type RaceViewProps = {
   onOpenStrategy: () => void;
 };
 
-export function RaceView({ state, analytics, replayAvailable, positionMode, viewingMode, layout, onLayoutChange, onOpenLayoutEditor, onSelectDriver, towerView, onTowerViewChange, onOpenStrategy }: RaceViewProps) {
+export function RaceView({ state, analytics, replayAvailable, intervalsAvailable = false, positionMode, viewingMode, layout, onLayoutChange, onOpenLayoutEditor, onSelectDriver, towerView, onTowerViewChange, onOpenStrategy }: RaceViewProps) {
   const [mobileTab, setMobileTab] = useState<"timing" | "strategy" | "map" | "control">("timing");
   const drivers = Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
   const modules: Record<AnalysisModuleId, ReactNode> = {
@@ -53,7 +54,7 @@ export function RaceView({ state, analytics, replayAvailable, positionMode, view
     <div className="race-workspace">
       <div className="race-desktop">
       <div className="race-split" style={{ gridTemplateColumns: `minmax(0, ${layout.timingWidth}fr) 9px minmax(410px, ${100 - layout.timingWidth}fr)` }}>
-        <TimingTower drivers={drivers} variant="race" mode={towerView} analytics={analytics} replayAvailable={replayAvailable} onSelectDriver={onSelectDriver} toolbar={<div className="tower-toolbar"><div className="layout-presets" role="group" aria-label="Race split preset">
+        <TimingTower drivers={drivers} variant="race" mode={towerView} analytics={analytics} replayAvailable={replayAvailable} intervalsAvailable={intervalsAvailable} onSelectDriver={onSelectDriver} toolbar={<div className="tower-toolbar"><div className="layout-presets" role="group" aria-label="Race split preset">
           <span>SPLIT</span><button className={layout.preset === "balanced" ? "active" : ""} onClick={() => onLayoutChange(applyRacePreset(layout, "balanced"))}>BALANCED</button><button className={layout.preset === "towerWide" ? "active" : ""} onClick={() => onLayoutChange(applyRacePreset(layout, "towerWide"))}>TOWER WIDE</button><button className={layout.preset === "analysisWide" ? "active" : ""} onClick={() => onLayoutChange(applyRacePreset(layout, "analysisWide"))}>ANALYSIS WIDE</button><button onClick={onOpenLayoutEditor}>EDIT</button>
         </div><div className="tower-view-modes" role="group" aria-label="Timing tower view"><span>TOWER VIEW</span>{(["standard", "timing", "strategy"] as const).map((item) => <button className={towerView === item ? "active" : ""} key={item} onClick={() => onTowerViewChange(item)}>{item.toUpperCase()}</button>)}</div></div>} />
         <button className="split-handle" onPointerDown={startDrag} aria-label="Resize timing and analysis panels"><span /></button>

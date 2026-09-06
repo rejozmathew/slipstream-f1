@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from bisect import bisect_right
 from collections.abc import Callable, Iterable
 from datetime import timedelta
 
@@ -22,10 +23,22 @@ class ReplayController:
         sleep: Callable[[float], None] = time.sleep,
         start_time: str | None = None,
         end_time: str | None = None,
+        timestamps=None,
+        checkpoints=None,
     ) -> None:
-        self.events = sorted(
-            events, key=lambda event: parse_timestamp(event.occurred_at)
+        self.events = (
+            events
+            if timestamps is not None
+            else tuple(
+                sorted(events, key=lambda event: parse_timestamp(event.occurred_at))
+            )
         )
+        self.timestamps = (
+            timestamps
+            if timestamps is not None
+            else tuple(parse_timestamp(event.occurred_at) for event in self.events)
+        )
+        self._checkpoints = checkpoints or (lambda: ((0, RaceState()),))
         self._sleep = sleep
         self.state = RaceState()
         self.cursor = 0
@@ -64,12 +77,7 @@ class ReplayController:
     def seek(self, timestamp: str) -> RaceState:
         """Reset and reconstruct state through an inclusive session timestamp."""
         target = parse_timestamp(timestamp)
-        self.reset()
-        while self.cursor < len(self.events):
-            event = self.events[self.cursor]
-            if parse_timestamp(event.occurred_at) > target:
-                break
-            self._apply_next()
+        self.seek_cursor(bisect_right(self.timestamps, target))
         self.playhead = timestamp
         return self.state
 
@@ -77,7 +85,15 @@ class ReplayController:
         """Reset and reconstruct state through an event-count cursor."""
         if cursor < 0 or cursor > len(self.events):
             raise ValueError(f"cursor must be between 0 and {len(self.events)}")
-        self.reset()
+        self.pause()
+        checkpoints = self._checkpoints()
+        index = bisect_right(checkpoints, cursor, key=lambda item: item[0]) - 1
+        sequence, state = checkpoints[max(0, index)]
+        if self.cursor > cursor or self.cursor < sequence:
+            self.cursor, self.state = sequence, state
+        self.playhead = (
+            self.events[self.cursor - 1].occurred_at if self.cursor else None
+        )
         while self.cursor < cursor:
             self._apply_next()
         return self.state
@@ -113,8 +129,7 @@ class ReplayController:
         end = parse_timestamp(self.end_time or self.events[-1].occurred_at)
         target = min(current + timedelta(seconds=seconds), end)
         while self.cursor < len(self.events):
-            event = self.events[self.cursor]
-            if parse_timestamp(event.occurred_at) > target:
+            if self.timestamps[self.cursor] > target:
                 break
             self._apply_next()
         self.playhead = target.isoformat()

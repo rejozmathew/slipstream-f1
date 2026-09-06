@@ -59,9 +59,17 @@ REST state responses and WebSocket snapshots use:
 
 `analytics` is optional and additive. Replay and live WebSocket snapshots include it when the analytics service is available. It is always reconstructed at the same inclusive `seq` and `sessionTime` as `data`; it is not part of canonical `RaceState`.
 
+The first replay WebSocket snapshot additionally carries `metadata`, `capabilities` and `playbackReady: true`. It represents the official start or requested `seq`, never a transient final state. Complete reconstruction and evidence preparation begin after this snapshot. Clients enable controls only after a valid state envelope and keep timing-initialization errors separate from successful catalog polling. Reconnects can pass `seq`; REST fallback uses `at=start` or the last confirmed `seq`. `GET /api/v1/state` without a cursor retains its legacy final-state behavior.
+
 Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, the connection-owned `delaySeconds`, and cursor-scoped `positionMode`. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`. A live socket whose selected session becomes replay-ready sends one final `mode: "replay", handoff: "REPLAY_READY"` snapshot from the refreshed replay resource, then closes normally. The client retains the selected session and reconnects in Replay mode.
 
 ## HTTP API
+
+If a new scheduled session takes over without an overall completion packet for the old session, existing live viewers retain the old canonical state as `STALE`. Its unfinished journal remains incomplete; no sporting completion or `REPLAY_READY` handoff is invented. A retained viewer receives optional `live.nextSessionKey` only after consuming its old tail at its own delay. Follow Live may then advance; explicit session selections remain selected.
+
+Catalog entries and replay metadata include optional `recordingVersion`, an opaque local file identity sampled from filename, size and modification time. Automatic reconnects send the saved identity as the `recording_version` query parameter alongside `seq`, through both WebSocket and REST. A mismatch resets to official start in that same response; a match preserves the cursor. Opening metadata describes the same frozen resource as the state. Unknown identities are not automatically resumed. Legacy explicit `seq` requests without a version remain supported. Analytics requests with a mismatched `recording_version` receive HTTP 409; successful REST analytics include the selected `recordingVersion`, and analytics caches are scoped to it.
+
+On startup, unfinished recent journals are validated for live recovery (inspecting recent catalog candidates, validating embedded session identity and completion evidence, and requiring upstream identity verification), while completed journals are separately published offline without requiring an upstream connection. The offline scanner inspects at most three known numeric catalog sessions per batch, cycling through the inventory. Essential catalog refresh runs independently of optional Pirelli seeding; `initialization.status` (`ready`, `refreshing`, `retrying`) is reported separately from HTTP 200 responses, and optional seed failures do not block essential catalog availability.
 
 | Route | Purpose |
 | --- | --- |
@@ -72,14 +80,18 @@ Live envelopes additionally carry `mode: "live"` and a `live` object containing 
 | `GET /api/v1/driver-history` | Return one driver's normalized lap evidence on demand, outside high-frequency state snapshots |
 | `GET /api/v1/analytics` | Return the versioned analytics sidecar at an optional inclusive `at` or `seq` cutoff and start non-blocking Weekend Context preparation |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
+| `GET /api/v1/jobs` | Return bounded in-process download job status |
+| `GET /api/v1/diagnostics` | Return bounded collector counters, replay cache and initialization status |
 | `DELETE /api/v1/replay` | Remove one session's rebuildable replay/timing artifacts while retaining durable context |
 | `WS /api/v1/stream` | Create an independent replay controller or delayed-live cursor for one client |
 
 Pass `session_key` as a query parameter where a session can be selected. Omitting it uses the library default.
 
-`POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past. Downloads are serialized per application instance. After a successful write, the library is refreshed and the session becomes available without restarting the process.
+`POST /api/v1/download?session_key=...` accepts only a known catalog session whose scheduled end is in the past and returns HTTP 202 with a job. Jobs report `QUEUED`, `DOWNLOADING`, `FINALIZING`, `AVAILABLE` or `FAILED`; duplicate active requests coalesce, failures can be retried, and downloads are serialized per instance. `GET /api/v1/jobs` returns `{v: 1, jobs: [...]}`. Job status survives browser refresh but not process restart. Successful publication refreshes the affected session without rebuilding the library.
 
-`DELETE /api/v1/replay?session_key=...` removes supported canonical/raw timing recordings and rebuildable Weekend Context for exactly one session. Catalog metadata, circuit geometry, immutable Pirelli artifacts/releases, and the small source manifest remain. The catalog session immediately becomes `available: false` and can be downloaded again using the normal preferred-source path.
+`DELETE /api/v1/replay?session_key=...` removes supported canonical/raw timing recordings and rebuildable Weekend Context for exactly one session. Catalog metadata, circuit geometry, immutable Pirelli artifacts/releases, and the small source manifest remain. Attempting to delete an active session or a target with active/pending publication returns HTTP 409 Conflict. The catalog session immediately becomes `available: false` and can be downloaded again using the normal preferred-source path.
+
+Fast catalog discovery may leave recording completeness uninspected. A download request verifies that selected artifact before treating it as already complete; an unknown or partial file cannot suppress acquisition solely because it exists. Cancellation of replay work waits for its active compute thread to finish before another command can mutate the same viewer controller.
 
 `GET /api/v1/driver-history?session_key=...&driver_number=...` returns source-neutral completed-lap observations for Driver Focus and future analytics. It is an on-demand viewer endpoint rather than part of `RaceState`; consumers filter the returned evidence against the current replay time or cursor. An unavailable recording returns an empty evidence list with `available: false`.
 
@@ -124,7 +136,11 @@ Catalog session fields have specific meanings:
 
 `isLive` is schedule status, not proof that a live source is connected or that the sporting state is `RUNNING`. Schedule metadata never writes sporting state into `RaceState`. `replayAvailable`, `liveAvailable`, `liveConnected`, `liveStale`, `liveStatus`, `livePhase`, and `replayReady` are separate. Sporting suspension/red flag is likewise independent from transport availability: a suspended race can remain connected and Live-capable. The catalog also exposes `liveSessionKey`; an active scheduled session is selected in live mode by default, while a viewer already watching replay is not forcibly switched.
 
-For an active scheduled session, replay `endTime` is capped at the earlier of the scheduled end and the current time. Clients must not create future seek targets.
+File presence does not imply genuine completion. Replay metadata exposes additive `complete`; a partial local recording can be replayed while collection resumes. Source-authored `session.session_complete` is optional. Chronological session evidence reconciles segment finishes with later activity: Q1/Q2 `FINISHED` does not complete Qualifying; Q3 finish or explicit whole-session completion does. Active sessions can overrun scheduled end and explicitly completed sessions can finish early. F1 timezone-less session boundaries are interpreted using the supplied `gmt_offset`, once; canonical event ordering compares UTC instants before applying a cursor.
+
+The browser labels an available replay with explicit `complete: false` as `PARTIAL RECORDING`. This means session completion is not recorded; it does not establish packet loss or invent missing timing. Null or absent completion metadata is not labelled partial. Playback retains its requested cursor and shows only facts recorded through that time, including empty intervals before the first driver update.
+
+For a catalog-only placeholder without a local replay, `endTime` is capped at the earlier of the scheduled end and current time. An available recording uses its factual recorded bounds, including incomplete recordings that overrun the schedule; clients must not create future seek targets.
 
 For historical races, `session.total_laps` is derived from recorded race-result metadata and is available from the session-start snapshot. Practice and qualifying sessions leave it `null` because they have no meaningful scheduled lap denominator.
 
@@ -145,6 +161,8 @@ Each WebSocket connection receives an initial snapshot and owns its own `ReplayC
 
 Commands that move the cursor pause current playback first. The browser exposes delay as TV synchronization, and the protocol operation is defined for any replay. A delay of zero means the newest event.
 
+Browser reconnect cursors are scoped to an available recording and the current download revision. Catalog-only placeholder event counts are never reused for a downloaded replay. When a selected replay download completes, its new recording opens at the official session start; a transport reconnect within the same recording retains its cursor. Background replay publication does not reconnect an active Live viewer. Explicit `REPLAY_READY` handoff retains the drained canonical cursor.
+
 Invalid input produces a versioned error frame:
 
 ```json
@@ -154,6 +172,8 @@ Invalid input produces a versioned error frame:
 Playback advances in clock batches and emits snapshots at the transport cadence rather than once per source event.
 
 With `mode=live`, only `snapshot`, `delay`, and `reset`/`live` are accepted. Delay is clamped to 0–300 seconds and selects an inclusive cursor from the shared live event history. `reset`/`live` returns that viewer to delay zero. Live has no pause, backward seek, step, or speed command, and one viewer's delay never mutates another viewer.
+
+Live WebSocket and REST opening accept `delay_seconds` (0–300), including reconnects. A completed session's delayed viewer continues consuming its retained tail before receiving `handoff: "REPLAY_READY"`; its state, analytics and clock share that same cursor while the collector may acquire the next session. After the factual drain releases the old upstream, publication retries independently of new acquisition. Publication failure remains visibly `FINALIZING` with bounded-backoff retry; handoff requires successful publication as well as reaching the tail. Up to three recent publication contexts are retained; eviction cancels an old retry with an error log and retains its canonical journal for recovery. Process shutdown cancels retries without deleting journals.
 
 The Live UI offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry (0:00–5:00). Invalid syntax, seconds components above 59, and values beyond five minutes are rejected. GO LIVE returns to zero; the active label and selected preset follow the server-confirmed `live.delaySeconds`.
 
@@ -223,7 +243,7 @@ Race-control messages preserve `scope`, `driver_number`, `sector`, and `lap` whe
 
 Historical recording envelopes include capture time, session key, source capabilities, and endpoint arrays. Raw live files begin with a header, followed by rows containing `received_at`, `stream`, optional `source_timestamp`, raw `payload`, and whether the row came from the initial subscription result.
 
-Canonical live recording first appends JSONL mappings to `live-<session>.in-progress.jsonl`, which is never catalog-visible. Explicit completion starts a deterministic drain that is extended only by newly emitted canonical factual events; Heartbeat and other no-op rows do not extend it. Finalization writes the ordinary normalized event-list JSON to a temporary sibling and atomically replaces `live-<session>.json`. Valid same-session in-progress JSONL is recovered and deduplicated after restart; malformed or incompatible recovery fails explicitly. ReplayLibrary refresh then publishes `REPLAY_READY` and releases the completed upstream. A disconnect alone never finalizes either artifact.
+Canonical live recording first appends JSONL mappings to `live-<session>.in-progress.jsonl`, which is never catalog-visible. Explicit completion starts a deterministic drain that is extended only by newly emitted canonical factual events; Heartbeat and other no-op rows do not extend it. The single live collector releases immediately after factual drain, allowing the next live target to progress while publication retries independently with bounded backoff. Finalization writes the ordinary normalized event-list JSON to a temporary sibling and atomically replaces `live-<session>.json`. Valid same-session in-progress JSONL is recovered and deduplicated after restart, and completed journals publish offline without upstream connection; malformed or incompatible recovery fails explicitly. ReplayLibrary refresh then publishes `REPLAY_READY`. A disconnect alone never finalizes either artifact.
 
 Recordings are private operational inputs. Their formats may need migrations independently of API v1, and they must never contain committed credentials or authenticated captures.
 

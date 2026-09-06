@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .events import NormalizedEvent
+from .events import NormalizedEvent, parse_timestamp
 
 IN_PROGRESS_SUFFIX = ".in-progress.jsonl"
 
@@ -29,14 +29,21 @@ class NormalizedLiveRecorder:
     def events(self) -> tuple[NormalizedEvent, ...]:
         return tuple(self._events)
 
-    def append(self, events: tuple[NormalizedEvent, ...]) -> tuple[NormalizedEvent, ...]:
+    def append(
+        self, events: tuple[NormalizedEvent, ...]
+    ) -> tuple[NormalizedEvent, ...]:
         if not events:
             return ()
         if self._finalized:
             raise RuntimeError("normalized live recording is already finalized")
-        fresh = tuple(
-            event for event in events if self._event_key(event) not in self._event_keys
-        )
+        seen = set()
+        accepted = []
+        for event in events:
+            key = self._event_key(event)
+            if key not in self._event_keys and key not in seen:
+                accepted.append(event)
+                seen.add(key)
+        fresh = tuple(accepted)
         if not fresh:
             return ()
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -49,6 +56,25 @@ class NormalizedLiveRecorder:
         return fresh
 
     def _recover(self) -> None:
+        if self.final_path.exists():
+            from .replay import load_events
+            from .session import classify_session
+            from .session_completion import session_completion
+
+            saved = load_events(self.final_path)
+            identity = {}
+            for event in saved:
+                self._validate_recovered_event(event)
+                if event.kind == "session":
+                    identity.update(event.payload)
+            kind = classify_session(
+                identity.get("session_type"), identity.get("name")
+            ).kind.value
+            if not session_completion(saved, session_kind=kind).complete:
+                # Recover legacy prematurely-published files without changing
+                # the original until genuine completion publishes atomically.
+                self._events.extend(saved)
+                self._event_keys.update(self._event_key(event) for event in saved)
         if not self.temporary_path.exists():
             return
         try:
@@ -96,7 +122,7 @@ class NormalizedLiveRecorder:
         return json.dumps(
             {
                 "kind": event.kind,
-                "occurred_at": event.occurred_at,
+                "occurred_at": parse_timestamp(event.occurred_at).isoformat(),
                 "source": event.source,
                 "payload": event.payload,
             },
@@ -109,7 +135,8 @@ class NormalizedLiveRecorder:
         if self._finalized:
             return self.final_path
         ordered = sorted(
-            enumerate(self._events), key=lambda item: (item[1].occurred_at, item[0])
+            enumerate(self._events),
+            key=lambda item: (parse_timestamp(item[1].occurred_at), item[0]),
         )
         staging = self.final_path.with_suffix(".json.tmp")
         staging.write_text(
