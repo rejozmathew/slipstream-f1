@@ -263,7 +263,10 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(timingTower, /"TYRE STRATEGY", "LAST STOP"/);
   assert.match(timingTower, /actualStrategyCompounds/);
   assert.match(timingTower, /driver\.gap_to_leader/);
-  assert.doesNotMatch(timingTower, /interval_to_ahead|NO RECENT PROGRESS|TO AHEAD|TO LEADER/);
+  // PCR-POSTRACE-INTERVAL-20260906: owner requested an additive Race Timing interval.
+  assert.match(timingTower, /interval_to_ahead/);
+  assert.match(timingTower, /variant === "race" && mode === "timing" && intervalsAvailable/);
+  assert.doesNotMatch(timingTower, /NO RECENT PROGRESS|TO AHEAD|TO LEADER/);
   assert.match(lifecycle, /RETIRED: "RET"/);
   assert.match(lifecycle, /WITHDRAWN: "WD"/);
   assert.doesNotMatch(lifecycle, /NO_RECENT_PROGRESS|NO RECENT PROGRESS/);

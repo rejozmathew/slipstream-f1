@@ -81,6 +81,30 @@ test("Practice Driver Focus cannot render actionable Race strategy even with a m
   assert.match(race, /Another dry compound required/);
 });
 
+test("Race Timing adds a source interval alongside the leader gap without changing other modes", () => {
+  const props = { variant: "race", mode: "timing", replayAvailable: true, intervalsAvailable: true, drivers: [
+    { ...driver, position: 1, interval_to_ahead: "+99.999" },
+    { ...driver, number: "2", position: 2, interval_to_ahead: "+0.123" },
+    { ...driver, number: "3", position: 3, interval_to_ahead: null },
+    { ...driver, number: "4", position: 4, interval_to_ahead: "+77.777", classification: "DNF" },
+    { ...driver, number: "5", position: 5, interval_to_ahead: "+1 LAP", gap_to_leader: "+1 LAP" },
+    { ...driver, number: "6", position: 6, interval_to_ahead: "+1.234", classification: "FINISHED" },
+  ] };
+  const html = render(TimingTower, props);
+  const root = new JSDOM(html);
+  const rows = [...root.window.document.querySelectorAll("button[role=row]")];
+  assert.match(html, /title="Interval to the driver immediately above in the classification\."/);
+  assert.match(html, />INT</);
+  assert.match(html, /\+0\.685/);
+  assert.deepEqual(rows.map((row) => row.children[3].textContent), ["—", "+0.123", "—", "—", "+1 LAP", "+1.234"]);
+  assert.equal(rows[3].children[2].textContent, "DNF");
+  assert.equal(rows[5].children[2].textContent, "FINISHED");
+  assert.ok(rows.every((row) => row.children.length === 10));
+  root.window.close();
+  assert.doesNotMatch(render(TimingTower, { ...props, intervalsAvailable: false }), />INT<|\+0\.123/);
+  for (const mode of ["standard", "strategy"]) assert.doesNotMatch(render(TimingTower, { ...props, mode }), />INT<|\+0\.123/);
+});
+
 test("source countdown is shared, kind-aware and never synthesized from session duration", () => {
   const session = { ...EMPTY_RACE_STATE.session, session_kind: "practice_2", session_clock: "00:42:17", session_clock_running: false };
   const strip = render(SessionStrip, { session, selected: null, viewingMode: "live", livePhase: "LIVE", liveNow: true, onGoLive() {} });
