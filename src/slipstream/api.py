@@ -639,7 +639,10 @@ def create_app(
             pending.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
         while preparation_cleanup:
-            await asyncio.gather(*preparation_cleanup, return_exceptions=True)
+            cleanups = tuple(preparation_cleanup)
+            await asyncio.gather(*cleanups, return_exceptions=True)
+            # A completed gather need not yield to queued discard callbacks.
+            preparation_cleanup.difference_update(cleanups)
         historical_task = pirelli_backfill_task[0]
         pirelli_backfill_task[0] = None
         if historical_task is not None:

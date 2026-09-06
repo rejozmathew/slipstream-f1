@@ -62,3 +62,22 @@ Run the normal Python and web checks, then the focused `tests/test_closure_lifet
 `tools/combined_p0_acceptance.py setup` accepts `--incident-dir` or `SLIPSTREAM_INCIDENT_DIR` for the owner's preserved FP3/Qualifying files; the former local path remains a compatibility fallback. Neither incident recording is bundled into the repository. Optional Playwright setup is documented in the README.
 
 README, changelog, roadmap, architecture, protocol, deployment, and session-experience documentation now distinguish delivered branch behavior from remaining gates. The disk-package proposal and previous checkpoint are explicitly historical. Output artifacts and local server logs are excluded from Git/Docker context; existing local files were preserved.
+
+## Shutdown follow-up for `6535b2b`
+
+The subsequent closure review identified one new runtime regression: shutdown could repeatedly gather completed preparation-cleanup tasks without yielding to their registry-discard callbacks. Shutdown now captures each batch, awaits its completion, and explicitly retires that batch. Cleanup registered during the wait remains owned and is awaited in the next batch.
+
+The supplied regression fails against the original Python 3.13.15 image and passes against the corrected image. It did not fail unchanged on local Python 3.11, so the maintained version explicitly exercises the immediate-completion scheduling boundary on both versions. A second regression verifies that shutdown waits for cleanup registered while it is already draining. The two publication setups now synchronize with the startup monitor and use consistent Practice/Qualifying fixtures; the queued-preparation setup waits for actual registration before closing its viewer. AST comparison confirms every existing test assertion in both files is unchanged. The architecture's Live position wording now reflects cursor-backed timing estimates without implying precise GPS. Gemini reviewed the supplied patch and suggested the additional cleanup-registration case; all conclusions were checked locally.
+
+Final verification for this follow-up:
+
+- Native Python 3.11: **418 passed, 1 existing protected-archive skip**. Python 3.13.15 in the rebuilt image: **419 passed, 1 skip**, including the separately invoked original incident check.
+- The **24** shutdown/lifetime/publication checks passed **ten repeated Python 3.13 executions**. These are repetitions, not additional distinct tests.
+- Python lint, web lint, TypeScript checking, production build, and **57 frontend tests** pass. Container lint used disposable inputs with Git's regular-file permissions because Windows bind mounts expose executable flags on every file.
+- Actual Chromium **151.0.7922.34** passes all **13** checks/groups across versioned reconnect, original Qualifying replay controls, and combined live/download acceptance, with no page errors.
+- The normal entrypoint serves the built UI and a playback-ready opening as UID **10001**. All **62** installed Python files and **three** built web assets match the final workspace.
+- The normal entrypoint and synthetic harness exit cleanly with code **0** in **16.9 s** and **17.4 s**, respectively, using a **30-second** stop grace. An earlier harness stop with a **10-second** grace reached forced termination; these checks do not establish that ten seconds is sufficient for production shutdown.
+
+Corrected local image: `slipstream-shutdown-candidate:20260906`, image ID `sha256:be49d007a3b125067d6b2980bb655125d0a5c9148d7f50e0030420299a2c3f51`. Local runtime identity and browser evidence are under `.codex-tmp/shutdown-20260906` and `output/shutdown-20260906`. The containers are stopped. This is local candidate validation, not a production deployment or hosted CI result.
+
+The **1.085-second** first-seek measurement above remains historical evidence from the preceding candidate; performance was not remeasured for this narrow shutdown correction. The **300 ms** target, missing protected archive, actual Unraid/proxy checks, and genuine upstream observation remain outstanding. No release expectation or protected fixture was changed.

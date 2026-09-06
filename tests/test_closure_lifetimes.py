@@ -583,6 +583,24 @@ def test_queued_preparation_resources_are_in_retained_budget(tmp_path, monkeypat
         recording(tmp_path, str(100 + i))
     app = make_app(tmp_path, public_live=False)
     library = library_of(app)
+    stream_selected = inspect.getclosurevars(endpoint(app, "/api/v1/stream")).nonlocals[
+        "stream_selected"
+    ]
+    ensure_preparation = inspect.getclosurevars(stream_selected).nonlocals[
+        "ensure_preparation"
+    ]
+    preparations = inspect.getclosurevars(ensure_preparation).nonlocals["preparations"]
+
+    async def wait_for_preparation_registration(key):
+        # The first frame intentionally precedes preparation registration. Keep
+        # this viewer until the queued-job premise of this test is established.
+        for _ in range(200):
+            selected = library._cache.get(key)
+            if selected is not None and id(selected) in preparations:
+                return
+            await asyncio.sleep(0.005)
+        raise AssertionError("preparation was not registered before viewer close")
+
     entered, release = threading.Event(), threading.Event()
     original = ReplayResource.prepare
     resources = []
@@ -613,6 +631,9 @@ def test_queued_preparation_resources_are_in_retained_budget(tmp_path, monkeypat
                         opening = ws.receive_json()
                         if opening.get("playbackReady"):
                             admitted.append(i)
+                            client.portal.call(
+                                wait_for_preparation_registration, str(100 + i)
+                            )
                         else:
                             assert opening["type"] == "error"
                             assert "memory budget is in use" in opening["error"]

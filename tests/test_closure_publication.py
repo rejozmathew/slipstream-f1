@@ -174,6 +174,41 @@ def library_of(app) -> ReplayLibrary:
     raise LookupError("Could not locate ReplayLibrary on app endpoints")
 
 
+def rollout_catalog(root):
+    """Two distinct sessions matching the manually driven lifecycle below."""
+    catalog(root)
+    path = root / "catalog.json"
+    payload = json.loads(path.read_text())
+    payload["sessions"] = [
+        s for s in payload["sessions"] if s["session_key"] in {"100", "200"}
+    ]
+    old = payload["sessions"][0]
+    old.update(
+        session_name="Practice 3",
+        session_type="Practice",
+        date_start="2026-09-05T10:00:00Z",
+        date_end="2026-09-05T11:00:00Z",
+    )
+    path.write_text(json.dumps(payload))
+
+
+def establish_under_monitor_ownership(client, app, live, establish):
+    """Manual test setup must not race the app's automatic startup monitor."""
+    delete_endpoint = next(
+        r.endpoint
+        for r in app.routes
+        if r.path == "/api/v1/replay" and "DELETE" in getattr(r, "methods", set())
+    )
+    lock = inspect.getclosurevars(delete_endpoint).nonlocals["live_reconcile_lock"]
+
+    async def owned():
+        async with lock:
+            await live.stop(preserve_publications=True)
+            await establish()
+
+    client.portal.call(owned)
+
+
 # ==============================================================================
 # 1. Old pending publication after collector transition prevents DELETE with 409
 # ==============================================================================
@@ -184,7 +219,7 @@ def test_old_pending_publication_after_collector_transition_prevents_delete_with
 ):
     """Old pending publication in retry prevents DELETE with 409, then succeeds without resurrection."""
     quiet(monkeypatch)
-    catalog(tmp_path)
+    rollout_catalog(tmp_path)
     now = datetime(2026, 9, 5, 14, 2, tzinfo=UTC)
 
     async def idle_rows():
@@ -245,7 +280,7 @@ def test_old_pending_publication_after_collector_transition_prevents_delete_with
         )
 
     with TestClient(app) as client:
-        client.portal.call(establish)
+        establish_under_monitor_ownership(client, app, live, establish)
         # Session 100 has a pending retry in background, collector has transitioned to 200.
         # DELETE must be rejected with 409.
         busy_result = client.delete("/api/v1/replay?session_key=100")
@@ -294,7 +329,7 @@ def test_old_pending_publication_after_collector_transition_prevents_delete_with
 def test_deletion_during_held_finalize_disk_worker_prevents_ack(tmp_path, monkeypatch):
     """Calling DELETE while the finalize disk worker is actively executing returns 409."""
     quiet(monkeypatch)
-    catalog(tmp_path)
+    rollout_catalog(tmp_path)
     now = datetime(2026, 9, 5, 11, 2, tzinfo=UTC)
 
     async def idle_rows():
@@ -342,7 +377,7 @@ def test_deletion_during_held_finalize_disk_worker_prevents_ack(tmp_path, monkey
 
     try:
         with TestClient(app) as client:
-            client.portal.call(establish)
+            establish_under_monitor_ownership(client, app, live, establish)
             assert entered.wait(2), "Finalize worker was not entered"
 
             # While disk worker is running, delete attempt must return 409
