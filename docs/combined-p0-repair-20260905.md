@@ -151,3 +151,13 @@ After explicit user acceptance of the remaining gate and authorization to deploy
 4. To roll back, recreate only Slipstream using the previously recorded immutable image/configuration and the preserved data mount. Never run a volume removal, `down -v`, recursive data deletion or source-history reset. The repair introduces no new persistent prepared format or database migration; existing normalized recordings/journals remain canonical inputs. Preserve newly captured journals even when investigating a rollback.
 
 No release command above has been executed on production. Local diagnostic containers are stopped after verification; local review commits, images and evidence remain available.
+
+## Local smoke follow-up: sparse Qualifying replay
+
+The user's browser clip showed elapsed 9:47–10:12, with no driver rows. The unchanged 190-event Qualifying artifact has no driver timing at that cursor; its first timing burst is 12:50–12:54 elapsed and its next burst is 28:52–28:53. Correcting the old timezone/session-start handling and removing the final-state bootstrap makes that empty opening visible. These changes cannot reconstruct updates absent from the saved file. The clip does not establish a seek failure or the original acquisition-loss cause.
+
+The frontend now renders `PARTIAL RECORDING` when the backend explicitly reports `complete: false`, explaining that session completion is not recorded and only saved updates can be replayed. The notice does not imply packet-loss proof, move the cursor, or appear for null/absent completion metadata. It occupies its own space above the session content.
+
+`web/tests/browser-replay-smoke.mjs` exercises actual mouse clicks/drags and Play/Pause against that external original artifact through the normal local CLI backend and Vite proxy. Chromium 151.0.7922.34 passed empty-to-22-row seeking, backward removal of later facts, 10x playback across the first timing burst, and the final timing burst followed by pause at sequence 190. It also checks the notice does not cover the header or timing rows. Frontend typecheck, lint, build, and all 35 tests passed. The original Qualifying SHA-256 remains `5bc62d73f6c0542b30bbc416c6d3f95ba26faed27915d5b2ebe70c476077d61c`.
+
+Gemini through the local Antigravity proxy (`gemini-3.8-flash-low`) provided a bounded diagnostic review; its caution to distinguish missing completion evidence from proven packet loss was retained. Its speculation about quiet sporting intervals was not adopted. Backend code and the prior Docker measurements were unchanged by this frontend follow-up; the release gate above remains NOT READY. The prior Docker image does not include this notice. The requested local preview remains running at `http://localhost:3344`.

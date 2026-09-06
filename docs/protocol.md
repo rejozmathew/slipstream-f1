@@ -130,6 +130,8 @@ Catalog session fields have specific meanings:
 
 File presence does not imply genuine completion. Replay metadata exposes additive `complete`; a partial local recording can be replayed while collection resumes. Source-authored `session.session_complete` is optional. Chronological session evidence reconciles segment finishes with later activity: Q1/Q2 `FINISHED` does not complete Qualifying; Q3 finish or explicit whole-session completion does. Active sessions can overrun scheduled end and explicitly completed sessions can finish early. F1 timezone-less session boundaries are interpreted using the supplied `gmt_offset`, once; canonical event ordering compares UTC instants before applying a cursor.
 
+The browser labels an available replay with explicit `complete: false` as `PARTIAL RECORDING`. This means session completion is not recorded; it does not establish packet loss or invent missing timing. Null or absent completion metadata is not labelled partial. Playback retains its requested cursor and shows only facts recorded through that time, including empty intervals before the first driver update.
+
 For an active scheduled session, replay `endTime` is capped at the earlier of the scheduled end and the current time. Clients must not create future seek targets.
 
 For historical races, `session.total_laps` is derived from recorded race-result metadata and is available from the session-start snapshot. Practice and qualifying sessions leave it `null` because they have no meaningful scheduled lap denominator.

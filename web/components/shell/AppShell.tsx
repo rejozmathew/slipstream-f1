@@ -18,6 +18,7 @@ import { Panel } from "../shared/Panel";
 import { LiveControls } from "./LiveControls";
 import { ReplayControls } from "./ReplayControls";
 import { ReplayLibrary } from "./ReplayLibrary";
+import { ReplayRecordingNotice } from "./ReplayRecordingNotice";
 import { SessionStrip } from "./SessionStrip";
 
 type ProductView = "session" | "battle" | "driver" | "strategy" | "tv" | "settings";
@@ -101,6 +102,7 @@ export function AppShell() {
     {view !== "settings" && <SessionStrip session={session.state.session} selected={session.selectedCatalogSession} viewingMode={session.viewingMode} livePhase={session.livePhase} liveNow={liveNow} onGoLive={goLive} />}
     {session.downloadJobs.filter((job) => job.status !== "AVAILABLE").map((job) => <section className="live-source-state" role="status" key={job.sessionKey}><strong>REPLAY {job.sessionKey}: {job.status}</strong>{job.error && <p>{job.error}</p>}</section>)}
     <main ref={workspaceRef} className={`workspace workspace-${layout} workspace-view-${view}`}>
+      {view !== "settings" && session.viewingMode === "replay" && <ReplayRecordingNotice metadata={session.metadata} />}
       {view !== "settings" && session.transport === "connecting" && !session.connectionError && <section className="live-source-state" role="status"><strong>OPENING SESSION</strong><p>Waiting for timing and playback controls.</p></section>}
       {view !== "settings" && session.connectionError && <section className="service-unavailable"><strong>SLIPSTREAM DATA UNAVAILABLE</strong><p>{session.connectionError}</p><span>No sample race has been substituted.</span></section>}
       {view !== "settings" && (!session.connectionError || session.state.updated_at !== null) && session.viewingMode === "live" && !dataAvailable && <section className={`live-source-state live-source-${session.livePhase.toLowerCase()}`}><strong>{connectionLabel}</strong><p>{session.livePhase === "PRE_EVENT" ? "WAITING FOR PUBLIC TIMING FEED" : session.livePhase === "CONNECTING" ? "Connecting to the public Formula 1 timing source." : "Public live timing is currently unavailable. No replay or sample state has been substituted."}</p></section>}

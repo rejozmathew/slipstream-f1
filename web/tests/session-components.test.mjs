@@ -20,6 +20,7 @@ after(() => server.close());
 const { EMPTY_RACE_STATE } = await server.ssrLoadModule("/domain/protocol.ts");
 const { TrackMap } = await server.ssrLoadModule("/components/analysis/TrackMap.tsx");
 const { LiveControls } = await server.ssrLoadModule("/components/shell/LiveControls.tsx");
+const { ReplayRecordingNotice } = await server.ssrLoadModule("/components/shell/ReplayRecordingNotice.tsx");
 const { SessionStrip } = await server.ssrLoadModule("/components/shell/SessionStrip.tsx");
 const { SessionProgress } = await server.ssrLoadModule("/components/shared/SessionProgress.tsx");
 const { TimingTower } = await server.ssrLoadModule("/components/timing/TimingTower.tsx");
@@ -33,6 +34,18 @@ const driver = {
   source_condition: "RUNNING", status: "RUNNING", activity: "ON_TRACK",
   classification: null, availability: {}, track_position: null, x: null, y: null,
 };
+
+test("partial recording notice requires explicit incomplete metadata, independent of cursor", () => {
+  const metadata = { available: true, complete: false };
+  const html = render(ReplayRecordingNotice, { metadata });
+  assert.match(html, /role="status"/);
+  assert.match(html, /PARTIAL RECORDING/);
+  assert.match(html, /Session completion is not recorded/);
+  assert.doesNotMatch(html, /button|PACKETS LOST|CORRUPT/);
+  for (const absent of [null, { available: true }, { available: true, complete: null }, { available: true, complete: true }, { available: false, complete: false }]) {
+    assert.equal(render(ReplayRecordingNotice, { metadata: absent }), "");
+  }
+});
 
 test("TrackMap has explicit Live/Replay absence and approximate-only position labels", () => {
   const props = { session: EMPTY_RACE_STATE.session, circuit: { ...EMPTY_RACE_STATE.circuit, path: [[0, 0], [10, 0], [5, 10]] }, drivers: [driver], positionMode: "unavailable" };

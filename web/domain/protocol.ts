@@ -161,6 +161,7 @@ export type ReplayMetadata = {
   endTime: string | null;
   durationSeconds: number;
   available: boolean;
+  complete?: boolean | null;
   replayAvailable: boolean;
   liveAvailable: boolean;
   liveConnected: boolean;
