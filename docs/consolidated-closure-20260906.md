@@ -1,5 +1,9 @@
 # Consolidated closure repair — 6 September 2026
 
+The repair reports below retain their original measurements and validation status.
+The [final branch acceptance](#final-branch-acceptance--6-september-2026) records the
+subsequent live-race observation and the owner's wrap-up decision.
+
 The seven additional correctness cases in the review of `4958280` are repaired on `replay-readiness-performance`. The original six corrected cases remain covered. These controlled reproductions establish the tested boundary failures; they do not establish their production frequency or the cause of the original Qualifying incident.
 
 Work stayed in the original repository. No recording format, database, process worker, service, or source-truth exception was introduced. The first playback-ready opening still precedes full evidence/checkpoint preparation; an explicit resumed cursor reconstructs only the state it requests. Production deployment and main-branch merge remain separate from this branch update.
@@ -81,3 +85,33 @@ Final verification for this follow-up:
 Corrected local image: `slipstream-shutdown-candidate:20260906`, image ID `sha256:be49d007a3b125067d6b2980bb655125d0a5c9148d7f50e0030420299a2c3f51`. Local runtime identity and browser evidence are under `.codex-tmp/shutdown-20260906` and `output/shutdown-20260906`. The containers are stopped. This is local candidate validation, not a production deployment or hosted CI result.
 
 The **1.085-second** first-seek measurement above remains historical evidence from the preceding candidate; performance was not remeasured for this narrow shutdown correction. The **300 ms** target, missing protected archive, actual Unraid/proxy checks, and genuine upstream observation remain outstanding. No release expectation or protected fixture was changed.
+
+## Final branch acceptance — 6 September 2026
+
+The owner confirmed satisfactory live timing, viewer delay, deltas, replay behavior,
+and general performance during the Italian Grand Prix, after disabling the local
+NordVPN route that caused F1 HTTP 403 responses. The live-race core was `586ebca`;
+the subsequent interval and Driver Read fixes were tested locally as `f3be72d`.
+That exact code is the branch's final tested candidate. Closure documentation is
+the only subsequent change; no behavior, benchmark, or redesign work is included.
+
+The owner authorized merging after the normal final checks, retaining the known
+first unprepared seek limitation: **1.085 s** in the last recorded workload versus
+the unchanged **300 ms** target. No new measurement or universal latency guarantee
+is claimed. The missing owner **11353 OpenF1 archive** remains a coverage gap with
+an existing skipped test, not a passed acceptance case. Actual Unraid hardware and
+the production reverse proxy were not separately validated, restarted, or modified.
+Earlier statements that genuine upstream observation was unperformed are superseded
+by this live-race acceptance; other historical evidence is preserved.
+
+Final normal checks passed: Python lint and **437 tests passed, 1 existing
+protected-archive skip**; clean frontend installation, lint, TypeScript checks,
+production build, and **58 tests passed**. The Windows clean install initially
+encountered a native-module lock from the local Vite preview; stopping that preview
+and using the installed Node 24.19 runtime resolved it. An existing Browserslist
+advisory is confined to development tooling; `npm audit --omit=dev` reported zero
+findings, and Node dependencies are not shipped in the Python runtime image.
+No dependency or product behavior was changed as part of this final check.
+
+Gemini supplied the bounded documentation and check-result review. Temporary logs,
+build outputs and private incident recordings remain excluded from commits.

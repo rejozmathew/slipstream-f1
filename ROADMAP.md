@@ -33,7 +33,7 @@ Historical replay remains the development and regression harness. Unsupported or
 
 ## Milestone 3.5 - source, live, and replay closure
 
-The current merge candidate includes:
+The current implementation includes:
 
 - direct F1 public Live normalization through one server-owned upstream;
 - official F1 static historical reconstruction using the same F1 timing semantics;
@@ -49,11 +49,11 @@ The current merge candidate includes:
 - lifecycle-aware Track Map semantics, cross-session Race/Qualifying/Practice parity, restricted session-specific TV rotations, and capability-stable missing-data presentation;
 - replay deletion that preserves catalog, circuit, Pirelli, and source manifests.
 
-M3.5 is the factual/source merge candidate. OCR/VLM/manual transcription and image-only tyre-bank extraction remain deliberately absent. General historical context, Net Pit Loss, deterministic archived-session backtesting, authenticated live data, precise live X/Y, and hardware remain future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
+M3.5 establishes the factual/source baseline. OCR/VLM/manual transcription and image-only tyre-bank extraction remain deliberately absent. General historical context, Net Pit Loss, deterministic archived-session backtesting, authenticated live data, precise live X/Y, and hardware remain future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
 
-## Replay preparation experience — integration branch
+## Replay preparation experience
 
-The unmerged integration branch `replay-readiness-performance` addresses the replay initialization and readiness path in memory without introducing disk preparation formats:
+The replay initialization and readiness path uses in-memory preparation without introducing disk preparation formats:
 
 - Atomic first-frame WebSocket snapshot delivering canonical session-start state, bounds, capabilities, and `playbackReady: true` before preparation, eliminating end-of-race initialization flashes.
 - Metadata-only catalog discovery with a bounded 3-resource LRU cache (512 MiB total / 300 MiB per resource) tracking preparation leases.
@@ -62,11 +62,11 @@ The unmerged integration branch `replay-readiness-performance` addresses the rep
 - Restart journal validation for live recovery and offline publication of completed sessions.
 - Decoupled catalog initialization status (`ready`, `refreshing`, `retrying`) separate from HTTP 200 without optional seed blocking.
 
-This integration branch remains unmerged and unreleased because operational release gates remain unchanged:
+The owner accepted live timing, delay, deltas, replay behavior, and general performance after a real live race. Remaining limits and validation boundaries are explicit:
 
-- Sub-300ms seek budget is still missed on the first cold seek (~1.088s prior measure; 956 ms in Docker benchmark).
+- The 300 ms seek target is still missed on the first cold seek (1.085 s in the last recorded workload); further optimization is deferred.
 - Owner 11353 OpenF1 protected archive is missing from the test tree.
-- Live observation against actual Unraid hardware, production reverse proxy, and default upstream remains unvalidated.
+- Genuine public upstream operation was validated locally after disabling the NordVPN route causing HTTP 403. Actual Unraid hardware and the production reverse proxy were not separately validated or modified during branch closure.
 
 Persistent disk preparation proposals were not approved and are superseded by this in-memory model.
 

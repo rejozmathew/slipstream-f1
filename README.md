@@ -6,7 +6,7 @@ Slipstream is unofficial and unaffiliated with Formula 1, FIA, Pirelli, or any t
 
 ## Current status
 
-Milestone 3.5 is the source/live/replay correctness merge candidate. The current integration branch `replay-readiness-performance` delivers in-memory replay readiness, bounded resource caching, atomic first-frame playback readiness, and live completion/drain decoupling, but remains unmerged and unreleased pending operational release gates. It establishes the factual contracts that the next visual-design pass can use without changing source truth.
+Milestone 3.5 delivers source/live/replay correctness, in-memory replay readiness, bounded resource caching, atomic first-frame playback readiness, and live completion/drain decoupling. Live timing, viewer delay, deltas, replay behavior, and general performance were accepted after a real live race; the local NordVPN route causing F1 HTTP 403 responses had to be disabled. The first unprepared seek still exceeds the 300 ms target (1.085 s in the last recorded workload). See the [closure record](docs/consolidated-closure-20260906.md#final-branch-acceptance--6-september-2026) for validation scope and remaining limitations.
 
 | Capability | Current behavior |
 | --- | --- |

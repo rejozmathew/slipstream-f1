@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Milestone 3.5 source-unification merge candidate
+## Unreleased — Milestone 3.5 source unification and replay readiness
 
 ### Added
 
@@ -17,7 +17,9 @@
 - Stop-preserving actual tyre strategies, published stop-window comparison, dry-tyre requirement states, and the shared Session/Timing Tower/Driver/Battle/Strategy/TV presentation contract.
 - Lifecycle-aware Track Map behavior and active-coverage semantics.
 - Replay deletion that preserves catalog, circuit, Pirelli, and source manifests.
-- Replay readiness and lifecycle delivery on branch `replay-readiness-performance` (unreleased): atomic first-frame canonical start with `playbackReady: true` before preparation; metadata-only catalog discovery; bounded 3-resource LRU cache (512 MiB budget / 300 MiB per-resource ceiling) tracking preparation leases; cancellation-safe async per-viewer advance; live collector release immediately after factual drain with independent bounded publication retries and delayed tails; restart journal validation and offline publication; HTTP 409 on deleting active/pending targets; optional `recording_version` identity handshake with legacy seq compatibility; browser 0–300s delay presets and exact M:SS entry; in-process download jobs (`QUEUED` → `DOWNLOADING` → `FINALIZING` → `AVAILABLE` / `FAILED`); and decoupled catalog initialization status.
+- Replay readiness and lifecycle delivery: atomic first-frame canonical start with `playbackReady: true` before preparation; metadata-only catalog discovery; bounded 3-resource LRU cache (512 MiB budget / 300 MiB per-resource ceiling) tracking preparation leases; cancellation-safe async per-viewer advance; live collector release immediately after factual drain with independent bounded publication retries and delayed tails; restart journal validation and offline publication; HTTP 409 on deleting active/pending targets; optional `recording_version` identity handshake with legacy seq compatibility; browser 0–300s delay presets and exact M:SS entry; in-process download jobs (`QUEUED` → `DOWNLOADING` → `FINALIZING` → `AVAILABLE` / `FAILED`); and decoupled catalog initialization status.
+- A capability-dependent interval column alongside the leader gap in Race Timing mode.
+- Driver Read follows source-backed stopped/retired conditions and distinguishes pending classification from a confirmed finishing position.
 
 ### Corrected
 
@@ -45,7 +47,6 @@
 - Protected GPS, high-frequency car data, team radio, and precise live X/Y are outside the default public-source slice.
 - Deterministic archived-session backtesting, authentication/control plane, Sync Groups, and hardware clients remain deferred.
 - Broad visual redesign remains a separate post-M3.5 phase.
-- Integration branch `replay-readiness-performance` remains unmerged/unreleased; operational release gates remain unchanged:
-  - 300 ms all-seeks budget is still missed on first cold seek (~1.088s prior measure; 956 ms in Docker benchmark).
-  - Owner 11353 OpenF1 protected archive is missing from the test environment.
-  - Validation against actual Unraid hardware, production reverse proxy, and default live upstream remains unperformed.
+- The first cold seek still misses the 300 ms target (1.085 s in the last recorded workload); it remains an accepted documented limitation, not a completed optimization.
+- The owner 11353 OpenF1 protected archive is missing from the test environment; its existing test remains skipped.
+- Genuine public live-race operation was validated locally after disabling the NordVPN route causing HTTP 403. Actual Unraid hardware and the production reverse proxy were not separately validated or modified during branch closure.
