@@ -70,7 +70,7 @@ export function useSlipstreamSession() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [libraryRevision, setLibraryRevision] = useState(0);
   const followLiveRef = useRef(savedIntent().followLive);
-  const cursorRef = useRef<{ key: string; seq: number } | null>(null);
+  const cursorRef = useRef<{ key: string; seq: number; revision: number; replayAvailable: boolean } | null>(null);
   const catalogRef = useRef<ReplayCatalog | null>(null);
   const jobStatusesRef = useRef(new Map<string, DownloadJob["status"]>());
   const delayRef = useRef(0);
@@ -159,11 +159,18 @@ export function useSlipstreamSession() {
     let streamReady = false;
     let fallbackPending = false;
     let analyticsRequested = false;
+    let replayAvailable = false;
 
-    const resumeSequence = () => cursorRef.current?.key === selectedSessionKey ? cursorRef.current.seq : undefined;
+    // Event counts belong to one recording. A catalog placeholder or a prior
+    // download revision cannot supply a cursor for the newly published file.
+    const resumeSequence = () => cursorRef.current?.key === selectedSessionKey
+      && cursorRef.current.revision === libraryRevision && cursorRef.current.replayAvailable
+      ? cursorRef.current.seq : undefined;
     const applyEnvelope = (envelope: StateEnvelope) => {
       if (!active) return;
-      cursorRef.current = { key: selectedSessionKey, seq: envelope.seq };
+      if (envelope.metadata) replayAvailable = envelope.metadata.available;
+      if (envelope.handoff === "REPLAY_READY") replayAvailable = true;
+      cursorRef.current = { key: selectedSessionKey, seq: envelope.seq, revision: libraryRevision, replayAvailable };
       setState(envelope.data);
       setStateHistory((current) => current.at(-1)?.updated_at === envelope.data.updated_at ? current : [...current, envelope.data].slice(-90));
       setSequence(envelope.seq);
@@ -338,7 +345,7 @@ export function useSlipstreamSession() {
               setDownloadError(job.error ?? "Replay download failed");
             } else {
               setDownloadState("idle");
-              if (completed) {
+              if (completed && viewingModeRef.current === "replay") {
                 setCommandAvailable(false);
                 setTransport("connecting");
                 setLibraryRevision((value) => value + 1);

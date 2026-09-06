@@ -161,3 +161,20 @@ The frontend now renders `PARTIAL RECORDING` when the backend explicitly reports
 `web/tests/browser-replay-smoke.mjs` exercises actual mouse clicks/drags and Play/Pause against that external original artifact through the normal local CLI backend and Vite proxy. Chromium 151.0.7922.34 passed empty-to-22-row seeking, backward removal of later facts, 10x playback across the first timing burst, and the final timing burst followed by pause at sequence 190. It also checks the notice does not cover the header or timing rows. Frontend typecheck, lint, build, and all 35 tests passed. The original Qualifying SHA-256 remains `5bc62d73f6c0542b30bbc416c6d3f95ba26faed27915d5b2ebe70c476077d61c`.
 
 Gemini through the local Antigravity proxy (`gemini-3.8-flash-low`) provided a bounded diagnostic review; its caution to distinguish missing completion evidence from proven packet loss was retained. Its speculation about quiet sporting intervals was not adopted. Backend code and the prior Docker measurements were unchanged by this frontend follow-up; the release gate above remains NOT READY. The prior Docker image does not include this notice. The requested local preview remains running at `http://localhost:3344`.
+
+## Download/open cursor repair — 2026-09-06
+
+The first Barcelona Race download (11307) exposed a separate frontend defect. The pre-download catalog placeholder emitted sequence 2. On download completion, the browser reopened the new file using that placeholder sequence, which meant 12:06:40 UTC in the downloaded recording, 53m20s before its 13:00 UTC official start. Play advanced that pre-start clock while the browser clamped elapsed time to zero. A manual seek entered the proper race window, matching the user's workaround. This is a reproduced cursor ownership error, not evidence of missing Barcelona timing or a slow download.
+
+Reconnect positions now require an available replay and a matching local download revision. A selected replay publication invalidates the previous recording's event-count position, including late packets from its old socket. Same-recording transport reconnects preserve their cursor. Background download completion does not reconnect an active Live viewer, and explicit `REPLAY_READY` handoff preserves its drained cursor.
+
+Validation: `npm run typecheck`, `npm run lint`, and `npm test` pass (40 tests). Five new hook regressions cover placeholder reconnect/download, same-recording reconnect, trailing old-recording packets, another selected replay, and Live publication/handoff. `ruff check` and `ruff format --check` pass for the test-only server. A real Chromium test failed before the fix with `seq=2`, 12:06:40 opening time, and zero displayed elapsed after Play. With the fix, it opens at 13:00:00, sequence 114, and all 22 named drivers; Play reaches 13:00:07.5 with elapsed 0:08 without a seek. Placeholder and same-recording reconnects also pass in that browser run. Local screenshots/results are under `output/download-open-before` and `output/download-open-final`.
+
+The test substitutes acquisition with the user's downloaded OpenF1 file, while running the actual job, publication, WebSocket and browser paths in a fresh isolated data directory. It does not re-download from an upstream service. The unchanged external input SHA-256 is `3a5bab467527a74860669aa45bade2c90f2883bf350a3d97379c5c32d8d0ef1c`; no recording is committed. To repeat from the repository root (with Playwright available to Node):
+
+```powershell
+.venv/Scripts/python.exe tools/download_open_acceptance.py --data .codex-tmp/download-open-new-run --catalog <catalog.json> --recording <openf1-11307.json> --web web/dist --port 18350
+node web/tests/browser-download-open.mjs http://127.0.0.1:18350 output/download-open-new-run
+```
+
+Build the frontend first; the data directory must not already exist. Stop the isolated test server after the browser run. Gemini through the verified local Antigravity proxy supplied a bounded review of cursor scoping, late packets, and viewer isolation; these cases were checked locally. Production backend code and prior release gates are unchanged.

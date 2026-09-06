@@ -153,6 +153,8 @@ Each WebSocket connection receives an initial snapshot and owns its own `ReplayC
 
 Commands that move the cursor pause current playback first. The browser exposes delay as TV synchronization, and the protocol operation is defined for any replay. A delay of zero means the newest event.
 
+Browser reconnect cursors are scoped to an available recording and the current download revision. Catalog-only placeholder event counts are never reused for a downloaded replay. When a selected replay download completes, its new recording opens at the official session start; a transport reconnect within the same recording retains its cursor. Background replay publication does not reconnect an active Live viewer. Explicit `REPLAY_READY` handoff retains the drained canonical cursor.
+
 Invalid input produces a versioned error frame:
 
 ```json
