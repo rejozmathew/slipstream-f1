@@ -26,16 +26,20 @@ def stamp(value):
 
 
 def setup(args):
+    incident_dir = args.incident_dir or (
+        args.repo / ".codex-tmp/combined-p0-20260905-01/recordings"
+    )
+    fixture = incident_dir / "live-11357.json"
+    practice = incident_dir / "live-11356.json"
+    for required in (fixture, practice):
+        if not required.is_file():
+            raise FileNotFoundError(
+                f"Incident fixture missing: {required}; supply --incident-dir"
+            )
     args.data.mkdir(parents=True, exist_ok=False)
     for path in (args.repo / "recordings").glob("*.json"):
         shutil.copy2(path, args.data / path.name)
-    fixture = (
-        args.repo / ".codex-tmp/combined-p0-20260905-01/recordings/live-11357.json"
-    )
     shutil.copy2(fixture, args.data / fixture.name)
-    practice = (
-        args.repo / ".codex-tmp/combined-p0-20260905-01/recordings/live-11356.json"
-    )
     shutil.copy2(practice, args.data / practice.name)
     catalog_path = args.data / "catalog.json"
     catalog = json.loads(catalog_path.read_text())
@@ -649,6 +653,12 @@ def main():
     parser.add_argument("--baseline", action="store_true")
     parser.add_argument("--synthetic-downloads", action="store_true")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--incident-dir",
+        type=Path,
+        default=os.getenv("SLIPSTREAM_INCIDENT_DIR"),
+        help="Directory containing the owner-provided live-11356.json and live-11357.json fixtures",
+    )
     parser.add_argument("--data", type=Path)
     parser.add_argument("--web", type=Path)
     parser.add_argument("--host", default="127.0.0.1")

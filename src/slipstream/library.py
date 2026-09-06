@@ -498,6 +498,16 @@ class ReplayLibrary:
                 if all(item is not resource for item in self._cache.values()):
                     self._sizes.pop(identity, None)
 
+    def retain(self, resource: ReplayResource) -> ReplayResource:
+        """Give a background consumer ownership within the same admission budget."""
+        with self._lock:
+            identity = id(resource)
+            if identity not in self._sizes:
+                raise ReplayBusyError("Replay resource is no longer reserved")
+            self._pins[identity] += 1
+            self._leased[identity] = resource
+            return resource
+
     def seed_events(self, key: str) -> tuple[NormalizedEvent, ...]:
         """Metadata-only live seed; the monitor never loads/evicts a replay."""
         descriptor = self.descriptors[key]

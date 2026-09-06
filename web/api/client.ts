@@ -24,21 +24,30 @@ async function readJson<T>(response: Response): Promise<T> {
 
 export const slipstreamApi = {
   catalog: () => fetch(url("/api/v1/catalog"), { cache: "no-store", signal: AbortSignal.timeout(8000) }).then(readJson<ReplayCatalog>),
-  state: (sessionKey: string, mode: ViewingMode, sequence?: number, delaySeconds = 0) => fetch(`${url("/api/v1/state", sessionKey)}&mode=${mode}&delay_seconds=${delaySeconds}${sequence == null ? "&at=start" : `&seq=${sequence}`}`, { cache: "no-store", signal: AbortSignal.timeout(8000) }).then(readJson<StateEnvelope>),
+  state: (sessionKey: string, mode: ViewingMode, sequence?: number, delaySeconds = 0, recordingVersion?: string | null) => {
+    const versionQuery = mode === "replay" && sequence != null && recordingVersion ? `&recording_version=${encodeURIComponent(recordingVersion)}` : "";
+    return fetch(`${url("/api/v1/state", sessionKey)}&mode=${mode}&delay_seconds=${delaySeconds}${sequence == null ? "&at=start" : `&seq=${sequence}`}${versionQuery}`, { cache: "no-store", signal: AbortSignal.timeout(8000) }).then(readJson<StateEnvelope>);
+  },
   replay: (sessionKey?: string | null) => fetch(url("/api/v1/replay", sessionKey), { cache: "no-store" }).then(readJson<ReplayMetadata>),
   capabilities: (sessionKey?: string | null) => fetch(url("/api/v1/capabilities", sessionKey), { cache: "no-store" }).then(readJson<SourceCapabilities>),
   driverHistory: (sessionKey: string, driverNumber: string) => fetch(`${configuredBase}/api/v1/driver-history?session_key=${encodeURIComponent(sessionKey)}&driver_number=${encodeURIComponent(driverNumber)}`, { cache: "no-store" }).then(readJson<DriverHistory>),
-  analytics: (sessionKey: string, sequence?: number) => fetch(`${configuredBase}/api/v1/analytics?session_key=${encodeURIComponent(sessionKey)}${sequence == null ? "" : `&seq=${sequence}`}`, { cache: "no-store", signal: AbortSignal.timeout(15000) }).then(readJson<AnalyticsSnapshot>),
+  analytics: (sessionKey: string, sequence?: number, recordingVersion?: string | null) => {
+    const versionQuery = recordingVersion ? `&recording_version=${encodeURIComponent(recordingVersion)}` : "";
+    return fetch(`${configuredBase}/api/v1/analytics?session_key=${encodeURIComponent(sessionKey)}${sequence == null ? "" : `&seq=${sequence}`}${versionQuery}`, { cache: "no-store", signal: AbortSignal.timeout(15000) }).then(readJson<AnalyticsSnapshot>);
+  },
   download: (sessionKey: string) => fetch(url("/api/v1/download", sessionKey), { method: "POST" }).then(readJson<DownloadJob>),
   jobs: () => fetch(url("/api/v1/jobs"), { cache: "no-store", signal: AbortSignal.timeout(8000) }).then(readJson<{ jobs: DownloadJob[] }>),
-  streamUrl(sessionKey?: string | null, mode?: ViewingMode, sequence?: number, delaySeconds = 0) {
+  streamUrl(sessionKey?: string | null, mode?: ViewingMode, sequence?: number, delaySeconds = 0, recordingVersion?: string | null) {
     const base = configuredBase
       ? configuredBase.replace(/^http/, "ws")
       : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
     const params = new URLSearchParams();
     if (sessionKey) params.set("session_key", sessionKey);
     if (mode) params.set("mode", mode);
-    if (sequence != null && mode !== "live") params.set("seq", String(sequence));
+    if (sequence != null && mode !== "live") {
+      params.set("seq", String(sequence));
+      if ((mode === "replay" || !mode) && recordingVersion) params.set("recording_version", recordingVersion);
+    }
     if (mode === "live") params.set("delay_seconds", String(delaySeconds));
     const query = params.size ? `?${params.toString()}` : "";
     return `${base}/api/v1/stream${query}`;

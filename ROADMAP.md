@@ -51,9 +51,24 @@ The current merge candidate includes:
 
 M3.5 is the factual/source merge candidate. OCR/VLM/manual transcription and image-only tyre-bank extraction remain deliberately absent. General historical context, Net Pit Loss, deterministic archived-session backtesting, authenticated live data, precise live X/Y, and hardware remain future work; their contracts publish absence or `NOT_IMPLEMENTED`, never sample results.
 
-## Next phase - replay preparation experience
+## Replay preparation experience — integration branch
 
-The next bounded milestone is the replay initialization/loading path. It must add download progress and explicit `DOWNLOADING` / `PREPARING` / `READY` feedback, remove the blank or partial post-download shell and possible refresh requirement, shorten the current 15–20 second delay before replay controls become active, make slider readiness explicit, prevent end-to-start initialization flashes, and improve bootstrap performance. None of that work is claimed complete in M3.5.
+The unmerged integration branch `replay-readiness-performance` addresses the replay initialization and readiness path in memory without introducing disk preparation formats:
+
+- Atomic first-frame WebSocket snapshot delivering canonical session-start state, bounds, capabilities, and `playbackReady: true` before preparation, eliminating end-of-race initialization flashes.
+- Metadata-only catalog discovery with a bounded 3-resource LRU cache (512 MiB total / 300 MiB per resource) tracking preparation leases.
+- In-process download jobs (`QUEUED`, `DOWNLOADING`, `FINALIZING`, `AVAILABLE`, `FAILED`) surviving browser refresh.
+- Decoupled live collector release immediately after factual drain, enabling the next target to progress while independent publication retries and delayed tails continue.
+- Restart journal validation for live recovery and offline publication of completed sessions.
+- Decoupled catalog initialization status (`ready`, `refreshing`, `retrying`) separate from HTTP 200 without optional seed blocking.
+
+This integration branch remains unmerged and unreleased because operational release gates remain unchanged:
+
+- Sub-300ms seek budget is still missed on the first cold seek (~1.088s prior measure; 956 ms in Docker benchmark).
+- Owner 11353 OpenF1 protected archive is missing from the test tree.
+- Live observation against actual Unraid hardware, production reverse proxy, and default upstream remains unvalidated.
+
+Persistent disk preparation proposals were not approved and are superseded by this in-memory model.
 
 ## Following phase - visual and interaction design
 

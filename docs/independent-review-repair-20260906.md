@@ -1,5 +1,7 @@
 # Independent review repair — 2026-09-06
 
+This records the `4958280` checkpoint. See the [consolidated closure report](consolidated-closure-20260906.md) for the subsequent seven boundary fixes and current validation.
+
 All six findings from the independent review of `5f6f5fc` were reproduced and repaired on `replay-readiness-performance`. Work stayed in the original repository. No recording, credential, new persistent format, worker process, database, or service was added.
 
 ## Resulting behavior

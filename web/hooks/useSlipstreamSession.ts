@@ -70,7 +70,10 @@ export function useSlipstreamSession() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [libraryRevision, setLibraryRevision] = useState(0);
   const followLiveRef = useRef(savedIntent().followLive);
-  const cursorRef = useRef<{ key: string; seq: number; revision: number; replayAvailable: boolean; recordingVersion?: string | null } | null>(null);
+  const cursorRef = useRef<{ key: string; seq: number; revision: number; replayAvailable: boolean; recordingVersion?: string | null; isHandoff?: boolean } | null>(null);
+  const envelopeEpochRef = useRef(0);
+  const analyticsVersionRef = useRef<string | null>(null);
+  const analyticsEpochRef = useRef(0);
   const pendingPublicationRef = useRef<{ key: string; revision: number } | null>(null);
   const catalogRef = useRef<ReplayCatalog | null>(null);
   const jobStatusesRef = useRef(new Map<string, DownloadJob["status"]>());
@@ -95,6 +98,8 @@ export function useSlipstreamSession() {
     setCapabilities(null);
     setState(EMPTY_RACE_STATE);
     setAnalytics(null);
+    analyticsVersionRef.current = null;
+    analyticsEpochRef.current = 0;
     setStateHistory([]);
     setSequence(0);
     setPlayhead(null);
@@ -190,17 +195,33 @@ export function useSlipstreamSession() {
 
     // Event counts belong to one recording. A catalog placeholder or a prior
     // download revision cannot supply a cursor for the newly published file.
-    const resumeSequence = () => cursorRef.current?.key === selectedSessionKey
-      && cursorRef.current.revision === libraryRevision && cursorRef.current.replayAvailable
-      ? cursorRef.current.seq : undefined;
+    const canResumeCursor = () => {
+      if (!cursorRef.current) return false;
+      if (cursorRef.current.key !== selectedSessionKey) return false;
+      if (cursorRef.current.revision !== libraryRevision) return false;
+      if (!cursorRef.current.replayAvailable) return false;
+      return Boolean(cursorRef.current.recordingVersion);
+    };
+    const resumeSequence = () => canResumeCursor() ? cursorRef.current?.seq : undefined;
+    const resumeVersion = () => canResumeCursor() ? (cursorRef.current?.recordingVersion ?? undefined) : undefined;
     const applyEnvelope = (envelope: StateEnvelope) => {
       if (!active) return;
+      envelopeEpochRef.current++;
+      const currentEpoch = envelopeEpochRef.current;
       if (envelope.metadata) {
         replayAvailable = envelope.metadata.available;
         recordingVersion = envelope.metadata.recordingVersion;
       }
       if (envelope.handoff === "REPLAY_READY") replayAvailable = true;
-      cursorRef.current = { key: selectedSessionKey, seq: envelope.seq, revision: libraryRevision, replayAvailable, recordingVersion };
+      const isHandoff = envelope.handoff === "REPLAY_READY";
+      cursorRef.current = {
+        key: selectedSessionKey,
+        seq: envelope.seq,
+        revision: libraryRevision,
+        replayAvailable,
+        recordingVersion,
+        isHandoff,
+      };
       if (replayAvailable && pendingPublicationRef.current?.key === selectedSessionKey
         && libraryRevision > pendingPublicationRef.current.revision) pendingPublicationRef.current = null;
       setState(envelope.data);
@@ -233,15 +254,35 @@ export function useSlipstreamSession() {
           } else setViewingMode("replay");
         }
       }
-      if (envelope.analytics?.sessionKey === selectedSessionKey && envelope.analytics.sequence === envelope.seq) setAnalytics(envelope.analytics);
-      else {
-        setAnalytics((current) => current?.sessionKey === selectedSessionKey && current.sequence === envelope.seq ? current : null);
+      if (envelope.analytics?.sessionKey === selectedSessionKey && envelope.analytics.sequence === envelope.seq) {
+        setAnalytics(envelope.analytics);
+        analyticsVersionRef.current = recordingVersion ?? null;
+        analyticsEpochRef.current = currentEpoch;
+      } else {
+        setAnalytics((current) => {
+          if (current?.sessionKey === selectedSessionKey && current.sequence === envelope.seq && analyticsVersionRef.current === (recordingVersion ?? null)) {
+            return current;
+          }
+          return null;
+        });
       }
       if (!envelope.analytics && viewingMode === "replay" && !analyticsRequested) {
         analyticsRequested = true;
         const cursor = envelope.seq;
-        void slipstreamApi.analytics(selectedSessionKey, cursor).then((result) => {
-          if (active && cursorRef.current?.key === selectedSessionKey && cursorRef.current.seq === cursor) setAnalytics(result);
+        const targetKey = selectedSessionKey;
+        const targetVersion = recordingVersion ?? null;
+        const requestEpoch = currentEpoch;
+        void slipstreamApi.analytics(selectedSessionKey, cursor, targetVersion ?? undefined).then((result) => {
+          const matchesIdentity = result && result.sessionKey === targetKey && result.sequence === cursor
+            && (result.recordingVersion == null || result.recordingVersion === targetVersion);
+          const matchesState = cursorRef.current?.key === targetKey && cursorRef.current.seq === cursor
+            && (cursorRef.current.recordingVersion ?? null) === targetVersion;
+          const matchesEpoch = envelopeEpochRef.current === requestEpoch;
+          if (active && matchesIdentity && matchesState && matchesEpoch && requestEpoch >= analyticsEpochRef.current) {
+            setAnalytics(result);
+            analyticsVersionRef.current = targetVersion;
+            analyticsEpochRef.current = envelopeEpochRef.current;
+          }
         }).catch(() => { /* Optional context retries on the next snapshot. */ }).finally(() => { analyticsRequested = false; });
       }
     };
@@ -249,14 +290,16 @@ export function useSlipstreamSession() {
     const refreshState = async () => {
       if (fallbackPending || streamReady || !active) return;
       fallbackPending = true;
+      const requestGeneration = generation;
+      const requestEpoch = envelopeEpochRef.current;
       try {
-        const envelope = await slipstreamApi.state(selectedSessionKey, viewingMode, resumeSequence(), delayRef.current);
-        if (!active || streamReady) return;
+        const envelope = await slipstreamApi.state(selectedSessionKey, viewingMode, resumeSequence(), delayRef.current, resumeVersion());
+        if (!active || streamReady || generation !== requestGeneration || envelopeEpochRef.current !== requestEpoch) return;
         applyEnvelope(envelope);
         setTransport("rest");
         // Keep the stream error visible while controls are disconnected.
       } catch (error) {
-        if (active && !streamReady) {
+        if (active && !streamReady && generation === requestGeneration && envelopeEpochRef.current === requestEpoch) {
           setTransport("disconnected");
           setConnectionError(error instanceof Error ? error.message : "Timing unavailable; retrying");
         }
@@ -267,7 +310,7 @@ export function useSlipstreamSession() {
       if (!active) return;
       const version = ++generation;
       streamReady = false;
-      socket = connectReplaySocket(slipstreamApi.streamUrl(selectedSessionKey, viewingMode, resumeSequence(), delayRef.current), {
+      socket = connectReplaySocket(slipstreamApi.streamUrl(selectedSessionKey, viewingMode, resumeSequence(), delayRef.current, resumeVersion()), {
         onOpen: () => {
           if (!active || version !== generation) return;
           if (viewingMode === "live" && delayRef.current) socket?.send({ type: "delay", seconds: delayRef.current });
@@ -423,8 +466,21 @@ export function useSlipstreamSession() {
     )) return;
     let active = true;
     const timer = window.setInterval(() => {
-      void slipstreamApi.analytics(selectedSessionKey, sequence).then((result) => {
-        if (active && cursorRef.current?.key === selectedSessionKey && cursorRef.current.seq === sequence) setAnalytics(result);
+      const targetKey = selectedSessionKey;
+      const targetSeq = sequence;
+      const targetVersion = cursorRef.current?.recordingVersion ?? null;
+      const requestEpoch = envelopeEpochRef.current;
+      void slipstreamApi.analytics(selectedSessionKey, sequence, targetVersion ?? undefined).then((result) => {
+        const matchesIdentity = result && result.sessionKey === targetKey && result.sequence === targetSeq
+          && (result.recordingVersion == null || result.recordingVersion === targetVersion);
+        const matchesState = cursorRef.current?.key === targetKey && cursorRef.current.seq === targetSeq
+          && (cursorRef.current.recordingVersion ?? null) === targetVersion;
+        const matchesEpoch = envelopeEpochRef.current === requestEpoch;
+        if (active && matchesIdentity && matchesState && matchesEpoch && requestEpoch >= analyticsEpochRef.current) {
+          setAnalytics(result);
+          analyticsVersionRef.current = targetVersion;
+          analyticsEpochRef.current = envelopeEpochRef.current;
+        }
       }).catch(() => {
         // Keep the last truthful context status while replay remains usable.
       });

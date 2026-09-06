@@ -557,6 +557,7 @@ export type AnalyticsSnapshot = {
   schemaVersion: 1;
   modelVersion: string;
   sessionKey: string;
+  recordingVersion?: string | null;
   sessionKind: SessionKind;
   layoutFamily: LayoutFamily;
   sequence: number;

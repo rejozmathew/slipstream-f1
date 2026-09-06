@@ -50,13 +50,16 @@ async function scenario(modeOrOptions, check) {
     jobs = [job];
     return job;
   });
+  let stateHandler = options.stateHandler ?? (async () => { throw new Error("Test REST offline; reconnect uses stream"); });
   const setJobs = (next) => { jobs = typeof next === "function" ? next(jobs) : next; };
   const setCatalog = (next) => { catalog = typeof next === "function" ? next(catalog) : next; };
   const setDownloadHandler = (fn) => { downloadHandler = fn; };
+  const setStateHandler = (fn) => { stateHandler = fn; };
+  const setAnalyticsHandler = (fn) => { slipstreamApi.analytics = fn; };
   slipstreamApi.catalog = async () => catalog;
   slipstreamApi.jobs = async () => ({ jobs });
   slipstreamApi.download = async (sessionKey) => downloadHandler(sessionKey);
-  slipstreamApi.state = async () => { throw new Error("Test REST offline; reconnect uses stream"); };
+  slipstreamApi.state = async (...args) => stateHandler(...args);
   slipstreamApi.analytics = async () => { throw new Error("Optional analytics absent"); };
   window.localStorage.clear();
   window.localStorage.setItem("slipstream.selected-session.v1", initialSessionKey);
@@ -93,7 +96,7 @@ async function scenario(modeOrOptions, check) {
   };
   try {
     await act(async () => root.render(createElement(Host)));
-    await check({ sockets, frame, complete, current: () => current, runTimer, setJobs, setCatalog, setDownloadHandler, getJobs: () => jobs, getCatalog: () => catalog });
+    await check({ sockets, frame, complete, current: () => current, runTimer, setJobs, setCatalog, setDownloadHandler, setStateHandler, setAnalyticsHandler, getJobs: () => jobs, getCatalog: () => catalog });
   } finally {
     await act(async () => root.unmount());
     Object.assign(slipstreamApi, savedApi);
@@ -114,12 +117,27 @@ test("placeholder reconnect and first download never reuse catalog event counts"
   assert.equal(new URL(sockets.at(-1).url).searchParams.get("seq"), null);
 }));
 
-test("a same-recording transport reconnect retains its valid cursor", async () => scenario("replay", async ({ sockets, frame, current, runTimer }) => {
-  await act(async () => sockets.at(-1).emit(frame(114, true)));
+test("a same-recording transport reconnect retains its valid cursor", async () => scenario({
+  mode: "replay",
+  catalog: {
+    defaultSessionKey: "A",
+    liveSessionKey: null,
+    sessions: [
+      { sessionKey: "A", available: true, recordingVersion: "rec-v1", liveAvailable: false },
+      { sessionKey: "B", available: false, recordingVersion: null, liveAvailable: false },
+    ],
+  },
+}, async ({ sockets, frame, current, runTimer }) => {
+  await act(async () => sockets.at(-1).emit(frame(114, true, {
+    metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+  })));
   await act(async () => sockets.at(-1).close());
   await act(async () => runTimer(500, false));
   assert.equal(new URL(sockets.at(-1).url).searchParams.get("seq"), "114");
-  await act(async () => sockets.at(-1).emit(frame(114, true)));
+  assert.equal(new URL(sockets.at(-1).url).searchParams.get("recording_version"), "rec-v1");
+  await act(async () => sockets.at(-1).emit(frame(114, true, {
+    metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+  })));
   assert.equal(current().sequence, 114);
   assert.equal(current().commandAvailable, true);
 }));
@@ -152,9 +170,10 @@ test("Live survives replay publication and retains the drained cursor on handoff
   assert.equal(sockets.length, 1, "Replay publication must not interrupt Live");
   assert.equal(current().viewingMode, "live");
   assert.equal(current().commandAvailable, true);
-  await act(async () => sockets.at(-1).emit(frame(250, false, { metadata: undefined, mode: "replay", handoff: "REPLAY_READY" })));
+  await act(async () => sockets.at(-1).emit(frame(250, true, { metadata: { sessionKey: "A", available: true, recordingVersion: "published-v1" }, mode: "replay", handoff: "REPLAY_READY" })));
   assert.equal(sockets.length, 2);
   assert.equal(new URL(sockets.at(-1).url).searchParams.get("seq"), "250");
+  assert.equal(new URL(sockets.at(-1).url).searchParams.get("recording_version"), "published-v1");
   assert.equal(current().viewingMode, "replay");
 }));
 
@@ -424,3 +443,270 @@ test("live.nextSessionKey=B is a server signal emitted only once retained delaye
     assert.equal(current().selectedSessionKey, "A", "Explicit viewer must stay on A when nextSessionKey is emitted");
   });
 });
+
+test("reconnect after file replacement before catalog poll adopts new version start without stale seq", async () => scenario({
+  mode: "replay",
+  catalog: {
+    defaultSessionKey: "A",
+    liveSessionKey: null,
+    sessions: [
+      { sessionKey: "A", available: true, recordingVersion: "rec-v1", liveAvailable: false },
+      { sessionKey: "B", available: false, recordingVersion: null, liveAvailable: false },
+    ],
+  },
+}, async ({ sockets, frame, current, runTimer, setCatalog }) => {
+  await act(async () => sockets.at(-1).emit(frame(80, true, {
+    metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+  })));
+  assert.equal(current().sequence, 80);
+  assert.equal(current().metadata.recordingVersion, "rec-v1");
+  assert.equal(current().commandAvailable, true);
+  assert.equal(sockets.length, 1);
+
+  await act(async () => sockets.at(-1).close());
+  await act(async () => runTimer(500, false));
+  assert.equal(sockets.length, 2);
+
+  const reconnectUrl = new URL(sockets.at(-1).url);
+  assert.equal(reconnectUrl.searchParams.get("seq"), "80");
+  assert.equal(reconnectUrl.searchParams.get("recording_version"), "rec-v1");
+
+  // Server detects identity mismatch and returns official start of new version rec-v2
+  await act(async () => sockets.at(-1).emit(frame(5, true, {
+    metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v2" },
+  })));
+
+  assert.equal(current().sequence, 5, "Client must adopt server start sequence of replacement recording instead of stale cursor 80");
+  assert.equal(current().metadata.recordingVersion, "rec-v2");
+  assert.equal(current().commandAvailable, true);
+  assert.equal(sockets.length, 2, "Client must accept reset once without unnecessary extra reopen");
+
+  // Subsequent catalog poll confirms rec-v2; healthy stream must not reopen
+  setCatalog((cat) => ({
+    ...cat,
+    sessions: cat.sessions.map((s) => s.sessionKey === "A" ? { ...s, recordingVersion: "rec-v2" } : s),
+  }));
+  await act(async () => runTimer(15000, true));
+  assert.equal(sockets.length, 2, "Stream must remain open when catalog catches up to rec-v2");
+  assert.equal(current().sequence, 5);
+  assert.equal(current().metadata.recordingVersion, "rec-v2");
+}));
+
+test("matching unchanged recording resume retains valid cursor with recording identity", async () => scenario({
+  mode: "replay",
+  catalog: {
+    defaultSessionKey: "A",
+    liveSessionKey: null,
+    sessions: [
+      { sessionKey: "A", available: true, recordingVersion: "rec-v1", liveAvailable: false },
+      { sessionKey: "B", available: false, recordingVersion: null, liveAvailable: false },
+    ],
+  },
+}, async ({ sockets, frame, current, runTimer }) => {
+  await act(async () => sockets.at(-1).emit(frame(120, true, {
+    metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+  })));
+  assert.equal(current().sequence, 120);
+  assert.equal(current().metadata.recordingVersion, "rec-v1");
+  assert.equal(current().commandAvailable, true);
+
+  await act(async () => sockets.at(-1).close());
+  await act(async () => runTimer(500, false));
+  assert.equal(sockets.length, 2);
+
+  const reconnectUrl = new URL(sockets.at(-1).url);
+  assert.equal(reconnectUrl.searchParams.get("seq"), "120");
+  assert.equal(reconnectUrl.searchParams.get("recording_version"), "rec-v1");
+
+  await act(async () => sockets.at(-1).emit(frame(120, true, {
+    metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+  })));
+  assert.equal(current().sequence, 120);
+  assert.equal(current().metadata.recordingVersion, "rec-v1");
+  assert.equal(current().commandAvailable, true);
+  assert.equal(current().transport, "stream");
+}));
+
+test("a cursor with no known recording version is not automatically reused on reconnect", async () => scenario("replay", async ({ sockets, frame, current, runTimer }) => {
+  await act(async () => sockets.at(-1).emit(frame(75, true, {
+    metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: null },
+  })));
+  assert.equal(current().sequence, 75);
+  assert.equal(current().metadata.recordingVersion, null);
+
+  await act(async () => sockets.at(-1).close());
+  await act(async () => runTimer(500, false));
+
+  const reconnectUrl = new URL(sockets.at(-1).url);
+  assert.equal(reconnectUrl.searchParams.get("seq"), null, "Cursor without known version must not be automatically reused");
+  assert.equal(reconnectUrl.searchParams.get("recording_version"), null);
+}));
+
+test("REST fallback after disconnected WS sends recording identity and applies state", async () => {
+  const stateCalls = [];
+  await scenario({
+    mode: "replay",
+    stateHandler: async (sessionKey, mode, seq, delay, version) => {
+      stateCalls.push({ sessionKey, mode, seq, delay, version });
+      return {
+        v: 1, type: "state.snapshot", seq: 52, sessionTime: "2026-06-14T13:00:00Z", playback: { playing: false },
+        data: { ...EMPTY_RACE_STATE, session: { ...EMPTY_RACE_STATE.session, key: sessionKey } },
+        metadata: { available: true, replayAvailable: true, sessionKey, recordingVersion: "rec-v1" },
+        capabilities: { v: 1, source: "test", capabilities: {}, replayAvailable: true, liveAvailable: false },
+        playbackReady: true,
+        live: { phase: "LIVE", status: "LIVE", delaySeconds: 0, positionMode: "unavailable" },
+      };
+    },
+  }, async ({ sockets, frame, current }) => {
+    await act(async () => sockets.at(-1).emit(frame(50, true, {
+      metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+    })));
+    assert.equal(current().sequence, 50);
+    assert.equal(current().metadata.recordingVersion, "rec-v1");
+    assert.equal(current().transport, "stream");
+
+    await act(async () => sockets.at(-1).close());
+
+    assert.ok(stateCalls.length >= 1, "REST fallback must be triggered on WS disconnect");
+    const lastCall = stateCalls.at(-1);
+    assert.equal(lastCall.sessionKey, "A");
+    assert.equal(lastCall.mode, "replay");
+    assert.equal(lastCall.seq, 50);
+    assert.equal(lastCall.version, "rec-v1", "REST fallback must supply known recordingVersion");
+
+    assert.equal(current().transport, "rest");
+    assert.equal(current().sequence, 52);
+    assert.equal(current().metadata.recordingVersion, "rec-v1");
+    assert.equal(current().commandAvailable, false);
+  });
+});
+
+test("REST fallback with replaced recording adopts new version start without extra reopen", async () => {
+  const stateCalls = [];
+  await scenario({
+    mode: "replay",
+    stateHandler: async (sessionKey, mode, seq, delay, version) => {
+      stateCalls.push({ sessionKey, mode, seq, delay, version });
+      return {
+        v: 1, type: "state.snapshot", seq: 10, sessionTime: "2026-06-14T13:00:00Z", playback: { playing: false },
+        data: { ...EMPTY_RACE_STATE, session: { ...EMPTY_RACE_STATE.session, key: sessionKey } },
+        metadata: { available: true, replayAvailable: true, sessionKey, recordingVersion: "rec-v2" },
+        capabilities: { v: 1, source: "test", capabilities: {}, replayAvailable: true, liveAvailable: false },
+        playbackReady: true,
+        live: { phase: "LIVE", status: "LIVE", delaySeconds: 0, positionMode: "unavailable" },
+      };
+    },
+  }, async ({ sockets, frame, current }) => {
+    await act(async () => sockets.at(-1).emit(frame(50, true, {
+      metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+    })));
+    assert.equal(current().sequence, 50);
+
+    await act(async () => sockets.at(-1).close());
+
+    assert.ok(stateCalls.length >= 1);
+    assert.equal(stateCalls.at(-1).version, "rec-v1");
+
+    assert.equal(current().transport, "rest");
+    assert.equal(current().sequence, 10, "REST fallback must adopt official start sequence of new recording version");
+    assert.equal(current().metadata.recordingVersion, "rec-v2");
+  });
+});
+
+test("ignoring late former-generation REST responses after newer stream reconnect", async () => {
+  let resolveRest;
+  let restCount = 0;
+  await scenario({
+    mode: "replay",
+    stateHandler: async () => {
+      restCount++;
+      return new Promise((resolve) => {
+        resolveRest = resolve;
+      });
+    },
+  }, async ({ sockets, frame, current, runTimer }) => {
+    await act(async () => sockets.at(-1).emit(frame(40, true, {
+      metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+    })));
+    assert.equal(current().sequence, 40);
+    assert.equal(current().transport, "stream");
+    assert.equal(sockets.length, 1);
+
+    await act(async () => sockets.at(-1).close());
+    assert.equal(restCount, 1, "REST fallback should be initiated on socket close");
+
+    await act(async () => runTimer(500, false));
+    assert.equal(sockets.length, 2);
+
+    await act(async () => sockets.at(-1).emit(frame(65, true, {
+      metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+    })));
+    assert.equal(current().sequence, 65);
+    assert.equal(current().transport, "stream");
+    assert.equal(current().commandAvailable, true);
+
+    // Socket 2 drops before late REST 1 resolves, resetting streamReady
+    await act(async () => sockets.at(-1).close());
+
+    // Former-generation REST response resolves late with stale sequence 42
+    await act(async () => {
+      resolveRest?.(frame(42, true, {
+        metadata: { sessionKey: "A", available: true, replayAvailable: true, recordingVersion: "rec-v1" },
+      }));
+    });
+
+    assert.equal(current().sequence, 65, "Late former-generation REST response must not overwrite newer sequence");
+  });
+});
+
+test("late REST fallback cannot overwrite an accepted snapshot followed by disconnect in the same generation", async () => scenario("replay", async ({ sockets, frame, runTimer, setStateHandler, current }) => {
+  let resolveRest;
+  setStateHandler(() => new Promise((resolve) => { resolveRest = resolve; }));
+  await act(async () => runTimer(3000, true));
+  assert.equal(typeof resolveRest, "function");
+  await act(async () => sockets.at(-1).emit(frame(70, true, {
+    metadata: { sessionKey: "A", available: true, recordingVersion: "v1" },
+  })));
+  await act(async () => sockets.at(-1).close());
+  await act(async () => resolveRest(frame(1, true, {
+    metadata: { sessionKey: "A", available: true, recordingVersion: "v1" },
+  })));
+  assert.equal(current().sequence, 70);
+  assert.equal(sockets.length, 1);
+}));
+
+test("analytics from a replaced recording cannot attach to the same numeric cursor", async () => scenario("replay", async ({ sockets, frame, runTimer, setAnalyticsHandler, current }) => {
+  let resolveOld;
+  const result = (version) => ({ sessionKey: "A", sequence: 80, recordingVersion: version,
+    context: { status: "ready" }, publishedStrategy: { baseline: { status: "PRESENT" } } });
+  const calls = [];
+  setAnalyticsHandler((key, seq, version) => {
+    calls.push([key, seq, version]);
+    return version === "v1" ? new Promise((resolve) => { resolveOld = resolve; }) : Promise.resolve(result(version));
+  });
+  await act(async () => sockets.at(-1).emit(frame(80, true, {
+    metadata: { sessionKey: "A", available: true, recordingVersion: "v1" },
+  })));
+  await act(async () => sockets.at(-1).close());
+  await act(async () => runTimer(500, false));
+  await act(async () => sockets.at(-1).emit(frame(80, true, {
+    metadata: { sessionKey: "A", available: true, recordingVersion: "v2" },
+  })));
+  await act(async () => resolveOld(result("v1")));
+  assert.notEqual(current().analytics?.recordingVersion, "v1");
+  await act(async () => sockets.at(-1).emit(frame(80, true, {
+    metadata: { sessionKey: "A", available: true, recordingVersion: "v2" },
+  })));
+  assert.equal(current().analytics.recordingVersion, "v2");
+  assert.deepEqual(calls.at(-1), ["A", 80, "v2"]);
+}));
+
+test("handoff with unknown recording identity does not automatically reuse its cursor", async () => scenario("live", async ({ sockets, frame, current }) => {
+  await act(async () => sockets.at(-1).emit(frame(250, true, {
+    metadata: { sessionKey: "A", available: true, recordingVersion: null },
+    mode: "replay", handoff: "REPLAY_READY",
+  })));
+  assert.equal(current().viewingMode, "replay");
+  assert.equal(sockets.length, 2);
+  assert.equal(new URL(sockets.at(-1).url).searchParams.get("seq"), null);
+}));

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from math import isfinite
@@ -20,10 +20,12 @@ from fastapi.staticfiles import StaticFiles
 
 from .adapters.openf1 import OpenF1Client, write_recording
 from .analytics import AnalyticsService
+from .async_work import finish_owned
 from .events import NormalizedEvent, parse_timestamp
 from .historical_download import HistoricalSessionDownloader
 from .library import ReplayBusyError, ReplayLibrary, ReplayResource
-from .live import PublicLiveSession
+from .live import PublicLiveSession, RecordingBusyError
+from .live_recording import NormalizedLiveRecorder
 from .pirelli.backfill import PirelliHistoricalCoordinator
 from .pirelli.contracts import SessionScope
 from .pirelli.coordinator import PirelliRuntimeCoordinator
@@ -74,6 +76,9 @@ def create_app(
     download_lock = asyncio.Lock()
     compute_lock = asyncio.Semaphore(2)
     preparation_lock = asyncio.Semaphore(1)
+    preparation_registry_lock = asyncio.Lock()
+    preparations: dict[int, asyncio.Task] = {}
+    preparation_cleanup: set[asyncio.Task] = set()
     background_tasks: set[asyncio.Task] = set()
     initialization = {
         "status": "refreshing" if refresh_catalog is not None else "ready",
@@ -84,27 +89,99 @@ def create_app(
     async def compute(function, *args, **kwargs):
         async with compute_lock:
             worker = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+            return await finish_owned(worker)
+
+    async def release_resource(selected):
+        # Cleanup itself must survive a second cancellation, including while
+        # waiting for a compute slot or another thread's library lock.
+        await finish_owned(
+            asyncio.create_task(compute(library_ref[0].release, selected))
+        )
+
+    @asynccontextmanager
+    async def resource_lease(key=None, *, http=False):
+        owned = []
+
+        def acquire():
+            selected = library_ref[0].acquire(key)
+            owned.append(selected)
+            return selected
+
+        try:
             try:
-                return await asyncio.shield(worker)
-            except asyncio.CancelledError:
-                # Cancelling the await cannot stop a running thread. Keep its
-                # ownership and compute slot until it can no longer mutate a
-                # controller that the next command is about to reuse.
-                while not worker.done():
-                    with suppress(asyncio.CancelledError, Exception):
-                        await asyncio.shield(worker)
-                if not worker.cancelled():
-                    worker.exception()  # Retrieve a failure during cancellation.
+                selected = await compute(acquire)
+            except KeyError as error:
+                if http:
+                    raise HTTPException(status_code=404, detail=str(error)) from error
+                raise
+            except ReplayBusyError as error:
+                if http:
+                    raise HTTPException(status_code=503, detail=str(error)) from error
+                raise
+            yield selected
+        finally:
+            if owned:
+                await release_resource(owned.pop())
+
+    async def ensure_preparation(selected):
+        async with preparation_registry_lock:
+            if selected.prepared:
+                return None
+            identity = id(selected)
+            if identity in preparations:
+                return preparations[identity]
+            owned = []
+
+            def retain():
+                library_ref[0].retain(selected)
+                owned.append(selected)
+
+            try:
+                await compute(retain)
+            except BaseException:
+                if owned:
+                    await release_resource(owned.pop())
                 raise
 
+            async def prepare_owned():
+                async with preparation_lock:
+                    await compute(selected.prepare)
+
+            async def cleanup_preparation():
+                try:
+                    await release_resource(selected)
+                finally:
+                    preparations.pop(identity, None)
+
+            def finished(_done):
+                # This callback also runs if cancellation precedes the job's
+                # first instruction, when a coroutine finally cannot run.
+                cleanup = asyncio.create_task(cleanup_preparation())
+                preparation_cleanup.add(cleanup)
+                cleanup.add_done_callback(preparation_cleanup.discard)
+
+            task = background(prepare_owned())
+            preparations[identity] = task
+            task.add_done_callback(finished)
+            return task
+
     async def prepare_replay(selected):
-        async with preparation_lock:
-            await compute(selected.prepare)
+        task = await ensure_preparation(selected)
+        if task is not None:
+            await asyncio.shield(task)
 
     def background(coroutine):
         task = asyncio.create_task(coroutine)
         background_tasks.add(task)
         task.add_done_callback(background_tasks.discard)
+
+        def report_failure(done):
+            if not done.cancelled() and done.exception() is not None:
+                logger.warning(
+                    "Background work failed: %s", type(done.exception()).__name__
+                )
+
+        task.add_done_callback(report_failure)
         return task
 
     downloads_enabled = recording_path.is_dir() and os.access(recording_path, os.W_OK)
@@ -461,6 +538,58 @@ def create_app(
                 logger.exception("Live monitor failed; retrying")
             await asyncio.sleep(15)
 
+    def completed_journal(descriptor):
+        path = recording_path / f"live-{descriptor.key}.in-progress.jsonl"
+        if not path.is_file() or parse_timestamp(descriptor.date_start) > clock():
+            return None
+        before = path.stat()
+        recorder = NormalizedLiveRecorder(recording_path, descriptor.key)
+        events = recorder.events
+        identity = {}
+        for event in events:
+            if parse_timestamp(event.occurred_at) > clock() or (
+                event.received_at and parse_timestamp(event.received_at) > clock()
+            ):
+                return None
+            if event.kind == "session":
+                identity.update(event.payload)
+        if (
+            str(identity.get("key")) != descriptor.key
+            or not session_completion(
+                events, session_kind=descriptor.session_kind
+            ).complete
+        ):
+            return None
+        after = path.stat()
+        signature = (before.st_mtime_ns, before.st_size)
+        if signature != (after.st_mtime_ns, after.st_size):
+            return None
+        return recorder, signature
+
+    async def recover_completed_journals():
+        cursor = 0
+        while True:
+            candidates = sorted(
+                (d for d in library_ref[0].descriptors.values() if d.key.isdigit()),
+                key=lambda d: d.date_start,
+                reverse=True,
+            )
+            for offset in range(min(3, len(candidates))):
+                descriptor = candidates[(cursor + offset) % len(candidates)]
+                if descriptor.key == live.target_session_key:
+                    continue
+                try:
+                    recovered = await compute(completed_journal, descriptor)
+                    if recovered is not None:
+                        await live.recover_completed_recording(*recovered)
+                except (OSError, RuntimeError, ValueError, KeyError, TypeError):
+                    logger.warning(
+                        "Cannot recover completed journal for session %s",
+                        descriptor.key,
+                    )
+            cursor = (cursor + 3) % max(1, len(candidates))
+            await asyncio.sleep(15)
+
     async def initialize_optional_data():
         nonlocal recovery_checked
         if refresh_catalog is None:
@@ -485,6 +614,8 @@ def create_app(
     async def start_live_source() -> None:
         seed_task[0] = background(asyncio.to_thread(import_seed))
         background(initialize_optional_data())
+        if downloads_enabled:
+            background(recover_completed_journals())
         live_monitor_task[0] = asyncio.create_task(monitor_live_source())
         if pirelli_coordinator is not None:
             pirelli_refresh_task[0] = asyncio.create_task(
@@ -507,6 +638,8 @@ def create_app(
         for pending in tuple(background_tasks):
             pending.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
+        while preparation_cleanup:
+            await asyncio.gather(*preparation_cleanup, return_exceptions=True)
         historical_task = pirelli_backfill_task[0]
         pirelli_backfill_task[0] = None
         if historical_task is not None:
@@ -668,20 +801,22 @@ def create_app(
         descriptor = library_ref[0].descriptors.get(session_key)
         if descriptor is None:
             raise HTTPException(status_code=404, detail="Unknown catalog session")
-        live_view = live.view(session_key)
-        if live.target_session_key == session_key and live_view.phase != "REPLAY_READY":
-            raise HTTPException(
-                status_code=409,
-                detail="Cannot delete a replay while its live recording is active",
-            )
-        async with download_lock:
-            deletion = await asyncio.to_thread(
-                delete_replay_artifacts, recording_path, session_key
-            )
-            if context_coordinator is not None:
-                context_coordinator.forget(descriptor)
-            await compute(library_ref[0].refresh_session, session_key)
-            analytics_service.clear()
+        try:
+            async with (
+                download_lock,
+                live_reconcile_lock,
+                live.deleting_recording(session_key),
+            ):
+                deletion = await compute(
+                    delete_replay_artifacts, recording_path, session_key
+                )
+                if context_coordinator is not None:
+                    context_coordinator.forget(descriptor)
+                await compute(library_ref[0].refresh_session, session_key)
+                analytics_service.clear()
+                completed_live.pop(session_key, None)
+        except RecordingBusyError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return {
             "v": 1,
             "sessionKey": session_key,
@@ -836,8 +971,16 @@ def create_app(
         at: str | None = None,
         seq: int | None = None,
         delay_seconds: float = 0,
+        recording_version: str | None = None,
     ) -> dict[str, Any]:
-        selected = await compute(resource, session_key)
+        async with resource_lease(session_key, http=True) as selected:
+            return await state_for_resource(
+                selected, mode, at, seq, delay_seconds, recording_version
+            )
+
+    async def state_for_resource(
+        selected, mode, at, seq, delay_seconds, recording_version
+    ):
         if mode not in {"auto", "live", "replay"}:
             raise HTTPException(
                 status_code=422, detail="mode must be auto, live, or replay"
@@ -863,6 +1006,15 @@ def create_app(
             envelope = live_state_envelope(
                 selected, delay_seconds=delay_seconds, archived=archived
             )
+            envelope.update(
+                metadata=metadata_payload(
+                    archived[0] if archived else selected, archived
+                ),
+                capabilities=capability_payload(
+                    archived[0] if archived else selected, archived
+                ),
+                playbackReady=True,
+            )
             if (
                 archived
                 and envelope["live"]["replayReady"]
@@ -876,14 +1028,20 @@ def create_app(
             end_time=_effective_end_time(selected, clock())
         )
         try:
-            if seq is not None:
+            if (
+                seq is not None
+                and recording_version is not None
+                and recording_version != selected.recording_version
+            ):
+                await compute(controller.start)
+            elif seq is not None:
                 await compute(controller.seek_cursor, seq)
             elif at == "start":
                 await compute(controller.start)
             elif at is not None:
                 await compute(controller.seek, at)
             else:
-                await compute(selected.prepare)
+                await prepare_replay(selected)
                 await compute(controller.seek_cursor, len(selected.events))
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -893,13 +1051,18 @@ def create_app(
             sequence=controller.cursor,
             session_time=controller.playhead,
         )
-        envelope["mode"] = "replay"
+        envelope.update(
+            mode="replay",
+            metadata=metadata_payload(selected),
+            capabilities=capability_payload(selected),
+            playbackReady=True,
+        )
         return envelope
 
     @app.get("/api/v1/capabilities")
-    def get_capabilities(session_key: str | None = None) -> dict[str, Any]:
-        selected = resource(session_key)
-        return capability_payload(selected)
+    async def get_capabilities(session_key: str | None = None) -> dict[str, Any]:
+        async with resource_lease(session_key, http=True) as selected:
+            return capability_payload(selected)
 
     def capability_payload(selected, archived=None):
         source = archived[1] if archived else live.view(selected.descriptor.key)
@@ -950,9 +1113,9 @@ def create_app(
         }
 
     @app.get("/api/v1/replay")
-    def get_replay_metadata(session_key: str | None = None) -> dict[str, Any]:
-        selected = resource(session_key)
-        return metadata_payload(selected)
+    async def get_replay_metadata(session_key: str | None = None) -> dict[str, Any]:
+        async with resource_lease(session_key, http=True) as selected:
+            return metadata_payload(selected)
 
     def metadata_payload(selected, archived=None):
         start_time = selected.descriptor.date_start
@@ -996,13 +1159,17 @@ def create_app(
         }
 
     @app.get("/api/v1/driver-history")
-    def get_driver_history(
+    async def get_driver_history(
         driver_number: str,
         session_key: str | None = None,
     ) -> dict[str, Any]:
         """Return normalized evidence on demand, never inside RaceState snapshots."""
 
-        selected = resource(session_key)
+        async with resource_lease(session_key, http=True) as selected:
+            await prepare_replay(selected)
+            return await compute(driver_history_payload, selected, driver_number)
+
+    def driver_history_payload(selected, driver_number):
         observations = [
             {
                 "sequence": item.sequence,
@@ -1039,11 +1206,23 @@ def create_app(
         session_key: str | None = None,
         at: str | None = None,
         seq: int | None = None,
+        recording_version: str | None = None,
     ) -> dict[str, Any]:
         if seed_task[0] is not None:
-            await seed_task[0]
-        selected = await compute(resource, session_key)
-        await compute(selected.prepare)
+            await asyncio.shield(seed_task[0])
+        async with resource_lease(session_key, http=True) as selected:
+            if (
+                recording_version is not None
+                and recording_version != selected.recording_version
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Recording changed; refresh state before requesting analytics",
+                )
+            return await analytics_for_resource(selected, at, seq)
+
+    async def analytics_for_resource(selected, at, seq):
+        await prepare_replay(selected)
         controller = selected.controller(
             end_time=_effective_end_time(selected, clock()),
         )
@@ -1059,7 +1238,7 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         context = meeting_context(selected, prepare=True)
-        return analytics_service.snapshot(
+        result = analytics_service.snapshot(
             selected,
             controller.state,
             sequence=controller.cursor,
@@ -1067,22 +1246,21 @@ def create_app(
             context=context,
             pirelli=pirelli_context(selected),
         )
+        result["recordingVersion"] = selected.recording_version
+        return result
 
     @app.websocket("/api/v1/stream")
     async def stream(websocket: WebSocket) -> None:
         await websocket.accept()
         try:
-            selected = await compute(
-                library_ref[0].acquire, websocket.query_params.get("session_key")
-            )
+            async with resource_lease(
+                websocket.query_params.get("session_key")
+            ) as selected:
+                await stream_selected(websocket, selected)
         except (KeyError, ReplayBusyError, OSError, ValueError) as error:
             await websocket.send_json({"v": 1, "type": "error", "error": str(error)})
             await websocket.close(code=1008)
             return
-        try:
-            await stream_selected(websocket, selected)
-        finally:
-            library_ref[0].release(selected)
 
     async def stream_selected(websocket: WebSocket, selected: ReplayResource) -> None:
         requested_mode = websocket.query_params.get("mode", "auto")
@@ -1192,6 +1370,12 @@ def create_app(
         )
         try:
             resume = websocket.query_params.get("seq")
+            resume_version = websocket.query_params.get("recording_version")
+            if (
+                resume_version is not None
+                and resume_version != selected.recording_version
+            ):
+                resume = None
             if resume is not None:
                 await compute(controller.seek_cursor, int(resume))
             else:
@@ -1212,6 +1396,8 @@ def create_app(
                 pirelli=pirelli_context(selected),
             )
 
+        controller_lock = asyncio.Lock()
+
         async def replay_compute(function, *args, **kwargs):
             if (
                 getattr(function, "__self__", None) is controller
@@ -1221,7 +1407,8 @@ def create_app(
                 # A seek immediately after opening must join preparation, not
                 # race a second full reduction against the same history.
                 await prepare_replay(selected)
-            return await compute(function, *args, **kwargs)
+            async with controller_lock:
+                return await compute(function, *args, **kwargs)
 
         send_lock = asyncio.Lock()
         playback_task: asyncio.Task[None] | None = None
@@ -1235,7 +1422,7 @@ def create_app(
                 "playbackReady": True,
             },
         )
-        background(prepare_replay(selected))
+        await ensure_preparation(selected)
         meeting_context(selected, prepare=True)
         try:
             while True:
@@ -1264,6 +1451,7 @@ def create_app(
                             send_lock,
                             current_analytics,
                             replay_compute,
+                            controller_lock,
                         )
                     )
                     continue
@@ -1276,6 +1464,7 @@ def create_app(
                     send_lock,
                     current_analytics,
                     replay_compute,
+                    controller_lock,
                 )
         except WebSocketDisconnect:
             pass
@@ -1417,6 +1606,7 @@ async def _play(
     send_lock: asyncio.Lock,
     analytics_supplier: Callable[[], dict[str, Any]],
     compute,
+    state_lock: asyncio.Lock | None = None,
 ) -> None:
     naturally_finished = False
     try:
@@ -1427,7 +1617,8 @@ async def _play(
                 websocket,
                 controller,
                 send_lock,
-                analytics=analytics_supplier(),
+                analytics_supplier=analytics_supplier,
+                state_lock=state_lock,
             )
         naturally_finished = controller.finished
     except (WebSocketDisconnect, RuntimeError):
@@ -1439,18 +1630,19 @@ async def _play(
                 websocket,
                 controller,
                 send_lock,
-                analytics=analytics_supplier(),
+                analytics_supplier=analytics_supplier,
+                state_lock=state_lock,
             )
 
 
 async def _stop_playback(
     task: asyncio.Task[None] | None, controller: ReplayController
 ) -> None:
-    controller.pause()
     if task is not None and not task.done():
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+    controller.pause()
 
 
 async def _handle_message(
@@ -1460,6 +1652,7 @@ async def _handle_message(
     send_lock: asyncio.Lock,
     analytics_supplier: Callable[[], dict[str, Any]],
     compute,
+    state_lock: asyncio.Lock | None = None,
 ) -> None:
     message_type = message.get("type")
     try:
@@ -1471,7 +1664,7 @@ async def _handle_message(
         elif message_type == "seek_relative":
             await compute(controller.seek_relative, float(message["seconds"]))
         elif message_type == "step":
-            controller.step()
+            await compute(controller.step)
         elif message_type == "delay":
             await compute(controller.seek_delay, float(message["seconds"]))
         elif message_type == "reset":
@@ -1490,7 +1683,8 @@ async def _handle_message(
         websocket,
         controller,
         send_lock,
-        analytics=analytics_supplier(),
+        analytics_supplier=analytics_supplier,
+        state_lock=state_lock,
     )
 
 
@@ -1500,16 +1694,24 @@ async def _send_snapshot(
     send_lock: asyncio.Lock,
     analytics: dict[str, Any] | None = None,
     opening: dict[str, Any] | None = None,
+    *,
+    analytics_supplier: Callable[[], dict[str, Any] | None] | None = None,
+    state_lock: asyncio.Lock | None = None,
 ) -> None:
-    payload = state_envelope(
-        controller.state,
-        events=controller.events,
-        sequence=controller.cursor,
-        session_time=controller.playhead,
-        playing=controller.is_playing,
-        analytics=analytics,
-    )
-    if opening:
-        payload.update(opening)
+    def capture():
+        payload = state_envelope(
+            controller.state,
+            events=controller.events,
+            sequence=controller.cursor,
+            session_time=controller.playhead,
+            playing=controller.is_playing,
+            analytics=analytics_supplier() if analytics_supplier else analytics,
+        )
+        if opening:
+            payload.update(opening)
+        return payload
+
+    async with state_lock or asyncio.Lock():
+        payload = capture()
     async with send_lock:
         await websocket.send_json(payload)

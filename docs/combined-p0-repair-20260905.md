@@ -1,6 +1,14 @@
 # Combined replay and live reliability repair — 5 September 2026
 
-**Release gate: NOT READY.** Immediate seeking into an unprepared large replay exceeds the approved 300 ms budget. The actual Unraid hardware and production reverse-proxy origin have not been validated. One existing protected archive check remains skipped because its owner-supplied OpenF1 recording is missing. No push, merge, deployment, production restart or production-data mutation was performed.
+> [!NOTE]
+> **HISTORICAL CHECKPOINT (2026-09-05)**
+> This document is a historical repair checkpoint. See the [consolidated closure report](consolidated-closure-20260906.md) for the latest candidate and release evidence.
+>
+> **Release gate remains: NOT READY.**
+> - The 300 ms all-seeks budget is still missed on the first cold seek (~1.088s prior measure; 956 ms in Docker benchmark).
+> - The owner-supplied OpenF1 recording for session 11353 remains missing from the test tree (`tests/test_openf1.py::test_pcr0003_dutch_race_exact_neutralization_cursors`).
+> - Observation against actual Unraid hardware, production reverse proxy, and default live upstream remains unvalidated.
+> No push, merge, deployment, production restart, or production-data mutation was performed.
 
 ## Authority and revisions
 

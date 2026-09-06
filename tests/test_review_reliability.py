@@ -109,7 +109,10 @@ def test_cancelled_playback_worker_cannot_change_a_new_cursor(
     write_catalog(tmp_path)
     app = create_app(tmp_path, public_live=False)
     endpoint = next(r.endpoint for r in app.routes if r.path == "/api/v1/state")
-    compute = inspect.getclosurevars(endpoint).nonlocals["compute"]
+    state_for_resource = inspect.getclosurevars(endpoint).nonlocals[
+        "state_for_resource"
+    ]
+    compute = inspect.getclosurevars(state_for_resource).nonlocals["compute"]
     events = [event("2026-09-05T14:00:00Z", key="11357")]
     events += [
         NormalizedEvent(

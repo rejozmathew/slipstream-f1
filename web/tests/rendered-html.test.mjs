@@ -95,12 +95,13 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(sessionHook, /commandAvailable && socketRef\.current\?\.send/);
   assert.match(sessionHook, /envelope\.analytics\?\.sessionKey === selectedSessionKey/);
   assert.match(sessionHook, /envelope\.analytics\.sequence === envelope\.seq/);
-  assert.match(sessionHook, /slipstreamApi\.state\(selectedSessionKey, viewingMode, resumeSequence\(\), delayRef\.current\)/);
+  assert.match(sessionHook, /slipstreamApi\.state\(selectedSessionKey, viewingMode, resumeSequence\(\), delayRef\.current, resumeVersion\(\)\)/);
   assert.match(sessionHook, /envelope\.playbackReady && envelope\.metadata && envelope\.capabilities/);
   assert.match(sessionHook, /shouldPollAnalytics/);
   assert.match(sessionHook, /analytics\?\.context\.status/);
   assert.match(sessionHook, /analytics\?\.publishedStrategy\.baseline\.status/);
-  assert.ok(sessionHook.indexOf("setState(envelope.data)") < sessionHook.indexOf("slipstreamApi.analytics(selectedSessionKey, cursor)"), "canonical state must apply before optional analytics requests");
+  const analyticsRequest = sessionHook.indexOf("slipstreamApi.analytics(selectedSessionKey, cursor,");
+  assert.ok(analyticsRequest > 0 && sessionHook.indexOf("setState(envelope.data)") < analyticsRequest, "canonical state must apply before optional analytics requests");
   assert.match(raceView, /\["standard", "timing", "strategy"\]/);
   assert.match(preferences, /slipstream\.device-preferences\.v1/);
   assert.match(preferences, /includedRaceStates/);

@@ -6,7 +6,7 @@ Slipstream is unofficial and unaffiliated with Formula 1, FIA, Pirelli, or any t
 
 ## Current status
 
-Milestone 3.5 is the source/live/replay correctness merge candidate. It establishes the factual contracts that the next visual-design pass can use without changing source truth.
+Milestone 3.5 is the source/live/replay correctness merge candidate. The current integration branch `replay-readiness-performance` delivers in-memory replay readiness, bounded resource caching, atomic first-frame playback readiness, and live completion/drain decoupling, but remains unmerged and unreleased pending operational release gates. It establishes the factual contracts that the next visual-design pass can use without changing source truth.
 
 | Capability | Current behavior |
 | --- | --- |
@@ -16,7 +16,7 @@ Milestone 3.5 is the source/live/replay correctness merge candidate. It establis
 | Canonical live recording | Normalized events finalized atomically into an immediately selectable replay |
 | Historical replay | Race, Sprint, Qualifying, Sprint Qualifying, and Practice |
 | Replay controls | Private play/pause, speed, timeline, absolute/relative seek, and reset per viewer |
-| Live viewer delay | Private 0–300-second protocol cursor; browser presets are 0/5/10/15/30 seconds |
+| Live viewer delay | Private 0–300-second protocol cursor; browser presets are 5s, 10s, 30s, 1m, 2m, 3m, 5m plus exact M:SS |
 | Driver lifecycle | Current source condition separated from final classification |
 | Pit evidence | Stop lap/ordinal/compound transition plus source-backed lane transit where available |
 | Qualifying | Server-authored Q1/Q2/Q3 or SQ1/SQ2/SQ3 phase, benchmark, advancement, and final facts |
@@ -243,8 +243,15 @@ npm test
 npm run build
 ```
 
+For optional browser verification tools (`web/tests/browser-*.mjs`), Playwright can be installed on demand without modifying package files:
+
+```powershell
+npm install --no-save --package-lock=false playwright
+```
+
 ## Documentation
 
+- [Consolidated closure and current release gates](docs/consolidated-closure-20260906.md)
 - [Architecture](ARCHITECTURE.md)
 - [Data flows and source precedence](docs/data-flow.md)
 - [Product and session flows](docs/product-flows.md)

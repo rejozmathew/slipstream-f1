@@ -1,5 +1,6 @@
 .git
 .codex-tmp
+/output/
 local-server*.log
 local-server.pid
 .github

@@ -1,5 +1,11 @@
 # Replay Readiness Performance: Profile and Architecture Proposal (Phase 1)
 
+> [!NOTE]
+> **HISTORICAL / SUPERSEDED ARCHITECTURE PROPOSAL**
+> This document is retained for its empirical benchmark profiles, latency baselines, and root-cause analysis (Sections 1–3).
+> The persistent prepared disk package proposal (Option 1 / `.slipstream/prepared/<key>/`) was **NOT APPROVED** and is **SUPERSEDED**.
+> No disk preparation format is introduced. Slipstream implements an in-memory lazy preparation architecture with a bounded 3-resource LRU cache (512 MiB total / 300 MiB per resource), atomic first-frame canonical start with `playbackReady: true`, and live completion decoupling.
+
 ## Executive Summary
 
 Historical session playback in Slipstream currently exhibits severe readiness delays:
@@ -10,7 +16,7 @@ Historical session playback in Slipstream currently exhibits severe readiness de
 - Nonzero Live broadcast delay currently instantiates a new controller on every frame and replays all historical events from scratch, taking **3.5 seconds per snapshot**.
 - During synchronous loading, the Python asyncio event loop is blocked, causing concurrent `GET /api/v1/catalog` requests to stall by **1.82 seconds** (a 291× latency spike).
 
-This document presents empirical benchmark profiles across four representative sessions, identifies the exact architectural bottlenecks, evaluates three local storage alternatives, and proposes a zero-locking, bind-mount-resilient **Prepared Replay Package** with periodic state checkpoints, chunked events, an explicit readiness job lifecycle (`DOWNLOADING` → `PREPARING` → `READY`), and incremental live delay advancement.
+This document presents empirical benchmark profiles across four representative sessions, identifies the exact architectural bottlenecks, evaluates three local storage alternatives, and preserves the historical proposal for a Prepared Replay Package (which was subsequently superseded by an in-memory architecture).
 
 ---
 
@@ -177,11 +183,14 @@ To achieve sub-100ms cold open, sub-100ms seek, and sub-1s library startup, thre
 
 ---
 
-## 5. Recommended Design and Rationale
+## 5. Recommended Design and Rationale (Historical Proposal — Superseded)
 
-### Recommendation: Option 1 (Structured / Chunked Prepared Replay Package)
+> [!NOTE]
+> This section records the original proposal for Option 1. This disk preparation package format was **not approved**. The current system implements lazy in-memory preparation without disk package directories.
 
-We recommend **Option 1: Structured / Chunked Prepared Package** as the authoritative preparation format for M3.5, with an explicit readiness lifecycle:
+### Historical Recommendation: Option 1 (Structured / Chunked Prepared Replay Package — Superseded)
+
+The original proposal recommended **Option 1: Structured / Chunked Prepared Package**, evaluated against the following criteria:
 
 1. **Immunity to Network and Bind Mount Locking**:
    Many Slipstream users deploy self-hosted Docker containers on Unraid, TrueNAS, or Synology with recording directories mounted over NFS or SMB, or on Unraid's user-share FUSE system (`shfs`). SQLite in WAL mode requires POSIX advisory locks and shared memory (`-shm`) mmap, which frequently fail on network shares and FUSE mounts, producing `sqlite3.OperationalError: database is locked` or corrupt shm files. Option 1 uses standard immutable read-only JSON files, which work flawlessly across all storage engines and operating systems.

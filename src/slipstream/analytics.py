@@ -136,9 +136,7 @@ def build_analytics_snapshot(
         for number in state.drivers
     }
     pit_events_by_driver = {
-        number: resource.evidence.pit_events_for_driver(
-            number, event_limit=sequence
-        )
+        number: resource.evidence.pit_events_for_driver(number, event_limit=sequence)
         for number in state.drivers
     }
     pit_events = tuple(
@@ -228,7 +226,11 @@ def build_analytics_snapshot(
                 "future projection withheld: hard validity, plausibility, and stability must all pass",
             )
     for number, model in driver_models.items():
-        model["read"] = _driver_read(state.drivers[number], model, race_session=resource.descriptor.session_kind in {"race", "sprint"})
+        model["read"] = _driver_read(
+            state.drivers[number],
+            model,
+            race_session=resource.descriptor.session_kind in {"race", "sprint"},
+        )
     race_gate = _race_projection_gate(race_strategy, state, stage, driver_gates)
     race_strategy["projectionGate"] = race_gate
     if not race_gate["publishAllowed"]:
@@ -1539,7 +1541,9 @@ def _pit_event_payload(event: PitEvent) -> dict[str, Any]:
     }
 
 
-def _driver_read(driver: DriverState, model: dict[str, Any], *, race_session: bool = True) -> dict[str, Any]:
+def _driver_read(
+    driver: DriverState, model: dict[str, Any], *, race_session: bool = True
+) -> dict[str, Any]:
     """Concise deterministic commentary composed only from published facts."""
 
     lifecycle = terminal_state(driver)
@@ -1547,7 +1551,9 @@ def _driver_read(driver: DriverState, model: dict[str, Any], *, race_session: bo
     if lifecycle:
         headline = f"{driver.code or driver.number} is {lifecycle} at this cursor."
         if race_session:
-            facts.append("Future strategy fields are suppressed for this terminal state.")
+            facts.append(
+                "Future strategy fields are suppressed for this terminal state."
+            )
     elif str(driver.status or "").upper() == "STOPPED":
         headline = f"{driver.code or driver.number} is explicitly STOPPED."
         facts.append("STOPPED is resumable and is not treated as retirement.")
@@ -1573,7 +1579,10 @@ def _driver_read(driver: DriverState, model: dict[str, Any], *, race_session: bo
         facts.append(
             "Same-race evidence supports reaching the flag on the current stint."
         )
-    elif race_session and strategy.get("projectionGate", {}).get("publishAllowed") is False:
+    elif (
+        race_session
+        and strategy.get("projectionGate", {}).get("publishAllowed") is False
+    ):
         facts.append(
             "Future outlook is withheld because every projection gate has not passed."
         )
@@ -1649,6 +1658,7 @@ def _signature(
     )
     return (
         resource.descriptor.key,
+        resource.recording_version,
         # §7.1 (merge blocker): the cursor MUST be part of the cache key so
         # analytics at cursor X can never reuse evidence fetched at cursor Y.
         # build_analytics_snapshot() scopes evidence by event_limit=sequence,

@@ -11,7 +11,7 @@ import json
 import logging
 from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterable
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +20,7 @@ from urllib.parse import urlencode
 
 import aiohttp
 
+from .async_work import finish_owned
 from .events import NormalizedEvent, parse_timestamp
 from .evidence import SessionEvidence
 from .f1_timing import (
@@ -77,6 +78,10 @@ CAPABILITIES = {
 
 class LiveSourceError(RuntimeError):
     """Raised when the public live transport cannot produce a recording."""
+
+
+class RecordingBusyError(RuntimeError):
+    """The live writer or publication still owns a recording."""
 
 
 def utc_now() -> str:
@@ -1252,6 +1257,7 @@ class PublicLiveSession:
         self._on_recording_finalized = on_recording_finalized
         self._on_recording_drained: Callable[[str], None] | None = None
         self._publications: dict[str, _RecordingPublication] = {}
+        self._publication_lock = asyncio.Lock()
         self._drain_finished = asyncio.Event()
         self._target_session_key: str | None = None
         self._scheduled_start: str | None = None
@@ -1339,6 +1345,80 @@ class PublicLiveSession:
         self._on_recording_finalized = on_finalized
         self._on_recording_drained = on_drained
 
+    @asynccontextmanager
+    async def deleting_recording(self, key: str):
+        """Serialize deletion with publication registration and writer ownership."""
+        async with self._publication_lock:
+            publication = self._publications.get(key)
+            if (
+                publication is not None
+                and (
+                    not publication.view.replay_ready
+                    or (publication.task is not None and not publication.task.done())
+                )
+            ) or (self._target_session_key == key and not self._replay_ready):
+                raise RecordingBusyError(
+                    "Wait for this session's live recording publication before deleting"
+                )
+            yield
+            self._publications.pop(key, None)
+
+    async def recover_completed_recording(self, recorder, signature) -> bool:
+        """Publish a validated, unchanged journal without taking the collector."""
+        async with self._publication_lock:
+            key = recorder.session_key
+            if key == self._target_session_key or key in self._publications:
+                return False
+            # An inspection started before DELETE must never republish its old
+            # in-memory events after DELETE has acknowledged success.
+            try:
+                current = recorder.temporary_path.stat()
+            except FileNotFoundError:
+                return False
+            if (current.st_mtime_ns, current.st_size) != signature:
+                return False
+            if len(self._publications) >= 3 and not any(
+                p.view.replay_ready for p in self._publications.values()
+            ):
+                return False
+            events = recorder.events
+            view = LiveSourceView(
+                key,
+                "OFFLINE",
+                False,
+                False,
+                len(events),
+                events[-1].received_at or events[-1].occurred_at,
+                None,
+                "FINALIZING",
+                False,
+                None,
+            )
+            await self._register_publication(_RecordingPublication(recorder, view))
+            return True
+
+    async def _register_publication(self, publication):
+        # Caller owns _publication_lock. Keep evicted writers represented until
+        # their actual disk worker has completed, even when cancelled.
+        while len(self._publications) >= 3:
+            key = next(
+                (k for k, p in self._publications.items() if p.view.replay_ready),
+                next(iter(self._publications)),
+            )
+            oldest = self._publications[key]
+            if oldest.task is not None and not oldest.task.done():
+                oldest.task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await oldest.task
+            self._publications.pop(key)
+            if not oldest.view.replay_ready:
+                logger.error(
+                    "Publication retention limit reached for session %s; canonical journal retained for recovery",
+                    key,
+                )
+        self._publications[publication.recorder.session_key] = publication
+        publication.task = asyncio.create_task(self._publish_recording(publication))
+
     def view(self, session_key: str | None = None) -> LiveSourceView:
         publication = self._publications.get(
             str(session_key or self._target_session_key)
@@ -1422,7 +1502,9 @@ class PublicLiveSession:
         self._restore_recorded_events(seeded)
         if self._completion_observed:
             self._set_phase("FINALIZING")
+            self._collecting = False
             self._schedule_finalization()
+            return
         else:
             self._set_phase(self._phase_for_schedule("CONNECTING"))
         self._collecting = True
@@ -1640,32 +1722,35 @@ class PublicLiveSession:
         # Disk publication has independent ownership once the factual drain ends.
         await self._finalize_after_drain()
 
+    async def _publish_once(self, publication: _RecordingPublication) -> None:
+        final_path = await asyncio.to_thread(publication.recorder.finalize)
+        if self._on_recording_finalized is not None:
+            result = self._on_recording_finalized(final_path)
+            ready = bool(await result if inspect.isawaitable(result) else result)
+            if not ready:
+                raise RuntimeError("Completed recording is not yet visible")
+        publication.view = replace(
+            publication.view,
+            phase="REPLAY_READY",
+            replay_ready=True,
+            final_recording=str(final_path),
+            error=None,
+        )
+        if self._target_session_key == publication.recorder.session_key:
+            self._final_recording = final_path
+            self._replay_ready = True
+            self._error = None
+            self._set_phase("COMPLETE")
+            self._set_phase("REPLAY_READY")
+
     async def _publish_recording(self, publication: _RecordingPublication) -> None:
         key = publication.recorder.session_key
         backoff = min(1.0, self._maximum_backoff)
         while not publication.view.replay_ready:
             try:
-                final_path = await asyncio.to_thread(publication.recorder.finalize)
-                if self._on_recording_finalized is not None:
-                    result = self._on_recording_finalized(final_path)
-                    ready = bool(
-                        await result if inspect.isawaitable(result) else result
-                    )
-                    if not ready:
-                        raise RuntimeError("Completed recording is not yet visible")
-                publication.view = replace(
-                    publication.view,
-                    phase="REPLAY_READY",
-                    replay_ready=True,
-                    final_recording=str(final_path),
-                    error=None,
-                )
-                if self._target_session_key == key:
-                    self._final_recording = final_path
-                    self._replay_ready = True
-                    self._error = None
-                    self._set_phase("COMPLETE")
-                    self._set_phase("REPLAY_READY")
+                # The owned operation includes catalog visibility. Cancellation
+                # after atomic rename cannot strand a published file unnoticed.
+                await finish_owned(asyncio.create_task(self._publish_once(publication)))
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # noqa: BLE001 - completion publication must recover observably
@@ -1714,18 +1799,10 @@ class PublicLiveSession:
         await self._stop_completed_upstream()
         key = self._normalized_recorder.session_key
         publication = _RecordingPublication(self._normalized_recorder, self.view(key))
-        self._publications[key] = publication
-        while len(self._publications) > 3:
-            oldest = self._publications.pop(next(iter(self._publications)))
-            if oldest.task is not None and not oldest.task.done():
-                oldest.task.cancel()
-                logger.error(
-                    "Publication retry retention limit reached for session %s; canonical journal retained for recovery",
-                    oldest.recorder.session_key,
-                )
+        async with self._publication_lock:
+            await self._register_publication(publication)
         if self._on_recording_drained is not None:
             self._on_recording_drained(key)
-        publication.task = asyncio.create_task(self._publish_recording(publication))
         self._drain_finished.set()
         await asyncio.shield(publication.task)
 
