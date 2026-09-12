@@ -38,6 +38,8 @@ Normalized events preserve `source`, `occurred_at`, and optional `received_at`. 
 
 Source/event timestamps use ISO 8601. Canonical event times are UTC; `session.local_time` intentionally carries the circuit offset derived from `gmt_offset`.
 
+Practice drivers expose additive `best_lap_delta_to_leader` and `best_lap_delta_to_ahead` strings, authored by the reducer from classified best laps at the same cursor, plus their availability entries. Neither field changes Race `gap_to_leader` / `interval_to_ahead` or Qualifying benchmark semantics. P1 and missing/ambiguous comparisons remain null.
+
 ## State envelopes
 
 REST state responses and WebSocket snapshots use:
@@ -118,7 +120,9 @@ The allowed sequence is discovered from the catalog: a normal meeting can contri
 
 Every `AnalyticsSnapshot` contains `qualifying`. Outside the Qualifying layout it is `NOT_APPLICABLE`; otherwise it is server-authored and contains `phase`, `phaseEvidence`, `sessionClock`, `sessionClockRunning`, current `benchmark`, `cutLine`, per-driver intelligence, and `modelVersion`.
 
-Per-driver fields include `scopeBest`, `benchmarkDelta`, `cutState`, `qStatus`, completed-lap history, `tyreUsage`, and a server-authored teammate comparison. Benchmark `scope` is `SEGMENT` when factual Q phase is known and `SESSION` when phase is unknown. A current advancement boundary exists only for an explicit season/field-size/segment rule profile selected from stable roster metadata; partial current timing rows never determine field size. `ELIMINATED` additionally requires explicit source/final-result evidence. Completed-lap history is available only by the inclusive cursor. Missing phase, clock, rule profile, validity, usage, or teammate evidence remains internal `UNKNOWN`/`null` and is omitted or rendered as `—` by product UI.
+Per-driver fields include `scopeBest`, `benchmarkDelta`, `intervalToAhead`, `scopeLatestLap`, `cutState`, `qStatus`, completed-lap history, `tyreUsage`, and a server-authored teammate comparison. Benchmark `scope` is `SEGMENT` when factual Q phase is known and `SESSION` when phase is unknown. A current advancement boundary exists only for an explicit season/field-size/segment rule profile selected from stable roster metadata; partial current timing rows never determine field size. `ELIMINATED` additionally requires explicit source/final-result evidence. Completed-lap history is available only by the inclusive cursor. Missing phase, clock, rule profile, validity, usage, or teammate evidence remains internal `UNKNOWN`/`null` and is omitted or rendered as `—` by product UI.
+
+`intervalToAhead` is a numeric best-lap difference in seconds to the immediately preceding classification position, using the same scope as `benchmarkDelta`. It is null for P1, missing/duplicate positions, or missing scoped best times on either driver; it never skips a position. `scopeLatestLap` supplies the latest completed lap and its sectors within that scope. Existing `latestLap` remains session-wide for lap history. Known segments never fall back to earlier-segment times or sectors.
 
 ## Catalog semantics
 

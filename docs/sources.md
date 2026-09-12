@@ -50,6 +50,10 @@ Protected GPS, high-frequency car data, team radio, and similar enhanced topics 
 
 The optional raw SignalR capture is a provider diagnostic artifact. Product replay uses the normalized live recording written in the same source-neutral event vocabulary used by historical replay. That recording remains in progress while live, is finalized atomically after the completion drain, and is then exposed through the replay library.
 
+### Circuit reference images
+
+When ordered circuit geometry is absent, the 2026 Madring view links and embeds the [official Formula 1 circuit map](https://www.formula1.com/en/latest/article/circuit-guide-everything-you-need-to-know-about-the-madring.NF7Mh3iag3w9GUPlihwJA), published September 10, 2026. The external image remains attributed and is not bundled as MIT source. This static reference is scoped to Madring in 2026, never enables car markers, and yields to catalog geometry when it becomes available. Failed image loading retains the official source link.
+
 ## References used for verification only
 
 - **FastF1**, checked at `c4156d6` (MIT): confirmed current SignalR Core usage and that unauthenticated access may be partial.

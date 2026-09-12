@@ -88,25 +88,34 @@ function RaceStrategyRow({ driver, leader, analytics, onSelect }: { driver: Driv
   </button>;
 }
 
-function QualifyingRow({ driver, intelligence, sectorTimingAvailable, showQStatus, onSelect }: { driver: Driver; intelligence?: QualifyingIntelligence; sectorTimingAvailable: boolean; showQStatus: boolean; onSelect?: (driverNumber: string) => void }) {
+function qualifyingDelta(value: number | null | undefined): string {
+  return value == null ? "—" : `${value < 0 ? "" : "+"}${value.toFixed(3)}`;
+}
+
+function QualifyingRow({ driver, intelligence, timing, sectorTimingAvailable, showQStatus, onSelect }: { driver: Driver; intelligence?: QualifyingIntelligence; timing: boolean; sectorTimingAvailable: boolean; showQStatus: boolean; onSelect?: (driverNumber: string) => void }) {
   const model = intelligence?.drivers[driver.number];
-  const latest = model?.latestLap;
+  const latest = model?.scopeLatestLap;
+  const lifecycle = driverLifecycle(driver);
+  const status = lifecycle.label ?? (lifecycle.circulating ? "ON TRACK" : driver.activity === "IN_PIT" ? "IN PIT" : driver.activity === "ON_TRACK" ? "ON TRACK" : "—");
   const boundary = intelligence?.cutLine.status === "AVAILABLE"
     && ["Q1", "Q2", "SQ1", "SQ2"].includes(intelligence.phase)
     && intelligence.cutLine.advancePosition === driver.position;
-  const delta = model?.benchmarkDelta == null ? "—" : model.benchmarkDelta === 0 ? "BENCHMARK" : `+${model.benchmarkDelta.toFixed(3)}`;
+  const delta = model?.benchmarkDelta === 0 && intelligence?.benchmark?.driverNumber === driver.number ? "LEADER" : qualifyingDelta(model?.benchmarkDelta);
   const results = model?.segmentResults ?? driver.qualifying_results ?? [null, null, null];
-  return <button type="button" className={`timing-row timing-qualifying${showQStatus ? " timing-qualifying-final" : ""}${sectorTimingAvailable ? " timing-qualifying-sectors" : ""} ${lifecycleClassName(driver)}${boundary ? " timing-cut-boundary" : ""}`} role="row" onClick={() => onSelect?.(driver.number)}>
+  return <button type="button" className={`timing-row timing-qualifying${timing ? " timing-qualifying-timing" : ""}${showQStatus ? " timing-qualifying-final" : ""}${timing && sectorTimingAvailable ? " timing-qualifying-sectors" : ""} ${lifecycleClassName(driver)}${boundary ? " timing-cut-boundary" : ""}`} role="row" onClick={() => onSelect?.(driver.number)}>
     <strong>{driver.position ?? "—"}</strong><span className="qualifying-driver-identity"><DriverIdentity driver={driver} />{model?.qStatus?.startsWith("OUT ") && <small>{model.qStatus}</small>}</span>
-    {results.map((value, index) => <DataValue key={index} compact value={formatLapTime(value)} />)}
+    {timing ? <>
+      <DataValue compact value={model?.scopeBest ?? "—"} />
+      {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector1 ?? null) ?? "—"} />}
+      {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector2 ?? null) ?? "—"} />}
+      {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector3 ?? null) ?? "—"} />}
+    </> : results.map((value, index) => <DataValue key={index} compact value={formatLapTime(value)} />)}
     <DataValue compact value={delta} />
+    <DataValue compact value={qualifyingDelta(model?.intervalToAhead)} />
     <CompoundBadge compound={driver.compound} compact />
-    <span>{driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</span>
+    {!timing && <span>{driver.tyre_age == null ? "—" : `${driver.tyre_age}L`}</span>}
+    <span className="qualifying-driver-status">{status}</span>
     {showQStatus && <strong className="qualifying-status">{model?.qStatus ?? "—"}</strong>}
-    {sectorTimingAvailable && <DataValue compact value={formatLapTime(latest?.lapTime)} />}
-    {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector1 ?? null)} />}
-    {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector2 ?? null)} />}
-    {sectorTimingAvailable && <DataValue compact value={formatSector(latest?.sector3 ?? null)} />}
   </button>;
 }
 
@@ -118,6 +127,7 @@ function PracticeRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverN
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.last_lap} availability={driver.availability.last_lap} />
     <DataValue compact value={driver.best_lap} availability={driver.availability.best_lap} />
+    <DataValue compact value={driver.best_lap_delta_to_leader} availability={driver.availability.best_lap_delta_to_leader} />
     <DataValue compact value={driver.best_lap_delta_to_ahead} availability={driver.availability.best_lap_delta_to_ahead} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
@@ -126,7 +136,7 @@ function PracticeRow({ driver, onSelect }: { driver: Driver; onSelect?: (driverN
 }
 
 const headers = {
-  practice: ["P", "DRIVER", "TYRE", "AGE", "LAST", "BEST", "GAP", "STINT", "STOPS", "STATUS"],
+  practice: ["P", "DRIVER", "TYRE", "AGE", "LAST", "BEST", "GAP", "INT", "STINT", "STOPS", "STATUS"],
 };
 
 const raceModeHeaders = {
@@ -137,6 +147,9 @@ const raceModeHeaders = {
 
 export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, sectorTimingAvailable = false, intervalsAvailable = false, toolbar, onSelectDriver }: TimingTowerProps) {
   const showInterval = variant === "race" && mode === "timing" && intervalsAvailable;
+  const qualifyingTiming = variant === "qualifying" && mode === "timing";
+  const qualifyingPhase = analytics?.qualifying?.phase;
+  const qualifyingBestHeader = qualifyingPhase && qualifyingPhase !== "UNKNOWN" ? qualifyingPhase : "BEST";
   const qualifyingFinal = variant === "qualifying" && analytics?.qualifying.final === true;
   const qualifyingSegments = analytics?.sessionKind === "sprint_qualifying" ? ["SQ1", "SQ2", "SQ3"] : ["Q1", "Q2", "Q3"];
   const headersForView = variant === "race"
@@ -144,7 +157,9 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
       ? [...raceModeHeaders.strategy, "TYRE STRATEGY", "LAST STOP"]
       : showInterval ? [...raceModeHeaders.timing.slice(0, 3), "INT", ...raceModeHeaders.timing.slice(3)] : raceModeHeaders[mode]
     : variant === "qualifying"
-      ? ["P", "DRIVER / TEAM", ...qualifyingSegments, "GAP", "TYRE", "AGE", ...(qualifyingFinal ? ["Q STATUS"] : []), ...(sectorTimingAvailable ? ["LATEST LAP", "S1", "S2", "S3"] : [])]
+      ? ["P", "DRIVER / TEAM", ...(qualifyingTiming
+        ? [qualifyingBestHeader, ...(sectorTimingAvailable ? ["S1", "S2", "S3"] : []), "GAP", "INT", "TYRE", "STATUS"]
+        : [...qualifyingSegments, "GAP", "INT", "TYRE", "AGE", "STATUS"]), ...(qualifyingFinal ? ["Q STATUS"] : [])]
       : headers.practice;
   const rowClass = variant === "race" && mode !== "standard" ? `race-${mode}` : variant;
   const qualifying = analytics?.qualifying;
@@ -153,8 +168,8 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
   return <Panel eyebrow={variant === "race" ? "CLASSIFICATION" : variant === "qualifying" ? qualifierTitle : "RUN CLASSIFICATION"} title="Timing tower" action={<div className="panel-actions">{variant === "qualifying" && qualifying?.sessionClock && <strong className="qualifying-clock">{qualifying.sessionClock} REMAINING</strong>}<span className="panel-badge">{drivers.length} DRIVERS</span>{toolbar}</div>} className="timing-panel">
     {!replayAvailable && <div className="panel-empty">TIMING DATA NOT AVAILABLE FOR THIS SESSION</div>}
     {replayAvailable && drivers.length === 0 && <div className="panel-empty">NO TIMING ROWS YET</div>}
-    <div className={`timing-table timing-${rowClass}`} role="table">
-      <div className={`timing-header timing-${rowClass}${showInterval ? " timing-with-interval" : ""}${variant === "qualifying" && qualifyingFinal ? " timing-qualifying-final" : ""}${variant === "race" && mode === "strategy" ? " timing-race-strategy-detail" : ""}${variant === "qualifying" && sectorTimingAvailable ? " timing-qualifying-sectors" : ""}`} role="row">{headersForView.map((header) => <span key={header} className={header === "INT" || (variant === "practice" && header === "GAP") ? "timing-header-help" : undefined} title={header === "INT" ? "Interval to the driver immediately above in the classification." : variant === "practice" && header === "GAP" ? "Best-lap difference to the driver above." : variant === "race" && header === "GAP" ? "Gap to the leader or driver status." : undefined}>{header}</span>)}</div>
+    <div className={`timing-table timing-${rowClass}`} role="table" aria-label={variant === "qualifying" ? `Qualifying ${qualifyingTiming ? "Timing" : "Standard"}` : undefined}>
+      <div className={`timing-header timing-${rowClass}${showInterval ? " timing-with-interval" : ""}${variant === "qualifying" && qualifyingFinal ? " timing-qualifying-final" : ""}${variant === "race" && mode === "strategy" ? " timing-race-strategy-detail" : ""}${qualifyingTiming ? " timing-qualifying-timing" : ""}${qualifyingTiming && sectorTimingAvailable ? " timing-qualifying-sectors" : ""}`} role="row">{headersForView.map((header) => <span key={header} className={header === "INT" || (["practice", "qualifying"].includes(variant) && header === "GAP") || (variant === "qualifying" && ["S1", "S2", "S3"].includes(header)) ? "timing-header-help" : undefined} title={variant === "qualifying" && header === "GAP" ? "Best-lap gap to the fastest driver in this scope (active segment when known)." : variant === "qualifying" && header === "INT" ? "Best-lap difference to the driver immediately above, within the same scope." : variant === "qualifying" && ["S1", "S2", "S3"].includes(header) ? "Sector from the latest completed lap in this scope; may differ from the best lap." : header === "INT" ? variant === "practice" ? "Best-lap difference to the driver above." : "Interval to the driver immediately above in the classification." : variant === "practice" && header === "GAP" ? "Best-lap gap to the leader (P1)." : variant === "race" && header === "GAP" ? "Gap to the leader or driver status." : undefined}>{header}</span>)}</div>
       {drivers.map((driver) => variant === "race" && mode === "timing"
         ? <RaceTimingRow driver={driver} leader={raceLeader} intervalsAvailable={showInterval} onSelect={onSelectDriver} key={driver.number} />
         : variant === "race" && mode === "strategy"
@@ -162,7 +177,7 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
           : variant === "race"
             ? <RaceRow driver={driver} leader={raceLeader} onSelect={onSelectDriver} key={driver.number} />
             : variant === "qualifying"
-               ? <QualifyingRow driver={driver} intelligence={qualifying} sectorTimingAvailable={sectorTimingAvailable} showQStatus={qualifyingFinal} onSelect={onSelectDriver} key={driver.number} />
+               ? <QualifyingRow driver={driver} intelligence={qualifying} timing={qualifyingTiming} sectorTimingAvailable={sectorTimingAvailable} showQStatus={qualifyingFinal} onSelect={onSelectDriver} key={driver.number} />
               : <PracticeRow driver={driver} onSelect={onSelectDriver} key={driver.number} />)}
     </div>
   </Panel>;

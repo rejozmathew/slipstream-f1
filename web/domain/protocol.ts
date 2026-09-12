@@ -13,6 +13,7 @@ export type Driver = {
   last_lap: string | null;
   best_lap: string | null;
   best_lap_delta_to_ahead: string | null;
+  best_lap_delta_to_leader?: string | null;
   compound: string | null;
   tyre_age: number | null;
   stint_laps: number | null;
@@ -508,23 +509,27 @@ export type QualifyingAttempt = {
   occurredAt: string;
 };
 
+export type QualifyingLap = {
+  lap: number | null;
+  lapTime: number;
+  sector1: number | null;
+  sector2: number | null;
+  sector3: number | null;
+  classification: QualifyingAttempt["classification"];
+};
+
 export type QualifyingDriverIntelligence = {
   driverNumber: string;
   activity: "ON_TRACK" | "IN_PIT" | "UNKNOWN";
   scopeBest: string | null;
   benchmarkDelta: number | null;
+  intervalToAhead?: number | null;
+  scopeLatestLap?: QualifyingLap | null;
   cutState: "ADVANCING" | "BELOW_CUT" | "ELIMINATED" | "UNKNOWN";
   qStatus: string | null;
   segmentResults: [number | null, number | null, number | null];
   attempts: QualifyingAttempt[];
-  latestLap: {
-    lap: number | null;
-    lapTime: number;
-    sector1: number | null;
-    sector2: number | null;
-    sector3: number | null;
-    classification: QualifyingAttempt["classification"];
-  } | null;
+  latestLap: QualifyingLap | null;
   tyreUsage: "NEW" | "USED" | "UNKNOWN";
   teammate: {
     driverNumber: string;

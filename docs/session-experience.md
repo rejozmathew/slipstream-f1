@@ -22,7 +22,7 @@ Pre-event UI shows the official start when known and a countdown derived from se
 
 ## Viewer delay
 
-The server owns one upstream connection per application instance. The Live protocol accepts an independent 0–300-second delay per viewer; the browser exposes 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry such as 2:17. The active label follows the server-confirmed delay. Both `RaceState` and `AnalyticsSnapshot` are built from the same delayed cursor. Returning to LIVE resets only that viewer to zero.
+The server owns one upstream connection per application instance. The Live protocol accepts an independent 0–300-second delay per viewer; the browser exposes 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry such as 2:17. The input starts at `0:00`; the active label and input follow the server-confirmed delay. An unsubmitted edit does not change the viewer cursor. Both `RaceState` and `AnalyticsSnapshot` are built from the same delayed cursor. Returning to LIVE resets only that viewer to zero.
 
 Live viewing has no pause, seek, relative-seek, or speed command. Those controls belong only to replay.
 
@@ -45,6 +45,8 @@ Browser preferences distinguish deliberate replay selection from follow-live int
 The backend owns Qualifying truth. It publishes the current phase and clock, tyre/usage observations, completed-lap history, benchmark/scope, verified advancement boundary, final-segment results, teammate comparison, and advancing/eliminated classification when evidence supports them. The browser formats these values but does not calculate a competing benchmark or elimination model.
 
 A lap-history entry requires observed completed-lap evidence; elapsed wall time or a changing position alone does not invent a lap. Eliminations are session- and policy-aware and use stable roster metadata rather than the current row count. Unknown phase or clock is omitted in the product instead of rendered as a large UNKNOWN label.
+
+Qualifying has Standard and Timing tower views on desktop and mobile, with a device preference separate from Race that survives navigation and refresh. Standard shows position, driver, Q1/Q2/Q3 (or SQ1/SQ2/SQ3) results, GAP, INT, compound, tyre age, and factual driver status. GAP and INT use the same active-segment comparisons in both modes. Timing shows the active-segment best, latest completed lap sectors within that segment when supported, GAP to the segment fastest, INT to the driver immediately above using the same segment, compound, and status. Unknown phase uses the existing session-wide scope labelled BEST. Both modes retain final Q STATUS and factual elimination labels. Missing values show a dash; changing segments clears prior-segment comparisons and sectors.
 
 ## Driver activity and terminal state
 
@@ -74,6 +76,6 @@ Internal availability enums remain part of diagnostics and protocol state, but t
 
 Practice shows REMAINING in the common Session/Driver header and TV Mode. Qualifying and Sprint Qualifying show the server-authored Q1/Q2/Q3 or SQ1/SQ2/SQ3 phase alongside the same source clock. Missing clocks show an em dash. The countdown uses ExtrapolatedClock evidence at the viewer's delayed cursor, freezes when the source stops it, and resumes from sourced values; React does not run a separate timer. Race/Sprint use session LAP current / total. Pre-event start countdown behavior is unchanged.
 
-Practice timing shows P, DRIVER, TYRE, AGE, LAST, BEST, GAP, STINT, STOPS, and STATUS. GAP is the server-authored best-lap difference to the driver immediately above in the classification at the inclusive viewing cursor. It is unavailable for the leader, when either best lap is missing, or when the immediately preceding position is absent; it never falls forward to another driver. Normal running rows are quiet; IN PIT, STOPPED, and terminal classifications require lifecycle evidence. Narrow rows retain tyre, best lap, gap, and factual status.
+Practice timing shows P, DRIVER, TYRE, AGE, LAST, BEST, GAP, INT, STINT, STOPS, and STATUS. GAP is the server-authored best-lap difference to classified P1; INT preserves the best-lap difference to the driver immediately above. Both use the inclusive viewing cursor, distinct from Race elapsed-time gaps and Qualifying segment benchmarks. Values are unavailable for P1 or when the relevant best lap/classification is missing or ambiguous. INT never skips a missing position; GAP can remain available when an intermediate driver has no best lap. Normal running rows are quiet; IN PIT, STOPPED, and terminal classifications require lifecycle evidence. Narrow rows retain tyre, best lap, leader gap, interval, and factual status.
 
 Practice Driver Focus retains compound/age, stint laps, timing, pace evidence, factual pit history, driver read, Track Map, and Conditions. It excludes Grand Prix Pirelli comparisons, published race stop windows, and dry-compound legality. Backend dry-tyre requirements are NOT_APPLICABLE for Practice and Qualifying, including Sprint Qualifying; Race and the verified Sprint profile retain their existing semantics.

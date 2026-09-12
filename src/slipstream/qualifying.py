@@ -65,6 +65,10 @@ def build_qualifying_snapshot(
         for driver in ordered
     }
     benchmark = _benchmark(ordered, scoped_best)
+    positions: dict[int, list[DriverState]] = {}
+    for driver in ordered:
+        if driver.position is not None:
+            positions.setdefault(driver.position, []).append(driver)
     advancing_count = _advancing_count(
         resource.descriptor.year, state.session.eligible_field_size, phase
     )
@@ -87,6 +91,11 @@ def build_qualifying_snapshot(
                 if benchmark is not None and best_seconds is not None
                 else None
             ),
+            "intervalToAhead": _interval_to_ahead(driver, positions, scoped_best),
+            "scopeLatestLap": _latest_lap([
+                attempt for attempt in attempts_by_driver[driver.number]
+                if phase == "UNKNOWN" or attempt["phase"] == phase
+            ]),
             "cutState": cut_state,
             "qStatus": _q_status(driver),
             "segmentResults": segment_results,
@@ -310,6 +319,7 @@ def _scope_best(
         float(item["lapTime"])
         for item in attempts
         if isinstance(item.get("lapTime"), (int, float))
+        and item.get("validity") != "INVALID"
         and (phase == "UNKNOWN" or item.get("phase") == phase)
     ]
     results = driver.qualifying_results
@@ -333,6 +343,24 @@ def _scope_best(
         return None
     seconds = min(candidates)
     return seconds, _format_duration(seconds)
+
+
+def _interval_to_ahead(
+    driver: DriverState,
+    positions: dict[int, list[DriverState]],
+    scoped_best: dict[str, tuple[float, str] | None],
+) -> float | None:
+    position = driver.position
+    if position is None or position <= 1 or len(positions.get(position, [])) != 1:
+        return None
+    ahead = positions.get(position - 1, [])
+    if len(ahead) != 1:
+        return None
+    own_best = scoped_best.get(driver.number)
+    ahead_best = scoped_best.get(ahead[0].number)
+    if own_best is None or ahead_best is None:
+        return None
+    return round(own_best[0] - ahead_best[0], 3)
 
 
 def _benchmark(

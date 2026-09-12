@@ -256,7 +256,9 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(timingTower, /standard: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "LAST", "PIT"\]/);
   assert.match(timingTower, /timing: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "S1", "S2", "S3", "LAST", "BEST"\]/);
   assert.match(timingTower, /strategy: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "STINT", "PIT"\]/);
-  assert.match(timingTower, /qualifyingSegments, "GAP", "TYRE", "AGE"/);
+  // Owner request 2026-09-12: split Qualifying history and active-segment Timing.
+  assert.match(timingTower, /qualifyingSegments, "GAP", "INT", "TYRE", "AGE", "STATUS"/);
+  assert.match(timingTower, /"GAP", "INT", "TYRE", "STATUS"/);
   assert.match(timingTower, /"Q STATUS"/);
   assert.match(timingTower, /qualifying\.final === true/);
   assert.match(timingTower, /segmentResults/);

@@ -3,6 +3,7 @@ export type AnalysisModuleId = "strategy" | "map" | "conditions" | "raceControl"
 export type ModuleSize = "compact" | "standard" | "tall";
 export type RacePresetId = "balanced" | "towerWide" | "analysisWide" | "custom";
 export type TowerView = "standard" | "timing" | "strategy";
+export type QualifyingTowerView = Exclude<TowerView, "strategy">;
 
 export type RaceLayoutConfig = {
   timingWidth: number;

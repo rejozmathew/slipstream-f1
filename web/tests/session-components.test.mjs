@@ -25,6 +25,8 @@ const { SessionStrip } = await server.ssrLoadModule("/components/shell/SessionSt
 const { SessionProgress } = await server.ssrLoadModule("/components/shared/SessionProgress.tsx");
 const { TimingTower } = await server.ssrLoadModule("/components/timing/TimingTower.tsx");
 const { DriverFocusView } = await server.ssrLoadModule("/views/DriverFocusView.tsx");
+const { QualifyingView } = await server.ssrLoadModule("/views/QualifyingView.tsx");
+const { useProductPreferences } = await server.ssrLoadModule("/hooks/useProductPreferences.ts");
 const render = (component, props) => renderToStaticMarkup(createElement(component, props));
 const driver = {
   number: "1", code: "ONE", name: "Driver One", team: "Team", position: 3, lap: 12,
@@ -161,14 +163,17 @@ test("Live delay handlers submit presets/custom input, reject invalid input and 
   };
   try {
     await update(0);
+    assert.equal(container.querySelector("input").value, "0:00");
     await act(() => button("2m").click());
     assert.deepEqual(commands.at(-1), { type: "delay", seconds: 120 });
     assert.equal(container.querySelector("[aria-live]").textContent, "LIVE");
     await update(120);
+    assert.equal(container.querySelector("input").value, "2:00");
     assert.equal(container.querySelector("[aria-live]").textContent, "DELAY 2:00");
     await submit("2:17");
     assert.deepEqual(commands.at(-1), { type: "delay", seconds: 137 });
     await update(30);
+    assert.equal(container.querySelector("input").value, "0:30");
     assert.equal(container.querySelector("[aria-live]").textContent, "DELAY 0:30", "server truth can differ from the request");
     await update(137);
     const count = commands.length;
@@ -182,8 +187,176 @@ test("Live delay handlers submit presets/custom input, reject invalid input and 
     assert.deepEqual(commands.at(-1), { type: "reset" });
     assert.equal(container.querySelector("[aria-live]").textContent, "DELAY 5:00");
     await update(0);
+    assert.equal(container.querySelector("input").value, "0:00");
     assert.equal(container.querySelector("[aria-live]").textContent, "LIVE");
   } finally {
     await act(() => root.unmount());
   }
+});
+
+
+test("Practice GAP compares P1 while INT preserves the adjacent best-lap difference", () => {
+  const html = render(TimingTower, { variant: "practice", replayAvailable: true, drivers: [
+    { ...driver, position: 1, best_lap_delta_to_leader: null, best_lap_delta_to_ahead: null },
+    { ...driver, number: "16", position: 2, best_lap_delta_to_leader: "+0.113", best_lap_delta_to_ahead: "+0.113" },
+    { ...driver, number: "44", position: 3, best_lap_delta_to_leader: "+0.149", best_lap_delta_to_ahead: "+0.036" },
+    { ...driver, number: "4", position: 4, best_lap_delta_to_leader: null, best_lap_delta_to_ahead: null },
+  ] });
+  const root = new JSDOM(html);
+  try {
+    const rows = [...root.window.document.querySelectorAll("button[role=row]")];
+    assert.deepEqual(rows.map(row => row.children[6].textContent), ["—", "+0.113", "+0.149", "—"]);
+    assert.deepEqual(rows.map(row => row.children[7].textContent), ["—", "+0.113", "+0.036", "—"]);
+    assert.ok(rows.every(row => row.children.length === 11));
+    assert.match(html, /title="Best-lap gap to the leader \(P1\)\."/);
+    assert.match(html, />INT</);
+    assert.doesNotMatch(html, /BENCHMARK|\+0\.685/);
+  } finally { root.window.close(); }
+});
+
+test("Madring reference is scoped to 2026, yields to geometry and never positions cars", () => {
+  const props = { session: { ...EMPTY_RACE_STATE.session, circuit: "Madring", started_at: "2026-09-11T15:00:00Z", session_kind: "race" }, circuit: EMPTY_RACE_STATE.circuit, drivers: [{ ...driver, track_position: 0.5 }], positionMode: "timing_estimate", viewingMode: "live" };
+  const html = render(TrackMap, props);
+  assert.match(html, /alt="Madring 2026 official circuit map"/);
+  assert.match(html, /Official circuit map · Formula 1/);
+  assert.match(html, /REFERENCE MAP · CAR POSITIONS UNAVAILABLE/);
+  assert.match(html, /ACTIVE COVERAGE · 0\/1/);
+  assert.doesNotMatch(html, /class="car-marker|class="map-center|POSITION · APPROX|SHAPE · OBSERVED/);
+  for (const session of [{ ...props.session, circuit: "Barcelona" }, { ...props.session, started_at: "2027-09-11T15:00:00Z" }, { ...props.session, started_at: null }]) {
+    assert.doesNotMatch(render(TrackMap, { ...props, session }), /<img|Official circuit map/);
+  }
+  const withGeometry = render(TrackMap, { ...props, circuit: { ...props.circuit, path: [[0, 0], [10, 0], [5, 10]] } });
+  assert.match(withGeometry, /class="car-marker/);
+  assert.doesNotMatch(withGeometry, /<img|REFERENCE MAP/);
+});
+
+test("failed reference image retains the official source link", async () => {
+  const container = document.getElementById("test-root");
+  const root = createRoot(container);
+  try {
+    await act(() => root.render(createElement(TrackMap, {
+      session: { ...EMPTY_RACE_STATE.session, circuit: "Madring", started_at: "2026-09-11T15:00:00Z" },
+      circuit: EMPTY_RACE_STATE.circuit, drivers: [], positionMode: "unavailable", viewingMode: "live",
+    })));
+    await act(() => container.querySelector("img").dispatchEvent(new dom.window.Event("error")));
+    assert.equal(container.querySelector("img"), null);
+    assert.match(container.textContent, /MAP IMAGE UNAVAILABLE/);
+    assert.match(container.querySelector("a").href, /^https:\/\/www.formula1.com\//);
+  } finally { await act(() => root.unmount()); }
+});
+
+
+const qualifyingAnalytics = (phase = "Q2", final = false) => ({
+  sessionKind: phase.startsWith("SQ") ? "sprint_qualifying" : "qualifying",
+  qualifying: { status: "AVAILABLE", phase, final, sessionClock: null,
+    cutLine: { status: "AVAILABLE", advancePosition: 16 },
+    benchmark: { driverNumber: "2", scope: "SEGMENT" },
+    drivers: { "1": { scopeBest: "1:21.444", benchmarkDelta: 0.456, intervalToAhead: 0.123,
+      segmentResults: [83.111, 82.222, 81.333], qStatus: "OUT Q2",
+      latestLap: { lapTime: 84, sector1: 99.999, sector2: 99.999, sector3: 99.999 },
+      scopeLatestLap: { lapTime: 84, sector1: 26.111, sector2: 28.222, sector3: 29.667 },
+    } },
+  },
+});
+const tableHeaders = (html) => [...new JSDOM(html).window.document.querySelectorAll('.timing-header > span')].map((node) => node.textContent);
+
+test("Qualifying Standard separates result history from active Timing detail for all six segments", () => {
+  for (const prefix of ["Q", "SQ"]) for (const segment of [1, 2, 3]) {
+    const phase = `${prefix}${segment}`;
+    const props = { variant: "qualifying", drivers: [driver], replayAvailable: true, sectorTimingAvailable: true, analytics: qualifyingAnalytics(phase) };
+    const standard = render(TimingTower, props);
+    assert.deepEqual(tableHeaders(standard), ["P", "DRIVER / TEAM", `${prefix}1`, `${prefix}2`, `${prefix}3`, "GAP", "INT", "TYRE", "AGE", "STATUS"]);
+    for (const value of ["1:23.111", "1:22.222", "1:21.333", "+0.456", "+0.123", "5L", "ON TRACK", "OUT Q2"]) assert.ok(standard.includes(value), value);
+    assert.doesNotMatch(standard, /26\.111|99\.999|1:21\.444/);
+    const timing = render(TimingTower, { ...props, mode: "timing" });
+    assert.deepEqual(tableHeaders(timing), ["P", "DRIVER / TEAM", phase, "S1", "S2", "S3", "GAP", "INT", "TYRE", "STATUS"]);
+    for (const value of ["1:21.444", "26.111", "+0.456", "+0.123", "ON TRACK", "OUT Q2"]) assert.ok(timing.includes(value), value);
+    assert.doesNotMatch(timing, /1:23\.111|1:22\.222|1:21\.333|99\.999|5L|\+0\.685/);
+  }
+});
+
+test("Qualifying Timing supports absent sectors, missing scope data and final classifications", () => {
+  const analytics = qualifyingAnalytics("Q3", true);
+  const model = analytics.qualifying.drivers["1"];
+  Object.assign(model, { scopeBest: null, scopeLatestLap: null, benchmarkDelta: null, intervalToAhead: null });
+  const props = { variant: "qualifying", mode: "timing", drivers: [driver], replayAvailable: true, analytics };
+  const absent = render(TimingTower, props);
+  assert.deepEqual(tableHeaders(absent), ["P", "DRIVER / TEAM", "Q3", "GAP", "INT", "TYRE", "STATUS", "Q STATUS"]);
+  assert.match(absent, /QUALIFYING FINAL/);
+  assert.match(absent, /OUT Q2/);
+  const missing = render(TimingTower, { ...props, sectorTimingAvailable: true });
+  assert.ok(tableHeaders(missing).includes("S1"));
+  assert.doesNotMatch(missing, /UNKNOWN|UNAVAILABLE/);
+  assert.doesNotMatch(missing, /99\.999|26\.111|1:21\.444|\+0\.456|\+0\.123/);
+  analytics.qualifying.phase = "UNKNOWN";
+  assert.ok(tableHeaders(render(TimingTower, props)).includes("BEST"));
+  // Tied laps and an overtaken classification update retain numeric zero/negative intervals.
+  model.intervalToAhead = 0;
+  assert.match(render(TimingTower, props), /\+0\.000/);
+  model.intervalToAhead = -0.123;
+  const negative = render(TimingTower, props);
+  assert.match(negative, />-0\.123</);
+  assert.doesNotMatch(negative, /\+-/);
+});
+
+test("Qualifying status follows observed lifecycle in both modes without inferring from silence", () => {
+  const examples = [
+    [{ source_condition: "RUNNING", activity: "ON_TRACK" }, "ON TRACK"],
+    [{ source_condition: "RUNNING", activity: "IN_PIT" }, "IN PIT"],
+    [{ source_condition: "STOPPED", activity: "ON_TRACK" }, "STOPPED"],
+    [{ source_condition: "RETIRED_INDICATED", activity: "ON_TRACK" }, "RETIRED"],
+    [{ classification: "DNF", activity: "ON_TRACK" }, "DNF"],
+    [{ source_condition: "UNKNOWN", status: "UNKNOWN", activity: "UNKNOWN" }, "—"],
+  ];
+  for (const mode of ["standard", "timing"]) for (const [facts, label] of examples) {
+    const html = render(TimingTower, { variant: "qualifying", mode, replayAvailable: true, drivers: [{ ...driver, ...facts }], analytics: qualifyingAnalytics() });
+    const status = new JSDOM(html).window.document.querySelector('.qualifying-driver-status');
+    assert.equal(status.textContent, label);
+  }
+});
+
+function QualifyingPreferenceHarness(props) {
+  const preferences = useProductPreferences();
+  return createElement(QualifyingView, { ...props, towerView: preferences.qualifyingTowerView, onTowerViewChange: preferences.setQualifyingTowerView });
+}
+
+test("Qualifying mode switches both desktop and mobile towers and survives incoming data", async () => {
+  const container = document.getElementById("test-root");
+  const root = createRoot(container);
+  const props = { state: { ...EMPTY_RACE_STATE, drivers: { "1": driver } }, analytics: qualifyingAnalytics(), replayAvailable: true, sectorTimingAvailable: true, positionMode: "unavailable", viewingMode: "live", onSelectDriver() {} };
+  try {
+    await act(async () => root.render(createElement(QualifyingPreferenceHarness, props)));
+    const controls = () => [...container.querySelectorAll('.qualifying-view-modes')];
+    assert.equal(controls().length, 2);
+    for (const control of controls()) assert.deepEqual([...control.querySelectorAll('button')].map((button) => button.textContent), ["STANDARD", "TIMING"]);
+    await act(async () => controls()[0].querySelectorAll('button')[1].click());
+    for (const control of controls()) assert.equal(control.querySelectorAll('button')[1].getAttribute('aria-pressed'), "true");
+    assert.equal(container.querySelectorAll('[aria-label="Qualifying Timing"]').length, 2);
+    assert.equal(JSON.parse(window.localStorage.getItem("slipstream.device-preferences.v1")).qualifyingTowerView, "timing");
+    await act(async () => root.render(createElement(QualifyingPreferenceHarness, { ...props, analytics: qualifyingAnalytics("Q3") })));
+    assert.equal(container.querySelectorAll('[aria-label="Qualifying Timing"]').length, 2);
+    assert.equal(JSON.parse(window.localStorage.getItem("slipstream.device-preferences.v1")).qualifyingTowerView, "timing");
+    await act(async () => controls()[1].querySelectorAll('button')[0].click());
+    assert.equal(container.querySelectorAll('[aria-label="Qualifying Standard"]').length, 2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Qualifying preference reloads separately from Race and rejects Strategy", async () => {
+  const key = "slipstream.device-preferences.v1";
+  const container = document.getElementById("test-root");
+  const props = { state: { ...EMPTY_RACE_STATE, drivers: { "1": driver } }, analytics: qualifyingAnalytics(), replayAvailable: true, sectorTimingAvailable: true, positionMode: "unavailable", viewingMode: "live", onSelectDriver() {} };
+  for (const [saved, expected] of [["timing", "Timing"], ["strategy", "Standard"], [null, "Standard"]]) {
+    window.localStorage.setItem(key, JSON.stringify({ towerView: "strategy", qualifyingTowerView: saved }));
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(createElement(QualifyingPreferenceHarness, props)));
+      assert.equal(container.querySelectorAll(`[aria-label="Qualifying ${expected}"]`).length, 2);
+      assert.equal(JSON.parse(window.localStorage.getItem(key)).towerView, "strategy");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  }
+  window.localStorage.removeItem(key);
 });

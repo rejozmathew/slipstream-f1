@@ -3,13 +3,19 @@ import { useState } from "react";
 import { formatLiveDelay, LIVE_DELAY_PRESETS, parseLiveDelay } from "../../domain/liveDelay.mjs";
 import type { LiveProductPhase, ReplayCommand } from "../../domain/protocol";
 
-export function LiveControls({ phase, delaySeconds, commandAvailable, onCommand }: {
+type LiveControlsProps = {
   phase: LiveProductPhase;
   delaySeconds: number;
   commandAvailable: boolean;
   onCommand: (command: ReplayCommand) => boolean;
-}) {
-  const [customDelay, setCustomDelay] = useState("");
+};
+
+export function LiveControls(props: LiveControlsProps) {
+  return <ConfirmedLiveControls key={props.delaySeconds} {...props} />;
+}
+
+function ConfirmedLiveControls({ phase, delaySeconds, commandAvailable, onCommand }: LiveControlsProps) {
+  const [customDelay, setCustomDelay] = useState(() => formatLiveDelay(delaySeconds));
   const [error, setError] = useState<string | null>(null);
   const selectDelay = (seconds: number) => {
     if (!commandAvailable) return;
@@ -17,7 +23,9 @@ export function LiveControls({ phase, delaySeconds, commandAvailable, onCommand 
   };
   const resetLive = () => {
     if (!commandAvailable) return;
-    setError(onCommand({ type: "reset" }) ? null : "Sync command could not be sent.");
+    const sent = onCommand({ type: "reset" });
+    setError(sent ? null : "Sync command could not be sent.");
+    if (sent) setCustomDelay(formatLiveDelay(delaySeconds));
   };
   return <footer className="live-controls" aria-label="Live sync controls">
     <div className="live-controls-status"><span>{phase.replaceAll("_", " ")}</span><strong aria-live="polite">{delaySeconds === 0 ? "LIVE" : `DELAY ${formatLiveDelay(delaySeconds)}`}</strong></div>
@@ -28,7 +36,7 @@ export function LiveControls({ phase, delaySeconds, commandAvailable, onCommand 
       if (seconds === null) { setError("Enter M:SS from 0:00 to 5:00."); return; }
       selectDelay(seconds);
     }}>
-      <label><span>DELAY M:SS</span><input aria-label="Custom live delay M:SS" aria-invalid={Boolean(error)} aria-describedby={error ? "live-delay-error" : undefined} placeholder="2:17" maxLength={4} value={customDelay} disabled={!commandAvailable} onChange={(event) => { setCustomDelay(event.target.value); setError(null); }} /></label>
+      <label><span>DELAY M:SS</span><input aria-label="Custom live delay M:SS" aria-invalid={Boolean(error)} aria-describedby={error ? "live-delay-error" : undefined} placeholder="0:00" maxLength={4} value={customDelay} disabled={!commandAvailable} onChange={(event) => { setCustomDelay(event.target.value); setError(null); }} /></label>
       <button type="submit" disabled={!commandAvailable}>APPLY</button>
     </form>
     <button className="live-reset" disabled={!commandAvailable} onClick={resetLive}>GO LIVE</button>

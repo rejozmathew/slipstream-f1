@@ -340,3 +340,105 @@ def test_unknown_source_phases_follow_observed_segment_starts_without_future_lea
 
     assert q1["drivers"]["1"]["segmentResults"] == [79.1, None, None]
     assert q2["drivers"]["1"]["segmentResults"] == [79.1, 78.5, None]
+
+
+@pytest.mark.parametrize("prefix", ["Q", "SQ"])
+@pytest.mark.parametrize("segment", [1, 2, 3])
+def test_timing_deltas_use_only_the_active_segment(tmp_path, prefix, segment):
+    resource, events = _resource(tmp_path)
+    state = replay(events)
+    phase = f"{prefix}{segment}"
+    # Earlier segments are faster, so accidental session-wide comparisons differ.
+    times = {"1": (70.0, 80.0, 90.0), "2": (70.2, 80.4, 90.6),
+             "3": (70.5, 80.9, 91.3), "4": (71.0, None, None)}
+    drivers = {
+        number: replace(state.drivers[number], qualifying_results=results)
+        for number, results in times.items()
+    }
+    drivers["4"] = replace(drivers["4"], qualifying_eliminated=True,
+                           qualifying_phase_reached=f"{prefix}1")
+    session = replace(state.session, qualifying_phase=phase,
+                      status="FINISHED" if segment == 3 else "RUNNING")
+    snapshot = build_qualifying_snapshot(
+        resource, replace(state, session=session, drivers=drivers), sequence=len(events),
+    )
+    rows = snapshot["drivers"]
+    assert rows["1"]["intervalToAhead"] is None
+    assert rows["2"]["benchmarkDelta"] == pytest.approx((0.2, 0.4, 0.6)[segment - 1])
+    assert rows["3"]["intervalToAhead"] == pytest.approx((0.3, 0.5, 0.7)[segment - 1])
+    assert rows["4"]["qStatus"] == f"OUT {prefix}1"
+    if segment > 1:
+        assert rows["4"]["scopeBest"] is None
+        assert rows["4"]["benchmarkDelta"] is None
+        assert rows["4"]["intervalToAhead"] is None
+        assert rows["1"]["scopeLatestLap"] is None
+    assert snapshot["final"] is (segment == 3)
+
+
+@pytest.mark.parametrize("positions, times, expected", [
+    ((1, 2, 3), (70.0, 70.4, 70.9), 0.5),
+    ((1, 2, 3), (70.0, 70.4, 70.4), 0.0),
+    ((1, 2, 3), (70.0, 70.9, 70.4), -0.5),
+    ((1, 2, 3), (70.0, None, 70.9), None),
+    ((1, 2, 3), (70.0, 70.4, None), None),
+    ((1, 3, 4), (70.0, 70.4, 70.9), None),
+    ((1, 2, 2), (70.0, 70.4, 70.9), None),
+    ((2, 2, 3), (70.0, 70.4, 70.9), None),
+    ((1, None, 3), (70.0, 70.4, 70.9), None),
+])
+def test_interval_never_skips_missing_or_ambiguous_classification(tmp_path, positions, times, expected):
+    resource, events = _resource(tmp_path)
+    state = replay(events)
+    drivers = {
+        str(index): replace(state.drivers[str(index)], position=position,
+                            qualifying_results=(time, None, None))
+        for index, (position, time) in enumerate(zip(positions, times), start=1)
+    }
+    snapshot = build_qualifying_snapshot(
+        resource, replace(state, drivers=drivers), sequence=len(events),
+    )
+    # The missing P2 case is asserted on P3, rather than P4 (which has an adjacent P3).
+    target = "2" if positions == (1, 3, 4) else "3"
+    assert snapshot["drivers"][target]["intervalToAhead"] == expected
+
+
+def test_scope_latest_lap_clears_on_segment_change_and_respects_cursor(tmp_path):
+    _, events = _resource(tmp_path)
+    transition = NormalizedEvent("session", "2026-07-25T14:25:00+00:00", "fixture",
+                                 {"qualifying_phase": "Q2"})
+    payload = dict(events[-1].payload)
+    observation = dict(payload["lap_observation"])
+    observation.update(lap=8, qualifying_phase="Q2", duration=78.0,
+                       sector_1=25.0, sector_2=28.0, sector_3=25.0)
+    payload.update(lap=8, last_lap="1:18.000", lap_observation=observation)
+    q2_lap = replace(events[-1], occurred_at="2026-07-25T14:28:00+00:00", payload=payload)
+    all_events = [*events, transition, q2_lap]
+    path = tmp_path / "segment-transition.json"
+    path.write_text(json.dumps([asdict(event) for event in all_events]), encoding="utf-8")
+    resource = ReplayLibrary(path).get()
+    snapshots = [build_qualifying_snapshot(resource, replay(all_events, event_limit=cursor),
+                                           sequence=cursor)
+                 for cursor in (len(events), len(events) + 1, len(events) + 2)]
+    q1, q2_start, q2_timed = [snapshot["drivers"]["1"] for snapshot in snapshots]
+    assert q1["scopeLatestLap"]["lapTime"] == 79.1
+    assert q2_start["scopeLatestLap"] is None
+    assert q2_start["scopeBest"] is None
+    assert q2_start["latestLap"]["lapTime"] == 79.1
+    assert q2_timed["scopeLatestLap"]["lapTime"] == 78.0
+    assert q2_timed["scopeLatestLap"]["sector1"] == 25.0
+    assert q2_timed["segmentResults"] == [79.1, 78.0, None]
+
+
+def test_invalid_attempt_cannot_set_scope_best_or_interval(tmp_path):
+    from slipstream.qualifying import _scope_best
+
+    _, events = _resource(tmp_path)
+    driver = replay(events).drivers["1"]
+    attempts = [
+        {"lapTime": 69.0, "phase": "Q1", "validity": "INVALID"},
+        {"lapTime": 71.0, "phase": "Q1", "validity": "VALID"},
+        {"lapTime": 70.0, "phase": "Q2", "validity": "VALID"},
+    ]
+    assert _scope_best(driver, attempts, "Q1") == (71.0, "1:11.000")
+    assert _scope_best(driver, attempts, "UNKNOWN") == (70.0, "1:10.000")
+    assert _scope_best(driver, attempts[:1], "Q1") is None

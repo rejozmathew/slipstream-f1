@@ -42,6 +42,7 @@ class DriverState:
     last_lap: str | None = None
     best_lap: str | None = None
     best_lap_delta_to_ahead: str | None = None
+    best_lap_delta_to_leader: str | None = None
     compound: str | None = None
     tyre_age: int | None = None
     stint_laps: int | None = None
@@ -327,6 +328,9 @@ def _updated_drivers(session, drivers, previous, current):
         or position_changed
         or current.best_lap != previous.best_lap
         or current.best_lap_delta_to_ahead != previous.best_lap_delta_to_ahead
+        or current.best_lap_delta_to_leader != previous.best_lap_delta_to_leader
+        or current.availability.get("best_lap_delta_to_leader")
+        != previous.availability.get("best_lap_delta_to_leader")
         or current.availability.get("best_lap_delta_to_ahead")
         != previous.availability.get("best_lap_delta_to_ahead")
     ):
@@ -337,7 +341,7 @@ def _updated_drivers(session, drivers, previous, current):
 def _with_practice_best_lap_deltas(
     session: SessionState, drivers: dict[str, DriverState]
 ) -> dict[str, DriverState]:
-    """Author adjacent classified best-lap deltas for Practice."""
+    """Author classified best-lap deltas to P1 and the adjacent driver."""
 
     if session.layout_family != "practice":
         return drivers
@@ -347,14 +351,22 @@ def _with_practice_best_lap_deltas(
         if isinstance(driver.position, int) and driver.position > 0:
             by_position.setdefault(driver.position, []).append(driver)
 
+    leaders = by_position.get(1, [])
+    leader_ms = (
+        _lap_time_milliseconds(leaders[0].best_lap)
+        if len(leaders) == 1 else None
+    )
     result = dict(drivers)
     for driver in drivers.values():
         delta = None
+        leader_delta = None
         if isinstance(driver.position, int) and driver.position > 1:
             current = by_position.get(driver.position, [])
             ahead = by_position.get(driver.position - 1, [])
+            current_ms = _lap_time_milliseconds(driver.best_lap)
+            if len(current) == 1 and current_ms is not None and leader_ms is not None:
+                leader_delta = _format_millisecond_delta(current_ms - leader_ms)
             if len(current) == 1 and len(ahead) == 1:
-                current_ms = _lap_time_milliseconds(driver.best_lap)
                 ahead_ms = _lap_time_milliseconds(ahead[0].best_lap)
                 if current_ms is not None and ahead_ms is not None:
                     delta = _format_millisecond_delta(current_ms - ahead_ms)
@@ -363,14 +375,19 @@ def _with_practice_best_lap_deltas(
             "best_lap_delta_to_ahead": (
                 "available" if delta is not None else "unavailable"
             ),
+            "best_lap_delta_to_leader": (
+                "available" if leader_delta is not None else "unavailable"
+            ),
         }
         if (
             driver.best_lap_delta_to_ahead != delta
+            or driver.best_lap_delta_to_leader != leader_delta
             or driver.availability != availability
         ):
             result[driver.number] = _replace_snapshot(
                 driver,
                 best_lap_delta_to_ahead=delta,
+                best_lap_delta_to_leader=leader_delta,
                 availability=availability,
             )
     return result

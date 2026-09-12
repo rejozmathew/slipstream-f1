@@ -5,6 +5,7 @@ import { RaceControl } from "../components/analysis/RaceControl";
 import { TrackMap } from "../components/analysis/TrackMap";
 import { Panel } from "../components/shared/Panel";
 import { TimingTower } from "../components/timing/TimingTower";
+import type { QualifyingTowerView } from "../domain/layout";
 import type { AnalyticsSnapshot, PositionMode, ViewingMode, QualifyingIntelligence, RaceState, SessionKind } from "../domain/protocol";
 
 function SessionPanel({ intelligence }: { intelligence: QualifyingIntelligence | null }) {
@@ -21,19 +22,20 @@ function SessionPanel({ intelligence }: { intelligence: QualifyingIntelligence |
   </Panel>;
 }
 
-export function QualifyingView({ state, analytics, replayAvailable, positionMode, viewingMode, sectorTimingAvailable, onSelectDriver }: { state: RaceState; analytics: AnalyticsSnapshot | null; sessionKind: SessionKind; replayAvailable: boolean; positionMode: PositionMode; viewingMode: ViewingMode; sectorTimingAvailable: boolean; onSelectDriver: (driverNumber: string) => void }) {
+export function QualifyingView({ state, analytics, replayAvailable, positionMode, viewingMode, sectorTimingAvailable, onSelectDriver, towerView, onTowerViewChange }: { towerView: QualifyingTowerView; onTowerViewChange: (mode: QualifyingTowerView) => void; state: RaceState; analytics: AnalyticsSnapshot | null; sessionKind: SessionKind; replayAvailable: boolean; positionMode: PositionMode; viewingMode: ViewingMode; sectorTimingAvailable: boolean; onSelectDriver: (driverNumber: string) => void }) {
   const [mobileTab, setMobileTab] = useState<"timing" | "session" | "track" | "conditions" | "control">("timing");
   const drivers = Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
   const intelligence = analytics?.qualifying?.status === "AVAILABLE" ? analytics.qualifying : null;
   const session = <SessionPanel intelligence={intelligence} />;
   const tabs = ["timing", "session", "track", "conditions", "control"] as const;
+  const toolbar = <div className="tower-view-modes qualifying-view-modes" role="group" aria-label="Qualifying timing tower view"><span>TOWER VIEW</span>{(["standard", "timing"] as const).map((mode) => <button type="button" key={mode} className={towerView === mode ? "active" : ""} aria-pressed={towerView === mode} onClick={() => onTowerViewChange(mode)}>{mode.toUpperCase()}</button>)}</div>;
   return <><div className="session-layout qualifying-layout session-desktop">
-    <TimingTower drivers={drivers} variant="qualifying" analytics={analytics} replayAvailable={replayAvailable} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={onSelectDriver} />
+    <TimingTower drivers={drivers} variant="qualifying" mode={towerView} toolbar={toolbar} analytics={analytics} replayAvailable={replayAvailable} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={onSelectDriver} />
     <div className="analysis-stack">
       {session}
       <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} />
       <Conditions weather={state.weather} session={state.session} />
       <RaceControl messages={state.race_control} />
     </div>
-  </div><div className="mobile-session mobile-qualifying-session"><nav className="mobile-priority-tabs" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>{tabs.map((tab) => <button className={mobileTab === tab ? "active" : ""} key={tab} onClick={() => setMobileTab(tab)}>{tab.toUpperCase()}</button>)}</nav><div className="mobile-session-content">{mobileTab === "timing" ? <TimingTower drivers={drivers} variant="qualifying" analytics={analytics} replayAvailable={replayAvailable} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={onSelectDriver} /> : mobileTab === "session" ? session : mobileTab === "track" ? <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} /> : mobileTab === "conditions" ? <Conditions weather={state.weather} session={state.session} /> : <RaceControl messages={state.race_control} />}</div></div></>;
+  </div><div className="mobile-session mobile-qualifying-session"><nav className="mobile-priority-tabs" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>{tabs.map((tab) => <button className={mobileTab === tab ? "active" : ""} key={tab} onClick={() => setMobileTab(tab)}>{tab.toUpperCase()}</button>)}</nav><div className="mobile-session-content">{mobileTab === "timing" ? <TimingTower drivers={drivers} variant="qualifying" mode={towerView} toolbar={toolbar} analytics={analytics} replayAvailable={replayAvailable} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={onSelectDriver} /> : mobileTab === "session" ? session : mobileTab === "track" ? <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} /> : mobileTab === "conditions" ? <Conditions weather={state.weather} session={state.session} /> : <RaceControl messages={state.race_control} />}</div></div></>;
 }

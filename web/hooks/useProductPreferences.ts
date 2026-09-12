@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { DEFAULT_APPEARANCE, type AppearancePreferences } from "../domain/appearance";
-import { INSTANCE_RACE_LAYOUT, type RaceLayoutConfig, type TowerView } from "../domain/layout";
+import { INSTANCE_RACE_LAYOUT, type RaceLayoutConfig, type TowerView, type QualifyingTowerView } from "../domain/layout";
 
 const STORAGE_KEY = "slipstream.device-preferences.v1";
 
@@ -9,6 +9,7 @@ type StoredPreferences = {
   appearance: AppearancePreferences;
   raceLayout: RaceLayoutConfig;
   towerView: TowerView;
+  qualifyingTowerView: QualifyingTowerView;
   lastDriverNumber: string | null;
   battle: BattlePreferences;
   tv: TVPreferences;
@@ -47,6 +48,7 @@ const defaults = (): StoredPreferences => ({
   appearance: DEFAULT_APPEARANCE,
   raceLayout: INSTANCE_RACE_LAYOUT,
   towerView: "standard",
+  qualifyingTowerView: "standard",
   lastDriverNumber: null,
   battle: DEFAULT_BATTLE_PREFERENCES,
   tv: DEFAULT_TV_PREFERENCES,
@@ -68,6 +70,7 @@ function readDevicePreferences(): StoredPreferences {
       appearance: { ...DEFAULT_APPEARANCE, ...parsed.appearance },
       raceLayout,
       towerView: parsed.towerView ?? "standard",
+      qualifyingTowerView: parsed.qualifyingTowerView === "timing" ? "timing" : "standard",
       lastDriverNumber: parsed.lastDriverNumber ?? null,
       battle: { ...DEFAULT_BATTLE_PREFERENCES, ...parsed.battle },
       tv: { ...DEFAULT_TV_PREFERENCES, ...parsed.tv },
@@ -82,17 +85,18 @@ export function useProductPreferences() {
   const [appearance, setAppearance] = useState<AppearancePreferences>(initial.appearance);
   const [raceLayout, setRaceLayout] = useState<RaceLayoutConfig>(initial.raceLayout);
   const [towerView, setTowerView] = useState<TowerView>(initial.towerView);
+  const [qualifyingTowerView, setQualifyingTowerView] = useState<QualifyingTowerView>(initial.qualifyingTowerView);
   const [lastDriverNumber, setLastDriverNumber] = useState<string | null>(initial.lastDriverNumber);
   const [battle, setBattle] = useState<BattlePreferences>(initial.battle);
   const [tv, setTV] = useState<TVPreferences>(initial.tv);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ appearance, raceLayout, towerView, lastDriverNumber, battle, tv }));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ appearance, raceLayout, towerView, qualifyingTowerView, lastDriverNumber, battle, tv }));
     } catch {
       // Storage can be disabled; preferences still work for this page lifetime.
     }
-  }, [appearance, battle, lastDriverNumber, raceLayout, towerView, tv]);
+  }, [appearance, battle, lastDriverNumber, raceLayout, towerView, qualifyingTowerView, tv]);
 
-  return { appearance, setAppearance, raceLayout, setRaceLayout, towerView, setTowerView, lastDriverNumber, setLastDriverNumber, battle, setBattle, tv, setTV };
+  return { appearance, setAppearance, raceLayout, setRaceLayout, towerView, setTowerView, qualifyingTowerView, setQualifyingTowerView, lastDriverNumber, setLastDriverNumber, battle, setBattle, tv, setTV };
 }
