@@ -1,4 +1,4 @@
-/* First Session pass: Regular Race desktop only. Shared/mobile/TV rules stay in globals.css. */
+/* Regular Race desktop appearance. Columns adapt to the actual tower width. */
 @media (min-width: 901px) {
   .app-shell.view-session[data-session-layout="race"] {
     --type-meta: 10px;
@@ -29,12 +29,12 @@
   .race-desktop :is(summary, button, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
   .race-desktop .timing-table { scrollbar-width: thin; scrollbar-color: var(--line) var(--surface); }
-  .race-desktop :is(.timing-header, .timing-row) { grid-template-columns: 34px minmax(176px, 2fr) minmax(92px, .85fr) 52px 46px minmax(92px, 1fr) 42px; min-width: 618px; }
-  .race-desktop :is(.timing-header, .timing-row).timing-with-interval { grid-template-columns: 34px minmax(176px, 2fr) minmax(92px, .85fr) minmax(82px, .75fr) 52px 46px minmax(92px, 1fr) 42px; min-width: 700px; }
+  .race-desktop :is(.timing-header, .timing-row) { grid-template-columns: 34px minmax(176px, 2fr) minmax(92px, .85fr) 52px 46px minmax(92px, 1fr) 42px; min-width: 0; }
+  .race-desktop :is(.timing-header, .timing-row).timing-with-interval { grid-template-columns: 34px minmax(176px, 2fr) minmax(92px, .85fr) minmax(82px, .75fr) 52px 46px minmax(92px, 1fr) 42px; min-width: 0; }
   .race-desktop :is(.timing-header, .timing-row).timing-race-timing { grid-template-columns: 34px minmax(176px, 1fr) 92px 44px repeat(3, 68px) repeat(2, 92px); min-width: 734px; }
   .race-desktop :is(.timing-header, .timing-row).timing-race-timing.timing-with-interval { grid-template-columns: 34px minmax(176px, 1fr) 92px 82px 44px repeat(3, 68px) repeat(2, 92px); min-width: 816px; }
-  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail { grid-template-columns: 34px minmax(176px, 1fr) 92px 44px 44px 52px 36px minmax(130px, .7fr) 84px; min-width: 792px; }
-  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail.timing-with-interval { grid-template-columns: 34px minmax(176px, 1fr) 92px 82px 44px 44px 52px 36px minmax(130px, .7fr) 84px; min-width: 874px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail { grid-template-columns: 34px minmax(176px, 1fr) 92px 44px 44px 52px 36px minmax(130px, .7fr) 84px; min-width: 0; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail.timing-with-interval { grid-template-columns: 34px minmax(176px, 1fr) 92px 82px 44px 44px 52px 36px minmax(130px, .7fr) 84px; min-width: 0; }
   .race-desktop .timing-header { height: 28px; min-height: 28px; color: var(--muted); font: 500 10px/1 var(--mono); letter-spacing: .06em; }
   .race-desktop .timing-row { min-height: 34px; font-size: 13px; border-bottom: 1px solid color-mix(in srgb, var(--line-soft), transparent 45%); }
   .race-desktop .timing-row:nth-child(even) { background: color-mix(in srgb, var(--surface-raised), transparent 50%); }
@@ -112,4 +112,56 @@
 @media (min-width: 901px) and (max-width: 1180px) {
   .race-desktop .timing-panel > .panel-heading { height: auto; flex-wrap: wrap; padding: 7px 10px; }
   .race-desktop .timing-panel .panel-actions { width: 100%; justify-content: space-between; }
+}
+/* Compact by panel width, so moving the split and browser zoom both work. */
+@container session-tower (max-width: 900px) {
+  .race-desktop :is(.timing-header, .timing-row) { grid-template-columns: 28px minmax(110px, 1.5fr) minmax(74px, 1fr) 38px 34px minmax(82px, 1fr) 30px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-with-interval { grid-template-columns: 28px minmax(110px, 1.5fr) minmax(74px, 1fr) minmax(68px, .9fr) 38px 34px minmax(82px, 1fr) 30px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail { grid-template-columns: 28px minmax(120px, 1.5fr) 72px 36px 32px 38px 30px minmax(70px, .8fr) 56px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail.timing-with-interval { grid-template-columns: 28px minmax(120px, 1.5fr) 72px 68px 36px 32px 38px 30px minmax(70px, .8fr) 56px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-timing { grid-template-columns: 28px minmax(88px, 1fr) 70px 34px repeat(3, 52px) repeat(2, 70px); min-width: 616px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-timing.timing-with-interval { grid-template-columns: 28px minmax(88px, 1fr) 70px 68px 34px repeat(3, 52px) repeat(2, 70px); min-width: 684px; }
+  .race-desktop .timing-header > span, .race-desktop .timing-row > :is(span, strong) { padding-inline: 4px; }
+  .race-desktop .timing-header > span { white-space: normal; line-height: 1.2; letter-spacing: .02em; }
+  .race-desktop .timing-row { font-size: 12px; }
+  .race-desktop .timing-row.timing-race { font-size: 13px; }
+  .race-desktop .driver-cell { grid-template-columns: 3px 32px minmax(0, 1fr); gap: 5px; }
+  .race-desktop .driver-cell > b { font-size: 14px; }
+  .race-desktop .driver-cell small { font-size: 11.5px; }
+  .race-desktop .driver-cell em { font-size: 10px; }
+  .race-desktop .timing-row > .compound-badge { padding-inline: 0; justify-content: center; }
+  .race-desktop .timing-panel > .panel-heading { height: auto; flex-wrap: wrap; padding-block: 6px; gap: 6px; }
+  .race-desktop .timing-panel .panel-actions { flex-wrap: wrap; justify-content: space-between; }
+}
+
+@container session-tower (max-width: 680px) {
+  .race-desktop .timing-row.timing-race { font-size: 12px; }
+  .race-desktop .timing-header > span { padding-inline: 2px; font-size: 9px; }
+  .race-desktop :is(.timing-header, .timing-row) { grid-template-columns: 28px minmax(94px, 1fr) 72px 36px 30px 78px 28px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-with-interval { grid-template-columns: 28px minmax(94px, 1fr) 72px 66px 36px 30px 78px 28px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail { grid-template-columns: 28px minmax(64px, 1fr) 66px 32px 28px 34px 26px minmax(50px, .75fr) 48px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail.timing-with-interval { grid-template-columns: 28px minmax(64px, 1fr) 66px 66px 32px 28px 34px 26px minmax(50px, .75fr) 48px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-timing { grid-template-columns: 28px minmax(88px, 1fr) 70px 34px repeat(3, 52px) repeat(2, 70px); }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-timing.timing-with-interval { grid-template-columns: 28px minmax(88px, 1fr) 70px 68px 34px repeat(3, 52px) repeat(2, 70px); }
+  .race-desktop .timing-race-strategy-detail .driver-cell { grid-template-columns: 3px minmax(0, 1fr); gap: 3px 5px; padding-block: 5px; }
+  .race-desktop .timing-race-strategy-detail .driver-cell > i { grid-row: 1 / 3; height: 34px; }
+  .race-desktop .timing-race-strategy-detail .driver-cell > span { grid-column: 2; }
+  .race-desktop .timing-race-strategy-detail .driver-cell small { font-size: 9px; }
+  .race-desktop .timing-race-strategy-detail .driver-cell em { font-size: 8px; }
+  .race-desktop .timing-panel .panel-actions { width: 100%; }
+  .race-desktop .tower-toolbar { flex-wrap: wrap; gap: 5px; }
+  .race-desktop .tower-view-modes { padding-left: 5px; }
+  .race-desktop .tower-view-modes button { padding-inline: 6px; }
+}
+
+@container session-analysis (max-width: 520px) {
+  .race-desktop .conditions-panel { display: flex; flex-direction: column; }
+  .race-desktop .conditions-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .race-desktop .conditions-grid > div { grid-row: auto; padding: 8px; }
+  .race-desktop .conditions-grid > div:last-child { grid-column: span 2; grid-row: auto; flex-wrap: wrap; }
+  .race-desktop .conditions-grid > div > span:last-child { font-size: 12px; }
+  .race-desktop .session-strategy-read > .panel-heading { height: auto; padding-block: 7px; gap: 5px; flex-wrap: wrap; }
+  .race-desktop .session-strategy-zones { grid-template-columns: 1fr; }
+  .race-desktop .session-strategy-zones > section:first-child { grid-row: auto; }
+  .race-desktop .session-strategy-zones > section:nth-child(3) { grid-column: 1; }
 }

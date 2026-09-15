@@ -1,5 +1,6 @@
 import {
   ANALYSIS_MODULES,
+  SESSION_SPLIT_LIMITS,
   applyRacePreset,
   moveAnalysisModule,
   type AnalysisModuleId,
@@ -35,7 +36,7 @@ export function LayoutEditor({ value, onChange }: { value: RaceLayoutConfig; onC
           <button onClick={() => onChange(applyRacePreset(value, "towerWide"))}>TOWER WIDE</button>
           <button onClick={() => onChange(applyRacePreset(value, "analysisWide"))}>ANALYSIS WIDE</button>
         </div>
-        <label><span>TIMING {Math.round(value.timingWidth)}%</span><input type="range" min="48" max="76" value={value.timingWidth} onChange={(event) => onChange({ ...value, preset: "custom", timingWidth: Number(event.target.value) })} /><span>ANALYSIS {Math.round(100 - value.timingWidth)}%</span></label>
+        <label><span>TIMING {Math.round(value.timingWidth)}%</span><input type="range" min={SESSION_SPLIT_LIMITS.minimum} max={SESSION_SPLIT_LIMITS.maximum} value={value.timingWidth} onChange={(event) => onChange({ ...value, preset: "custom", timingWidth: Number(event.target.value) })} /><span>ANALYSIS {Math.round(100 - value.timingWidth)}%</span></label>
       </section>
       <section className="module-editor-list" aria-label="Race analysis modules">
         <header><span>ORDER</span><span>MODULE</span><span>VISIBILITY</span><span>SIZE</span><span>MOVE</span></header>

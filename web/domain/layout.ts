@@ -1,3 +1,5 @@
+export const SESSION_SPLIT_LIMITS = { minimum: 35, maximum: 80 } as const;
+
 export type LayoutOwner = "instance" | "user" | "device";
 export type AnalysisModuleId = "strategy" | "map" | "conditions" | "raceControl";
 export type ModuleSize = "compact" | "standard" | "tall";

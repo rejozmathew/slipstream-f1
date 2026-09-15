@@ -548,7 +548,7 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 
 /* Milestone 3 completion: compounds and explanations */
 .compound-badge { min-width: 26px; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font: 750 10px/1 var(--mono); vertical-align: middle; }
-.compound-badge i { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-style: normal; }
+.compound-badge i { flex: none; aspect-ratio: 1; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-style: normal; }
 .compound-badge em { color: var(--muted); font: 650 9px/1 var(--mono); font-style: normal; }
 .compound-badge-compact { min-width: 22px; }.compound-badge-compact i { width: 21px; height: 21px; font-size: 9px; }
 .compound-badge.compound-soft { color: #ff7676; }.compound-badge.compound-medium { color: #ffe079; }.compound-badge.compound-hard { color: #fff; }.compound-badge.compound-intermediate { color: #65e8a5; }.compound-badge.compound-wet { color: #72a6ff; }.compound-badge.compound-unknown { color: var(--quiet); }
@@ -744,7 +744,7 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 
 /* Milestone 3 completion: compounds and explanations */
 .compound-badge { min-width: 26px; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font: 750 10px/1 var(--mono); vertical-align: middle; }
-.compound-badge i { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-style: normal; }
+.compound-badge i { flex: none; aspect-ratio: 1; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-style: normal; }
 .compound-badge em { color: var(--muted); font: 650 9px/1 var(--mono); font-style: normal; }
 .compound-badge-compact { min-width: 22px; }.compound-badge-compact i { width: 21px; height: 21px; font-size: 9px; }
 .compound-badge.compound-soft { color: #ff7676; }.compound-badge.compound-medium { color: #ffe079; }.compound-badge.compound-hard { color: #fff; }.compound-badge.compound-intermediate { color: #65e8a5; }.compound-badge.compound-wet { color: #72a6ff; }.compound-badge.compound-unknown { color: var(--quiet); }
@@ -1199,4 +1199,10 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
   .mobile-qualifying-session .timing-panel .panel-actions { width: 100%; flex-wrap: wrap; }
   .qualifying-view-modes { margin-left: auto; }
   .qualifying-view-modes button { min-height: 28px; padding: 0 8px; font-size: 9px; }
+}
+
+/* Tyre circles must not shrink into ellipses in narrow phone table cells. */
+@media (max-width: 900px) {
+  .mobile-session .timing-row > .compound-badge { min-width: 0; justify-content: center; padding-inline: 0; }
+  .mobile-session .timing-header > span { padding-inline: 3px; }
 }

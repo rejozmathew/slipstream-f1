@@ -10,6 +10,7 @@ type StoredPreferences = {
   raceLayout: RaceLayoutConfig;
   towerView: TowerView;
   qualifyingTowerView: QualifyingTowerView;
+  sessionWidths: { qualifying: number; practice: number };
   lastDriverNumber: string | null;
   battle: BattlePreferences;
   tv: TVPreferences;
@@ -49,6 +50,7 @@ const defaults = (): StoredPreferences => ({
   raceLayout: INSTANCE_RACE_LAYOUT,
   towerView: "standard",
   qualifyingTowerView: "standard",
+  sessionWidths: { qualifying: 66, practice: 66 },
   lastDriverNumber: null,
   battle: DEFAULT_BATTLE_PREFERENCES,
   tv: DEFAULT_TV_PREFERENCES,
@@ -71,6 +73,10 @@ function readDevicePreferences(): StoredPreferences {
       raceLayout,
       towerView: parsed.towerView ?? "standard",
       qualifyingTowerView: parsed.qualifyingTowerView === "timing" ? "timing" : "standard",
+      sessionWidths: {
+        qualifying: typeof parsed.sessionWidths?.qualifying === "number" && Number.isFinite(parsed.sessionWidths.qualifying) ? parsed.sessionWidths.qualifying : 66,
+        practice: typeof parsed.sessionWidths?.practice === "number" && Number.isFinite(parsed.sessionWidths.practice) ? parsed.sessionWidths.practice : 66,
+      },
       lastDriverNumber: parsed.lastDriverNumber ?? null,
       battle: { ...DEFAULT_BATTLE_PREFERENCES, ...parsed.battle },
       tv: { ...DEFAULT_TV_PREFERENCES, ...parsed.tv },
@@ -86,17 +92,18 @@ export function useProductPreferences() {
   const [raceLayout, setRaceLayout] = useState<RaceLayoutConfig>(initial.raceLayout);
   const [towerView, setTowerView] = useState<TowerView>(initial.towerView);
   const [qualifyingTowerView, setQualifyingTowerView] = useState<QualifyingTowerView>(initial.qualifyingTowerView);
+  const [sessionWidths, setSessionWidths] = useState(initial.sessionWidths);
   const [lastDriverNumber, setLastDriverNumber] = useState<string | null>(initial.lastDriverNumber);
   const [battle, setBattle] = useState<BattlePreferences>(initial.battle);
   const [tv, setTV] = useState<TVPreferences>(initial.tv);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ appearance, raceLayout, towerView, qualifyingTowerView, lastDriverNumber, battle, tv }));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ appearance, raceLayout, towerView, qualifyingTowerView, sessionWidths, lastDriverNumber, battle, tv }));
     } catch {
       // Storage can be disabled; preferences still work for this page lifetime.
     }
-  }, [appearance, battle, lastDriverNumber, raceLayout, towerView, qualifyingTowerView, tv]);
+  }, [appearance, battle, lastDriverNumber, raceLayout, towerView, qualifyingTowerView, sessionWidths, tv]);
 
-  return { appearance, setAppearance, raceLayout, setRaceLayout, towerView, setTowerView, qualifyingTowerView, setQualifyingTowerView, lastDriverNumber, setLastDriverNumber, battle, setBattle, tv, setTV };
+  return { appearance, setAppearance, raceLayout, setRaceLayout, towerView, setTowerView, qualifyingTowerView, setQualifyingTowerView, sessionWidths, setSessionWidths, lastDriverNumber, setLastDriverNumber, battle, setBattle, tv, setTV };
 }

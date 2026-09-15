@@ -12,6 +12,7 @@ const dom = new JSDOM("<div id='test-root'></div>", { url: "http://localhost" })
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+globalThis.ResizeObserver = class { observe() {} disconnect() {} };
 const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 
@@ -411,4 +412,98 @@ test("Race desktop places lap progress outside the circuit without changing shar
   assert.doesNotMatch(desktop, /class="map-center"/);
   assert.match(desktop, /POSITION · APPROX · TIMING-DERIVED/);
   assert.match(render(TrackMap, props), /class="map-center"/);
+});
+
+test("Session splitter clamps to usable panes, supports keyboard and ends cancelled drags", async () => {
+  const { SessionSplit } = await server.ssrLoadModule("/components/shared/SessionSplit.tsx");
+  const container = document.getElementById("test-root");
+  const root = createRoot(container);
+  const originalObserver = globalThis.ResizeObserver;
+  let resize;
+  let disconnected = false;
+  globalThis.ResizeObserver = class {
+    constructor(callback) { resize = callback; }
+    observe() { resize([{ contentRect: { width: 1280 } }]); }
+    disconnect() { disconnected = true; }
+  };
+  const changes = [];
+  let width = 56;
+  const update = () => root.render(createElement(SessionSplit, {
+    className: "test-split", timing: createElement("div", null, "Timing"), analysis: createElement("div", null, "Context"),
+    timingWidth: width, onTimingWidthChange(next) { width = next; changes.push(next); update(); },
+  }));
+  try {
+    await act(update);
+    const separator = container.querySelector('[role="separator"]');
+    const key = async (key, shiftKey = false) => act(() => separator.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, shiftKey, bubbles: true, cancelable: true })));
+    await key("ArrowRight");
+    assert.equal(width, 57);
+    await key("ArrowLeft", true);
+    assert.equal(width, 52);
+    await key("Home");
+    assert.ok(Math.abs(width * 1262 / 100 - 560) < .01);
+    await key("End");
+    assert.ok(Math.abs((100 - width) * 1262 / 100 - 300) < .01);
+    const beforeResize = changes.length;
+    await act(() => resize([{ contentRect: { width: 920 } }]));
+    assert.equal(changes.length, beforeResize, "viewport resize must not overwrite the saved preference");
+    assert.ok(Number(separator.getAttribute("aria-valuenow")) <= Number(separator.getAttribute("aria-valuemax")));
+
+    container.firstElementChild.getBoundingClientRect = () => ({ left: 0, width: 920 });
+    separator.getBoundingClientRect = () => ({ left: 600, width: 18 });
+    let captured = null;
+    separator.setPointerCapture = id => { captured = id; };
+    separator.hasPointerCapture = id => captured === id;
+    separator.releasePointerCapture = () => { captured = null; };
+    const pointer = async (type, clientX, button = 0) => act(() => {
+      const event = new dom.window.MouseEvent(type, { bubbles: true, clientX, button });
+      Object.defineProperty(event, "pointerId", { value: 7 });
+      separator.dispatchEvent(event);
+    });
+    await pointer("pointerdown", 609);
+    assert.equal(captured, 7);
+    await pointer("pointermove", 570);
+    assert.equal(changes.length, beforeResize + 1);
+    await pointer("pointercancel", 570);
+    assert.equal(captured, null);
+    assert.equal(separator.hasAttribute("data-dragging"), false);
+    const afterCancel = changes.length;
+    await pointer("pointermove", 800);
+    assert.equal(changes.length, afterCancel);
+    await pointer("pointerdown", 609, 2);
+    assert.equal(captured, null, "secondary click must not start resizing");
+  } finally {
+    await act(() => root.unmount());
+    globalThis.ResizeObserver = originalObserver;
+  }
+  assert.equal(disconnected, true);
+});
+
+test("session widths migrate independently and persist without changing Race or TV preferences", async () => {
+  const key = "slipstream.device-preferences.v1";
+  const before = window.localStorage.getItem(key);
+  const container = document.getElementById("test-root");
+  let root;
+  let preferences;
+  function Probe() { preferences = useProductPreferences(); return null; }
+  try {
+    window.localStorage.setItem(key, JSON.stringify({ raceLayout: { timingWidth: 56, preset: "analysisWide" }, towerView: "strategy", qualifyingTowerView: "timing", tv: { rotationIntervalSeconds: 30 } }));
+    root = createRoot(container);
+    await act(() => root.render(createElement(Probe)));
+    assert.deepEqual(preferences.sessionWidths, { qualifying: 66, practice: 66 });
+    await act(() => preferences.setSessionWidths(widths => ({ ...widths, qualifying: 61 })));
+    await act(() => preferences.setSessionWidths(widths => ({ ...widths, practice: 70 })));
+    await act(() => root.unmount());
+    root = createRoot(container);
+    await act(() => root.render(createElement(Probe)));
+    assert.deepEqual(preferences.sessionWidths, { qualifying: 61, practice: 70 });
+    assert.equal(preferences.raceLayout.timingWidth, 56);
+    assert.equal(preferences.raceLayout.preset, "analysisWide");
+    assert.equal(preferences.towerView, "strategy");
+    assert.equal(preferences.qualifyingTowerView, "timing");
+    assert.equal(preferences.tv.rotationIntervalSeconds, 30);
+  } finally {
+    if (root) await act(() => root.unmount());
+    if (before == null) window.localStorage.removeItem(key); else window.localStorage.setItem(key, before);
+  }
 });
