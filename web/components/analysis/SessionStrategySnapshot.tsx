@@ -1,4 +1,4 @@
-import type { AnalyticsSnapshot } from "../../domain/protocol";
+import type { AnalyticsSnapshot, ViewingMode } from "../../domain/protocol";
 import { NO_SPECIFIC_PIRELLI_STRATEGY, prioritizedPirelliContextFacts } from "../../domain/pirelliPresentation.mjs";
 import { PirelliNomination, PublishedOptionCard } from "./PublishedStrategy";
 import { Panel } from "../shared/Panel";
@@ -7,9 +7,10 @@ type SessionStrategySnapshotProps = {
   analytics: AnalyticsSnapshot | null;
   onOpenStrategy: () => void;
   compact?: boolean;
+  viewingMode?: ViewingMode;
 };
 
-export function SessionStrategySnapshot({ analytics, onOpenStrategy, compact = false }: SessionStrategySnapshotProps) {
+export function SessionStrategySnapshot({ analytics, onOpenStrategy, compact = false, viewingMode }: SessionStrategySnapshotProps) {
   const intelligence = analytics?.publishedStrategy;
   const baseline = intelligence?.baseline;
   const contextFact = prioritizedPirelliContextFacts(baseline?.contextFacts ?? [], 1)[0];
@@ -35,7 +36,7 @@ export function SessionStrategySnapshot({ analytics, onOpenStrategy, compact = f
   return <Panel eyebrow="STRATEGY CONTEXT" title="Pirelli tyre strategy · Race now" className={`session-strategy-read${compact ? " session-strategy-read-compact" : ""}`} action={<button type="button" className="panel-action-button" onClick={onOpenStrategy}>VIEW STRATEGY →</button>}>
     <div className="session-strategy-zones">
       <section><header><span>{baseline?.status === "PRESENT" && baseline.options.length ? "PIRELLI TYRE STRATEGIES" : "PIRELLI TYRE STRATEGY"}</span>{baseline?.status === "PRESENT" && <b>PUBLISHED</b>}</header>{pirelliContent}</section>
-      <section><header><span>RACE NOW</span><b>{read?.raceLifecycle ?? "—"}</b></header>{read ? <div className="session-race-now"><strong>{population}</strong><small>{Object.entries(read.completedStopDistribution).map(([stops, count]) => `${stops} stops: ${count}`).join(" · ") || "NO COMPLETED STOPS"}</small></div> : <p>Race Read is not available yet.</p>}</section>
+      <section><header><span>RACE NOW</span><b>{read?.raceLifecycle === "LIVE" && viewingMode === "replay" ? "IN PROGRESS" : read?.raceLifecycle ?? "—"}</b></header>{read ? <div className="session-race-now"><strong>{population}</strong><small>{Object.entries(read.completedStopDistribution).map(([stops, count]) => `${stops} stops: ${count}`).join(" · ") || "NO COMPLETED STOPS"}</small></div> : <p>Race Read is not available yet.</p>}</section>
       <section><header><span>NOW</span><b>FACTUAL</b></header><p>{read?.summaryFacts[0] ?? "No unusual current-race fact is established yet."}</p></section>
     </div>
   </Panel>;

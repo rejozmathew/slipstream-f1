@@ -360,3 +360,55 @@ test("Qualifying preference reloads separately from Race and rejects Strategy", 
   }
   window.localStorage.removeItem(key);
 });
+
+
+test("approved desktop Race extension keeps source intervals adjacent in every mode", () => {
+  const drivers = [
+    { ...driver, position: 1, interval_to_ahead: "+99.999" },
+    { ...driver, number: "2", position: 2, interval_to_ahead: "+0.000" },
+    { ...driver, number: "3", position: 3, interval_to_ahead: null },
+    { ...driver, number: "4", position: 4, source_condition: "IN_PIT", activity: "IN_PIT", interval_to_ahead: "+77.001" },
+    { ...driver, number: "5", position: 5, source_condition: "STOPPED", interval_to_ahead: "+77.002" },
+    { ...driver, number: "6", position: 6, source_condition: "RETIRED_INDICATED", interval_to_ahead: "+77.003" },
+    { ...driver, number: "7", position: 7, classification: "DNF", interval_to_ahead: "+77.004" },
+    { ...driver, number: "8", position: 8, classification: "FINISHED", interval_to_ahead: "+1.234" },
+    { ...driver, number: "9", position: 9, interval_to_ahead: "+1 LAP", gap_to_leader: "+2 LAPS" },
+  ];
+  const inventories = {
+    standard: ["P", "DRIVER / TEAM", "GAP", "INT", "TYRE", "AGE", "LAST", "PIT"],
+    timing: ["P", "DRIVER / TEAM", "GAP", "INT", "TYRE", "S1", "S2", "S3", "LAST", "BEST"],
+    strategy: ["P", "DRIVER / TEAM", "GAP", "INT", "TYRE", "AGE", "STINT", "PIT", "TYRE STRATEGY", "LAST STOP"],
+  };
+  for (const [mode, inventory] of Object.entries(inventories)) {
+    const props = { variant: "race", mode, desktopRaceColumns: true, replayAvailable: true, intervalsAvailable: true, drivers };
+    const page = new JSDOM(render(TimingTower, props));
+    const header = [...page.window.document.querySelector(".timing-header").children].map(e => e.textContent);
+    const rows = [...page.window.document.querySelectorAll("button[role=row]")];
+    assert.deepEqual(header, inventory);
+    assert.equal(rows.length, drivers.length);
+    assert.ok(rows.every(row => row.children.length === inventory.length));
+    assert.deepEqual(rows.map(row => row.children[3].textContent), ["—", "+0.000", "—", "—", "—", "—", "—", "+1.234", "+1 LAP"]);
+    assert.equal(rows[1].children[2].textContent, "+0.685");
+    assert.equal(rows[6].children[2].textContent, "DNF");
+    page.window.close();
+    assert.doesNotMatch(render(TimingTower, { ...props, intervalsAvailable: false }), />INT<|\+0\.000|\+1\.234/);
+    assert.match(render(TimingTower, { ...props, drivers: drivers.map(d => ({ ...d, interval_to_ahead: null })) }), />INT</);
+  }
+  // Opt-in presentation must not alter Standard/Strategy for TV or the existing phone tower.
+  for (const mode of ["standard", "strategy"]) {
+    assert.doesNotMatch(render(TimingTower, { variant: "race", mode, replayAvailable: true, intervalsAvailable: true, drivers }), />INT<|\+0\.000/);
+  }
+  const fullField = Array.from({ length: 22 }, (_, i) => ({ ...driver, number: String(i + 1), position: i + 1 }));
+  const page = new JSDOM(render(TimingTower, { variant: "race", desktopRaceColumns: true, replayAvailable: true, intervalsAvailable: true, drivers: fullField }));
+  assert.equal(page.window.document.querySelectorAll("button[role=row]").length, 22);
+  page.window.close();
+});
+
+test("Race desktop places lap progress outside the circuit without changing shared map defaults", () => {
+  const props = { session: { ...EMPTY_RACE_STATE.session, session_kind: "race", lap: 20, total_laps: 72 }, circuit: { ...EMPTY_RACE_STATE.circuit, path: [[0, 0], [10, 0], [5, 10]] }, drivers: [driver], positionMode: "timing_estimate", viewingMode: "replay" };
+  const desktop = render(TrackMap, { ...props, lapInHeader: true });
+  assert.match(desktop, /LAP 20 \/ 72/);
+  assert.doesNotMatch(desktop, /class="map-center"/);
+  assert.match(desktop, /POSITION · APPROX · TIMING-DERIVED/);
+  assert.match(render(TrackMap, props), /class="map-center"/);
+});

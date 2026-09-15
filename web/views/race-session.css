@@ -1,0 +1,115 @@
+/* First Session pass: Regular Race desktop only. Shared/mobile/TV rules stay in globals.css. */
+@media (min-width: 901px) {
+  .app-shell.view-session[data-session-layout="race"] {
+    --type-meta: 10px;
+  }
+
+  .app-shell.view-session[data-session-layout="race"] .timeline-meta { grid-template-columns: 120px minmax(0, 1fr) 100px; white-space: nowrap; }
+
+  .race-desktop .panel-heading { min-height: 36px; height: 36px; padding: 0 11px; }
+  .race-desktop .panel-heading h2 { font-size: 14px; }
+  .race-desktop .eyebrow { font-size: 10px; font-weight: 500; letter-spacing: .08em; }
+  .race-desktop .panel-badge { font-size: 9px; font-weight: 500; }
+  .race-desktop .panel-title { gap: 10px; }
+  .race-desktop .timing-panel > .panel-heading { position: relative; z-index: 4; height: 42px; min-height: 42px; gap: 10px; }
+  .race-desktop .timing-panel > .panel-heading .eyebrow { display: none; }
+  .race-desktop .timing-panel .panel-actions { min-width: 0; gap: 10px; }
+  .race-desktop .tower-toolbar { display: flex; gap: 10px; }
+  .race-desktop .tower-view-modes { gap: 4px; padding-left: 10px; }
+  .race-desktop .tower-view-modes > span { display: none; }
+  .race-desktop .tower-view-modes button,
+  .race-desktop .layout-presets button { height: 28px; padding: 0 9px; font-size: 10px; }
+  .race-desktop .race-layout-menu { position: relative; color: var(--muted); font: 600 10px/1 var(--mono); }
+  .race-desktop .race-layout-menu summary { min-height: 28px; display: flex; gap: 8px; align-items: center; padding: 0 8px; border: 1px solid var(--line); cursor: pointer; list-style: none; white-space: nowrap; }
+  .race-desktop .race-layout-menu summary::after { content: "⌄"; color: var(--accent); }
+  .race-desktop .race-layout-menu[open] summary { border-color: var(--accent); }
+  .race-desktop .layout-presets { position: absolute; top: calc(100% + 5px); right: 0; z-index: 5; display: grid; min-width: 170px; padding: 7px; gap: 5px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 8px 20px #0008; }
+  .race-desktop .layout-presets > span { display: none; }
+  .race-desktop .layout-presets button { text-align: left; }
+  .race-desktop :is(summary, button, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .race-desktop .timing-table { scrollbar-width: thin; scrollbar-color: var(--line) var(--surface); }
+  .race-desktop :is(.timing-header, .timing-row) { grid-template-columns: 34px minmax(176px, 2fr) minmax(92px, .85fr) 52px 46px minmax(92px, 1fr) 42px; min-width: 618px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-with-interval { grid-template-columns: 34px minmax(176px, 2fr) minmax(92px, .85fr) minmax(82px, .75fr) 52px 46px minmax(92px, 1fr) 42px; min-width: 700px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-timing { grid-template-columns: 34px minmax(176px, 1fr) 92px 44px repeat(3, 68px) repeat(2, 92px); min-width: 734px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-timing.timing-with-interval { grid-template-columns: 34px minmax(176px, 1fr) 92px 82px 44px repeat(3, 68px) repeat(2, 92px); min-width: 816px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail { grid-template-columns: 34px minmax(176px, 1fr) 92px 44px 44px 52px 36px minmax(130px, .7fr) 84px; min-width: 792px; }
+  .race-desktop :is(.timing-header, .timing-row).timing-race-strategy-detail.timing-with-interval { grid-template-columns: 34px minmax(176px, 1fr) 92px 82px 44px 44px 52px 36px minmax(130px, .7fr) 84px; min-width: 874px; }
+  .race-desktop .timing-header { height: 28px; min-height: 28px; color: var(--muted); font: 500 10px/1 var(--mono); letter-spacing: .06em; }
+  .race-desktop .timing-row { min-height: 34px; font-size: 13px; border-bottom: 1px solid color-mix(in srgb, var(--line-soft), transparent 45%); }
+  .race-desktop .timing-row:nth-child(even) { background: color-mix(in srgb, var(--surface-raised), transparent 50%); }
+  .race-desktop .timing-row:hover { background: var(--surface-soft); }
+  .race-desktop .timing-row > strong { font-size: 13px; }
+  .race-desktop .timing-row > :not(.driver-cell) { white-space: nowrap; }
+  .race-desktop .driver-cell { grid-template-columns: 3px 40px minmax(0, 1fr); gap: 9px; }
+  .race-desktop .driver-cell > i { height: 26px; }
+  .race-desktop .driver-cell > b { font-size: 14px; }
+  .race-desktop .driver-cell small { font-size: 11.5px; }
+  .race-desktop .driver-cell em { font-size: 10px; }
+  .race-desktop .timing-row > .compound-badge i, .race-desktop .published-option .compound-badge i { width: 25px; height: 25px; font-size: 11px; }
+  .race-desktop .timing-row > .published-path { flex-wrap: wrap; padding-top: 4px; padding-bottom: 4px; }
+
+  .race-desktop .race-analysis { gap: 8px; scrollbar-width: thin; }
+  .race-desktop .analysis-module { height: auto; min-height: min-content; }
+  .race-desktop .analysis-module > .panel { height: auto; }
+  .race-desktop .analysis-module[data-module="map"] { flex: 1 0 260px; min-height: 260px; }
+  .race-desktop .analysis-module[data-module="map"] > .panel { height: 100%; }
+  .race-desktop .analysis-module[data-module="map"][data-size="compact"] { flex-basis: 200px; min-height: 200px; }
+  .race-desktop .analysis-module[data-module="map"][data-size="tall"] { flex-basis: 350px; min-height: 350px; }
+  .race-desktop .analysis-module[data-module="raceControl"] { height: 144px; min-height: 144px; }
+  .race-desktop .analysis-module[data-module="raceControl"] > .panel { height: 100%; }
+  .race-desktop .analysis-module[data-module="raceControl"][data-size="compact"] { height: 115px; min-height: 115px; }
+  .race-desktop .analysis-module[data-size="tall"]:not([data-module="map"]) { min-height: 280px; }
+  .race-desktop .analysis-module[data-size="tall"]:not([data-module="map"]) > .panel { min-height: 280px; }
+
+  .race-desktop .session-strategy-read .panel-title { flex-wrap: wrap; gap: 4px 10px; }
+  .race-desktop .session-strategy-read .eyebrow { font-size: 9px; }
+  .race-desktop .panel-action-button { flex-shrink: 0; font-size: 9px; }
+  .race-desktop .session-strategy-zones { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(155px, 1fr); }
+  .race-desktop .session-strategy-zones > section { min-height: 0; }
+  .race-desktop .session-strategy-zones > section:first-child { grid-row: 1 / 3; }
+  .race-desktop .session-strategy-zones > section:nth-child(3) { grid-column: 2; border-top: 1px solid var(--line-soft); }
+  .race-desktop .session-strategy-zones section > header { min-height: 20px; height: auto; padding: 4px 10px; gap: 8px; }
+  .race-desktop .session-strategy-zones header :is(span, b) { font-size: 9px; font-weight: 500; }
+  .race-desktop .session-published-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .race-desktop .published-option { padding: 9px 10px; min-height: 77px; gap: 8px; }
+  .race-desktop .published-option header { flex-wrap: wrap; gap: 4px; }
+  .race-desktop .published-option header :is(span, b), .race-desktop .published-option small { font-size: 10px; }
+  .race-desktop .published-option header span { line-height: 1.2; }
+  .race-desktop .physical-nomination { min-height: 30px; padding: 5px 10px; gap: 10px; flex-wrap: wrap; }
+  .race-desktop .physical-nomination > span { font-size: 9px; }
+  .race-desktop .physical-nomination strong { font-size: 10px; }
+  .race-desktop .physical-nomination .compound-badge i { width: 20px; height: 20px; font-size: 9px; }
+  .race-desktop .session-race-now { padding: 6px 10px; gap: 6px; }
+  .race-desktop .session-race-now strong { font-size: 12px; line-height: 1.4; }
+  .race-desktop .session-race-now small { font-size: 10px; line-height: 1.3; }
+  .race-desktop .session-strategy-zones section > p { padding: 6px 10px; font-size: 11px; }
+  .race-desktop .session-strategy-read-compact .session-strategy-zones > section:first-child { grid-row: auto; }
+  .race-desktop .session-strategy-read-compact .session-published-options { grid-template-columns: 1fr; }
+
+  .race-desktop .conditions-panel { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: 36px auto auto; }
+  .race-desktop .conditions-panel > .panel-heading { grid-column: 1 / -1; }
+  .race-desktop .conditions-grid { display: contents; }
+  .race-desktop .conditions-grid > div { grid-row: 2; padding: 9px 10px; min-height: 52px; gap: 7px; }
+  .race-desktop .conditions-grid > div > span { font-size: 9px; }
+  .race-desktop .conditions-grid > div > span:last-child { font-size: 13px; white-space: nowrap; }
+  .race-desktop .conditions-grid > div:last-child { grid-column: 1 / 3; grid-row: 3; min-height: 25px; display: flex; align-items: center; padding: 5px 10px; }
+  .race-desktop .conditions-grid > div:last-child > span:last-child { font-size: 10px; }
+  .race-desktop .conditions-panel .panel-footer { grid-column: 3 / -1; grid-row: 3; min-height: 25px; font-size: 8px; padding: 5px 10px; line-height: 1.4; }
+  .race-desktop .map-panel .panel-footer { min-height: 26px; flex-wrap: wrap; gap: 5px 12px; font-size: 9px; line-height: 1.3; }
+  .race-desktop .map-out-list { font-size: 10px; line-height: 1.4; }
+  .race-desktop .message-list article { grid-template-columns: 62px minmax(0, 1fr); padding: 7px 10px; gap: 10px; }
+  .race-desktop .message-list article > div { line-height: 1.4; }
+  .race-desktop .message-list article span { margin-right: 8px; font-size: 9px; }
+  .race-desktop .message-list p { display: inline; margin: 0; font-size: 11px; }
+}
+
+@media (min-width: 901px) and (max-height: 840px) {
+  .race-desktop .analysis-module[data-module="map"][data-size="standard"] { flex-basis: 176px; min-height: 176px; }
+  .race-desktop .analysis-module[data-module="raceControl"][data-size="standard"] { height: 110px; min-height: 110px; }
+}
+
+@media (min-width: 901px) and (max-width: 1180px) {
+  .race-desktop .timing-panel > .panel-heading { height: auto; flex-wrap: wrap; padding: 7px 10px; }
+  .race-desktop .timing-panel .panel-actions { width: 100%; justify-content: space-between; }
+}

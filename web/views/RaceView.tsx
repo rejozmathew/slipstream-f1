@@ -9,6 +9,8 @@ import { TimingTower } from "../components/timing/TimingTower";
 import { applyRacePreset, type AnalysisModuleId, type RaceLayoutConfig, type TowerView } from "../domain/layout";
 import type { AnalyticsSnapshot, PositionMode, ViewingMode, RaceState } from "../domain/protocol";
 
+import "./race-session.css";
+
 type RaceViewProps = {
   state: RaceState;
   analytics: AnalyticsSnapshot | null;
@@ -28,8 +30,8 @@ export function RaceView({ state, analytics, replayAvailable, intervalsAvailable
   const [mobileTab, setMobileTab] = useState<"timing" | "strategy" | "map" | "control">("timing");
   const drivers = Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
   const modules: Record<AnalysisModuleId, ReactNode> = {
-    strategy: <SessionStrategySnapshot analytics={analytics} onOpenStrategy={onOpenStrategy} compact={layout.moduleSizes.strategy === "compact"} />,
-    map: <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} />,
+    strategy: <SessionStrategySnapshot viewingMode={viewingMode} analytics={analytics} onOpenStrategy={onOpenStrategy} compact={layout.moduleSizes.strategy === "compact"} />,
+    map: <TrackMap lapInHeader circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} />,
     conditions: <Conditions weather={state.weather} session={state.session} />,
     raceControl: <RaceControl messages={state.race_control} />,
   };
@@ -54,12 +56,12 @@ export function RaceView({ state, analytics, replayAvailable, intervalsAvailable
     <div className="race-workspace">
       <div className="race-desktop">
       <div className="race-split" style={{ gridTemplateColumns: `minmax(0, ${layout.timingWidth}fr) 9px minmax(410px, ${100 - layout.timingWidth}fr)` }}>
-        <TimingTower drivers={drivers} variant="race" mode={towerView} analytics={analytics} replayAvailable={replayAvailable} intervalsAvailable={intervalsAvailable} onSelectDriver={onSelectDriver} toolbar={<div className="tower-toolbar"><div className="layout-presets" role="group" aria-label="Race split preset">
+        <TimingTower drivers={drivers} variant="race" desktopRaceColumns mode={towerView} analytics={analytics} replayAvailable={replayAvailable} intervalsAvailable={intervalsAvailable} onSelectDriver={onSelectDriver} toolbar={<div className="tower-toolbar"><details className="race-layout-menu"><summary>SPLIT · {layout.preset === "custom" ? "CUSTOM" : layout.preset === "towerWide" ? "TOWER WIDE" : layout.preset === "analysisWide" ? "ANALYSIS WIDE" : "BALANCED"}</summary><div className="layout-presets" role="group" aria-label="Race split preset">
           <span>SPLIT</span><button className={layout.preset === "balanced" ? "active" : ""} onClick={() => onLayoutChange(applyRacePreset(layout, "balanced"))}>BALANCED</button><button className={layout.preset === "towerWide" ? "active" : ""} onClick={() => onLayoutChange(applyRacePreset(layout, "towerWide"))}>TOWER WIDE</button><button className={layout.preset === "analysisWide" ? "active" : ""} onClick={() => onLayoutChange(applyRacePreset(layout, "analysisWide"))}>ANALYSIS WIDE</button><button onClick={onOpenLayoutEditor}>EDIT</button>
-        </div><div className="tower-view-modes" role="group" aria-label="Timing tower view"><span>TOWER VIEW</span>{(["standard", "timing", "strategy"] as const).map((item) => <button className={towerView === item ? "active" : ""} key={item} onClick={() => onTowerViewChange(item)}>{item.toUpperCase()}</button>)}</div></div>} />
+        </div></details><div className="tower-view-modes" role="group" aria-label="Timing tower view"><span>TOWER VIEW</span>{(["standard", "timing", "strategy"] as const).map((item) => <button className={towerView === item ? "active" : ""} key={item} onClick={() => onTowerViewChange(item)}>{item.toUpperCase()}</button>)}</div></div>} />
         <button className="split-handle" onPointerDown={startDrag} aria-label="Resize timing and analysis panels"><span /></button>
         <div className="analysis-stack race-analysis">
-          {layout.analysisOrder.filter((id) => !layout.hiddenModules.includes(id)).map((id) => <div className="analysis-module" data-size={layout.moduleSizes[id]} key={id}>{modules[id]}</div>)}
+          {layout.analysisOrder.filter((id) => !layout.hiddenModules.includes(id)).map((id) => <div className="analysis-module" data-module={id} data-size={layout.moduleSizes[id]} key={id}>{modules[id]}</div>)}
         </div>
       </div>
       </div>

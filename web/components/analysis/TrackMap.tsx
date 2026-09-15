@@ -15,9 +15,10 @@ type TrackMapProps = {
   viewingMode: ViewingMode;
   focusedDriverNumbers?: string[];
   focusLabel?: string;
+  lapInHeader?: boolean;
 };
 
-export function TrackMap({ circuit, session, drivers, positionMode, viewingMode, focusedDriverNumbers = [], focusLabel }: TrackMapProps) {
+export function TrackMap({ circuit, session, drivers, positionMode, viewingMode, focusedDriverNumbers = [], focusLabel, lapInHeader = false }: TrackMapProps) {
   const geometry = useMemo(() => buildTrackGeometry(circuit.path, circuit.rotation ?? 0), [circuit.path, circuit.rotation]);
   const reference = geometry ? null : circuitReference(session);
   const [failedReference, setFailedReference] = useState<string | null>(null);
@@ -28,7 +29,7 @@ export function TrackMap({ circuit, session, drivers, positionMode, viewingMode,
   )).sort((a, b) => Number(focus.has(a.number)) - Number(focus.has(b.number)));
   const coverage = trackCoverage(drivers, geometry ? positionMode : "unavailable");
   return (
-    <Panel eyebrow="CIRCUIT" title={circuit.name ?? session.circuit ?? "Track map"} action={geometry ? <span className="panel-badge">OUTLINE READY</span> : undefined} className="map-panel">
+    <Panel eyebrow="CIRCUIT" title={circuit.name ?? session.circuit ?? "Track map"} action={lapInHeader && ["race", "sprint"].includes(session.session_kind) ? <span className="panel-badge">LAP {session.lap ?? "—"} / {session.total_laps ?? "—"}</span> : geometry ? <span className="panel-badge">OUTLINE READY</span> : undefined} className="map-panel">
       <div className="track-map">
         {geometry ? <svg viewBox="0 0 1000 650" role="img" aria-label={`${circuit.name ?? "Circuit"} outline`} preserveAspectRatio="xMidYMid meet">
           <polyline className="circuit-shadow" points={geometry.polyline} />
@@ -56,7 +57,7 @@ export function TrackMap({ circuit, session, drivers, positionMode, viewingMode,
         {geometry && positionMode === "unavailable" && <div className="map-note">{viewingMode === "live" ? "CAR POSITION NOT AVAILABLE IN PUBLIC LIVE FEED" : "CAR POSITION NOT AVAILABLE FOR THIS REPLAY"}</div>}
         {geometry && positionMode !== "unavailable" && positioned.length === 0 && <div className="map-note">CAR POSITION NOT YET AVAILABLE</div>}
         {coverage.inactiveLabels.length > 0 && <div className="map-out-list"><strong>OUT / STOPPED</strong>{coverage.inactiveLabels.map((label: string) => <span key={label}>{label}</span>)}</div>}
-        {geometry && ["race", "sprint"].includes(session.session_kind) && <div className="map-center"><strong>{session.lap ?? "—"}</strong><span>{focusLabel ?? "CURRENT LAP"}</span></div>}
+        {geometry && !lapInHeader && ["race", "sprint"].includes(session.session_kind) && <div className="map-center"><strong>{session.lap ?? "—"}</strong><span>{focusLabel ?? "CURRENT LAP"}</span></div>}
       </div>
       <footer className="panel-footer"><span>{geometry ? "SHAPE · OBSERVED" : reference ? "MAP · OFFICIAL REFERENCE" : "SHAPE · UNAVAILABLE"}</span>{geometry && positionMode !== "unavailable" && <span>{positionMode === "timing_estimate" ? "POSITION · APPROX · TIMING-DERIVED" : "POSITION · SOURCE X/Y"}</span>}<span title={coverage.unpositionedLabels.join(", ") || "All active cars positioned"}>ACTIVE COVERAGE · {coverage.positioned}/{coverage.eligible}{coverage.unpositioned ? ` · ${coverage.unpositioned} UNPOSITIONED` : ""}</span></footer>
     </Panel>

@@ -20,6 +20,7 @@ type TimingTowerProps = {
   replayAvailable: boolean;
   sectorTimingAvailable?: boolean;
   intervalsAvailable?: boolean;
+  desktopRaceColumns?: boolean;
   toolbar?: ReactNode;
   onSelectDriver?: (driverNumber: string) => void;
 };
@@ -54,10 +55,10 @@ function RaceCore({ driver, leader, intervalsAvailable = false }: { driver: Driv
   </>;
 }
 
-function RaceRow({ driver, leader, onSelect }: { driver: Driver; leader?: Driver; onSelect?: (driverNumber: string) => void }) {
+function RaceRow({ driver, leader, intervalsAvailable, onSelect }: { driver: Driver; leader?: Driver; intervalsAvailable: boolean; onSelect?: (driverNumber: string) => void }) {
   const lifecycle = driverLifecycle(driver);
-  return <button type="button" className={"timing-row timing-race " + lifecycleClassName(driver)} role="row" onClick={() => onSelect?.(driver.number)}>
-    <RaceCore driver={driver} leader={leader} />
+  return <button type="button" className={`timing-row timing-race${intervalsAvailable ? " timing-with-interval" : ""} ${lifecycleClassName(driver)}`} role="row" onClick={() => onSelect?.(driver.number)}>
+    <RaceCore driver={driver} leader={leader} intervalsAvailable={intervalsAvailable} />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     {lifecycle.terminal ? <span>—</span> : <DataValue compact value={driver.last_lap ?? driver.best_lap} availability={driver.availability.last_lap} />}
     <span>{driver.pit_count}</span>
@@ -75,11 +76,11 @@ function RaceTimingRow({ driver, leader, intervalsAvailable, onSelect }: { drive
   </button>;
 }
 
-function RaceStrategyRow({ driver, leader, analytics, onSelect }: { driver: Driver; leader?: Driver; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
+function RaceStrategyRow({ driver, leader, intervalsAvailable, analytics, onSelect }: { driver: Driver; leader?: Driver; intervalsAvailable: boolean; analytics?: AnalyticsSnapshot | null; onSelect?: (driverNumber: string) => void }) {
   const published = analytics?.publishedStrategy?.drivers[driver.number];
   const lastStop = published?.actualStrategy?.stopLaps.at(-1);
-  return <button type="button" className={`timing-row timing-race-strategy timing-race-strategy-detail ${lifecycleClassName(driver)}`} role="row" onClick={() => onSelect?.(driver.number)}>
-    <RaceCore driver={driver} leader={leader} />
+  return <button type="button" className={`timing-row timing-race-strategy timing-race-strategy-detail${intervalsAvailable ? " timing-with-interval" : ""} ${lifecycleClassName(driver)}`} role="row" onClick={() => onSelect?.(driver.number)}>
+    <RaceCore driver={driver} leader={leader} intervalsAvailable={intervalsAvailable} />
     <DataValue compact value={driver.tyre_age} availability={driver.availability.tyre_age} />
     <DataValue compact value={driver.stint_laps} availability={driver.availability.stint_laps} />
     <span>{driver.pit_count}</span>
@@ -145,17 +146,19 @@ const raceModeHeaders = {
   strategy: ["P", "DRIVER / TEAM", "GAP", "TYRE", "AGE", "STINT", "PIT"],
 };
 
-export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, sectorTimingAvailable = false, intervalsAvailable = false, toolbar, onSelectDriver }: TimingTowerProps) {
-  const showInterval = variant === "race" && mode === "timing" && intervalsAvailable;
+export function TimingTower({ drivers, variant, mode = "standard", analytics, replayAvailable, sectorTimingAvailable = false, intervalsAvailable = false, desktopRaceColumns = false, toolbar, onSelectDriver }: TimingTowerProps) {
+  // The approved desktop extension is opt-in; mobile and TV retain their inventories.
+  const showInterval = (variant === "race" && mode === "timing" && intervalsAvailable)
+    || (variant === "race" && desktopRaceColumns && intervalsAvailable);
   const qualifyingTiming = variant === "qualifying" && mode === "timing";
   const qualifyingPhase = analytics?.qualifying?.phase;
   const qualifyingBestHeader = qualifyingPhase && qualifyingPhase !== "UNKNOWN" ? qualifyingPhase : "BEST";
   const qualifyingFinal = variant === "qualifying" && analytics?.qualifying.final === true;
   const qualifyingSegments = analytics?.sessionKind === "sprint_qualifying" ? ["SQ1", "SQ2", "SQ3"] : ["Q1", "Q2", "Q3"];
+  const raceHeaders = mode === "strategy"
+    ? [...raceModeHeaders.strategy, "TYRE STRATEGY", "LAST STOP"] : raceModeHeaders[mode];
   const headersForView = variant === "race"
-    ? mode === "strategy"
-      ? [...raceModeHeaders.strategy, "TYRE STRATEGY", "LAST STOP"]
-      : showInterval ? [...raceModeHeaders.timing.slice(0, 3), "INT", ...raceModeHeaders.timing.slice(3)] : raceModeHeaders[mode]
+    ? showInterval ? [...raceHeaders.slice(0, 3), "INT", ...raceHeaders.slice(3)] : raceHeaders
     : variant === "qualifying"
       ? ["P", "DRIVER / TEAM", ...(qualifyingTiming
         ? [qualifyingBestHeader, ...(sectorTimingAvailable ? ["S1", "S2", "S3"] : []), "GAP", "INT", "TYRE", "STATUS"]
@@ -173,9 +176,9 @@ export function TimingTower({ drivers, variant, mode = "standard", analytics, re
       {drivers.map((driver) => variant === "race" && mode === "timing"
         ? <RaceTimingRow driver={driver} leader={raceLeader} intervalsAvailable={showInterval} onSelect={onSelectDriver} key={driver.number} />
         : variant === "race" && mode === "strategy"
-          ? <RaceStrategyRow driver={driver} leader={raceLeader} analytics={analytics} onSelect={onSelectDriver} key={driver.number} />
+          ? <RaceStrategyRow driver={driver} leader={raceLeader} intervalsAvailable={showInterval} analytics={analytics} onSelect={onSelectDriver} key={driver.number} />
           : variant === "race"
-            ? <RaceRow driver={driver} leader={raceLeader} onSelect={onSelectDriver} key={driver.number} />
+            ? <RaceRow driver={driver} leader={raceLeader} intervalsAvailable={showInterval} onSelect={onSelectDriver} key={driver.number} />
             : variant === "qualifying"
                ? <QualifyingRow driver={driver} intelligence={qualifying} timing={qualifyingTiming} sectorTimingAvailable={sectorTimingAvailable} showQStatus={qualifyingFinal} onSelect={onSelectDriver} key={driver.number} />
               : <PracticeRow driver={driver} onSelect={onSelectDriver} key={driver.number} />)}

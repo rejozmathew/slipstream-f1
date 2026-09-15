@@ -46,6 +46,7 @@ export function AppShell() {
   const recommendedBattle = useBattleRecommendation(session.analytics, session.state);
   const rootProps = {
     className: `app-shell view-${view} mode-${session.viewingMode}`,
+    "data-session-layout": layout,
     "data-background": preferences.appearance.background,
     "data-accent": preferences.appearance.accent,
   };
