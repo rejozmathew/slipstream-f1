@@ -136,6 +136,7 @@ async function audit(page, profile) {
     const button=page.locator('.timing-panel:visible .tower-view-modes').getByRole('button',{name:view,exact:true});
     if(await button.count())await check(`Qualifying tower ${view} variant`,async()=>{await button.click();await screen(page,profile,`session-tower-${view.toLowerCase()}`);},profile.id);
   }
+  if(args['skip-settings'] !== 'true') {
   await check('All settings sections open',async()=>{
     await nav(page,'SETTINGS');
     for(const [name,id] of [['Profile','profile'],['Appearance','appearance'],['Layouts','layouts'],['Sync & Devices','sync-devices'],['Preferences','tv-preferences']]) {
@@ -174,6 +175,7 @@ async function audit(page, profile) {
     await screen(page,profile,'settings-tv-pinned-pair');await modeSelect.selectOption('recommended');
     const alerts=page.getByRole('checkbox',{name:'Enable critical race-control interrupts'});const checked=await alerts.isChecked();await alerts.setChecked(!checked);assert.equal(await alerts.isChecked(),!checked);await alerts.setChecked(checked);
   },profile.id);
+  }
   await session(page);
   await check('TV Mode states, rotation, and exit',async()=>{
     const tv=page.getByRole('button',{name:'TV MODE',exact:true});

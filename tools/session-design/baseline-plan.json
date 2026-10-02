@@ -25,5 +25,53 @@
     }
   ],
   "scheduledAutomationId": "slipstream-qualifying-and-race-screenshots",
-  "policy": "All captures and logs stay under C:/GitClone. Bulk screenshots, state snapshots, archives and runtime data remain local under ignored output; commit only capture tooling and lightweight planning metadata. Verify catalog timing/identity against the actual connected live source before capture."
+  "policy": "All captures and logs stay under C:/GitClone. Bulk screenshots, state snapshots, archives and runtime data remain local under ignored output; commit only capture tooling and lightweight planning metadata. Verify catalog timing/identity against the actual connected live source before capture.",
+  "replayBaseline": {
+    "folder": "replay/2026-10-02-baku-2026",
+    "circuit": "Baku",
+    "year": 2026,
+    "screenshots": 483,
+    "practice": 103,
+    "qualifying": 151,
+    "race": 229,
+    "profiles": {
+      "desktop": "1440x900",
+      "phone": "390x844"
+    },
+    "settingsExcluded": true,
+    "checkpoints": {
+      "practice": [
+        "loading",
+        "start",
+        "early",
+        "middle",
+        "late",
+        "finish"
+      ],
+      "qualifying": [
+        "loading",
+        "start",
+        "q1",
+        "q2",
+        "q3",
+        "finish"
+      ],
+      "race": [
+        "loading",
+        "start",
+        "early",
+        "middle",
+        "late",
+        "finish"
+      ]
+    },
+    "positionProvenance": "Timing-derived approximate positions on observed circuit outline",
+    "manifest": "manifest.json",
+    "verification": "verification.json"
+  },
+  "captureDefaults": {
+    "folderLayout": "output/playwright/{live|replay}/{run}",
+    "settings": "Excluded by default; capture-session.ps1 -IncludeSettings opts in",
+    "replayRunner": "tools/session-design/capture-replay-baselines.cjs"
+  }
 }

@@ -2,6 +2,7 @@ param(
   [ValidateSet('live','replay')][string]$Mode = 'live',
   [string]$Session,
   [string]$Label,
+  [switch]$IncludeSettings,
   [double]$Fraction = 0.55,
   [string]$Url = 'http://127.0.0.1:3344'
 )
@@ -16,11 +17,12 @@ if (-not $Label) { throw 'The capture label must contain letters or digits.' }
 $captureStamp = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow,'Central Standard Time').ToString('yyyy-MM-dd-HHmmss')
 $captureRepo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 if (-not ([IO.Path]::GetFullPath($captureRepo)).StartsWith('C:\GitClone\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Capture worktree must stay under C:\GitClone.' }
-$captureOutput = Join-Path $captureRepo 'output\playwright'
+$captureOutput = Join-Path $captureRepo (Join-Path 'output\playwright' $Mode)
 New-Item -ItemType Directory -Force -Path $captureOutput | Out-Null
 $captureDestination = Join-Path $captureOutput "$captureStamp-$Label"
 $captureCommit = git -C $captureRepo rev-parse HEAD
-& node (Join-Path $PSScriptRoot 'capture-all.cjs') --url $Url --mode $Mode --session $Session --label $Label --fraction $Fraction --commit $captureCommit --out $captureDestination
+$captureSkipSettings = if ($IncludeSettings) { 'false' } else { 'true' }
+& node (Join-Path $PSScriptRoot 'capture-all.cjs') --url $Url --mode $Mode --session $Session --label $Label --fraction $Fraction --skip-settings $captureSkipSettings --commit $captureCommit --out $captureDestination
 if ($LASTEXITCODE -ne 0) { throw "Capture failed. Inspect $captureDestination\manifest.json" }
 & node (Join-Path $PSScriptRoot 'index-captures.cjs')
 if ($LASTEXITCODE -ne 0) { throw 'Capture succeeded but gallery indexing failed.' }
