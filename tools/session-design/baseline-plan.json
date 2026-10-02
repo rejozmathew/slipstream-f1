@@ -1,0 +1,29 @@
+{
+  "branch": "codex/session-design-baselines",
+  "worktree": "C:\\GitClone\\slipstream-f1-session-design-baselines",
+  "sourceCommit": "f6952e8135fbf4201e19999cba1a4c7a86d24c96",
+  "artifactRoot": "output/playwright",
+  "runtimeRoot": "output/runtime",
+  "baseline": {
+    "folder": "2026-10-02-practice-2",
+    "screenshots": 282,
+    "livePractice": 87,
+    "historicalQualifying": 87,
+    "historicalRace": 108,
+    "sha256Verified": true
+  },
+  "futureLiveSessions": [
+    {
+      "sessionKey": "11730",
+      "kind": "qualifying",
+      "catalogStartChicago": "2026-10-03T03:00:00-05:00"
+    },
+    {
+      "sessionKey": "11731",
+      "kind": "race",
+      "catalogStartChicago": "2026-10-04T02:00:00-05:00"
+    }
+  ],
+  "scheduledAutomationId": "slipstream-qualifying-and-race-screenshots",
+  "policy": "All captures and logs stay under C:/GitClone. Bulk screenshots, state snapshots, archives and runtime data remain local under ignored output; commit only capture tooling and lightweight planning metadata. Verify catalog timing/identity against the actual connected live source before capture."
+}
