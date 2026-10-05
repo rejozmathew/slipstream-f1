@@ -153,7 +153,7 @@
       const w = el.querySelector('.tw-wash');
       w.style.background = colour;
       if (this.reduced || !w.animate) { w.style.opacity = peak * 0.6; clearTimeout(el._washT); el._washT = setTimeout(() => (w.style.opacity = 0), ms); return; }
-      w.animate([{ opacity: 0 }, { opacity: peak, offset: 0.12 }, { opacity: peak * 0.7, offset: 0.6 }, { opacity: 0 }], { duration: ms * this.motionScale, easing: 'linear' });
+      w.animate([{ opacity: 0 }, { opacity: peak, offset: 0.12 }, { opacity: peak * 0.7, offset: 0.6 }, { opacity: 0 }], { duration: ms * (this._ms || this.motionScale), easing: 'linear' });
     }
     _flashCell(el, key, cls) {
       let i = this.o.columns.findIndex((c) => c.key === key);
@@ -187,6 +187,7 @@
       const sp = ctx.speed || 1;
       const fast = sp >= 30;
       const ms = this.motionScale * (sp >= 5 ? 0.6 : 1);
+      this._ms = ms; // cause effects (washes, chips, arrows) use the same posture × speed scale as the moves
       for (const r of vm.rows) {
         const el = this.rows[r.num];
         // cells
@@ -261,7 +262,7 @@
     }
 
     _applyCause(el, r, c, vm) {
-      const ms = this.motionScale;
+      const ms = this._ms || this.motionScale;
       switch (c.cause) {
         case 'pass':
           this._wash(el, 'var(--team)', 2600, 0.3);
