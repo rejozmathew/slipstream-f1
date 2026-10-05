@@ -1,6 +1,6 @@
 # Implementation map
 
-This map describes the Milestone 3.5 source-unification merge candidate. It maps current engineering ownership and does not override [Architecture](ARCHITECTURE.md) or the normative [Protocol](docs/protocol.md).
+This map describes the M3.5 factual baseline plus the session redesign. It maps current engineering ownership and does not override [Architecture](ARCHITECTURE.md) or the normative [Protocol](docs/protocol.md).
 
 ## Canonical path
 
@@ -34,7 +34,10 @@ React renders canonical contracts and does not recreate analytics or provider tr
 | Canonical events and state | `events.py`, `state.py`, `lifecycle.py` |
 | Replay | `replay.py`, `playback.py` |
 | Live session and recording | `live.py`, `live_recording.py` |
+| Private live pause/delay cursor | `live_viewer.py`, `api.py` |
 | Lap, pit, and session evidence | `evidence.py` |
+| Immutable evidence-timed story | `story.py`, accumulated by `evidence.py` |
+| Arbitrary driver-pair gap truth | `pair_truth.py`, consumed by `analytics.py` and `evidence.py` |
 | Weekend context | `weekend.py`, `context_types.py` |
 | Analytics orchestration | `analytics.py` |
 | RaceRead and race intelligence | `race_intelligence.py`, `strategy_rules.py` |
@@ -83,6 +86,7 @@ The public Live subscription allow-list also contains `Heartbeat` and `TopThree`
 | Battle | actual two-driver strategy plus server-authored completed-lap evidence; Pirelli remains secondary context |
 | Track Map | circuit geometry plus capability- and lifecycle-filtered positions |
 | TV Mode | compact rendering of the same actual-strategy, Pirelli, state, and analytics semantics |
+| Activity and TV story moments | `AnalyticsSnapshot.story` and `/api/v1/story`, rendered by `web/components/story/` |
 
 Race and Sprint may expose Strategy and Battle. Qualifying uses its own timing and Driver Focus. Qualifying TV is Tower plus Track only when positions are renderable; Practice TV is Tower-only.
 
@@ -94,7 +98,7 @@ Race and Sprint may expose Strategy and Battle. Qualifying uses its own timing a
 - `PitLaneTimeCollection.Duration` supplies complete pit-lane transit only.
 - Pit-lane durations outside `0 < duration <= 300s` are rejected, not clamped.
 - Live delay reconstructs `RaceState` and `AnalyticsSnapshot` at one private delayed cursor.
-- The Live protocol accepts 0–300 seconds; the browser currently offers 0, 5, 10, 15, and 30-second presets.
+- The Live protocol accepts 0–300 seconds; browser presets include 5s, 10s, 30s, 1m, 2m, 3m, and 5m plus exact M:SS. Pause holds the source cursor until the five-minute cap, then resumes with notice.
 - Pirelli has strict-model and display-only official historical evidence tiers.
 - Display-only Pirelli evidence cannot produce model-comparable options or future windows.
 - Pirelli history is fixed at ten seasons; the independently configurable replay catalog defaults to three.
@@ -126,5 +130,5 @@ See the current `tests/` and `web/tests/` trees rather than older milestone-spec
 - deterministic archived-session backtesting;
 - protected/authenticated telemetry by default;
 - precise live X/Y and hardware clients;
-- broad visual redesign after the M3.5 factual baseline.
-- replay download/preparation readiness, control activation, slider readiness, initialization flashes, and bootstrap performance.
+- native Android TV packaging and hardware deployment;
+- further cold-seek performance optimization beyond the implemented in-memory readiness model.

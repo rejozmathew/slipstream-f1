@@ -21,7 +21,7 @@ export type BattlePreferences = {
   pinnedPair: [string, string];
 };
 
-export type TVStatePreference = "tower" | "track" | "strategy" | "battle" | "driver";
+export type TVStatePreference = "tower" | "track" | "strategy" | "battle" | "driver" | "result";
 export type TVPreferences = {
   includedRaceStates: TVStatePreference[];
   selectedDriverNumber: string | null;
@@ -29,15 +29,19 @@ export type TVPreferences = {
   pinnedBattle: [string, string];
   rotationIntervalSeconds: number;
   alertOnCriticalStatus: boolean;
+  textSize?: number;
+  safeArea?: number;
 };
 
 export const DEFAULT_TV_PREFERENCES: TVPreferences = {
-  includedRaceStates: ["tower", "track", "strategy", "battle", "driver"],
+  includedRaceStates: ["track", "strategy", "battle", "driver", "result"],
   selectedDriverNumber: null,
   battleMode: "recommended",
   pinnedBattle: ["", ""],
   rotationIntervalSeconds: 12,
   alertOnCriticalStatus: true,
+  textSize: 1,
+  safeArea: 0,
 };
 
 const DEFAULT_BATTLE_PREFERENCES: BattlePreferences = {
@@ -50,7 +54,7 @@ const defaults = (): StoredPreferences => ({
   raceLayout: INSTANCE_RACE_LAYOUT,
   towerView: "standard",
   qualifyingTowerView: "standard",
-  sessionWidths: { qualifying: 66, practice: 66 },
+  sessionWidths: { qualifying: 56, practice: 56 },
   lastDriverNumber: null,
   battle: DEFAULT_BATTLE_PREFERENCES,
   tv: DEFAULT_TV_PREFERENCES,
@@ -67,6 +71,7 @@ function readDevicePreferences(): StoredPreferences {
       ...parsed.raceLayout,
       preset: legacyPreset === "timing" ? "towerWide" : legacyPreset === "strategy" ? "analysisWide" : parsed.raceLayout?.preset ?? INSTANCE_RACE_LAYOUT.preset,
       moduleSizes: { ...INSTANCE_RACE_LAYOUT.moduleSizes, ...parsed.raceLayout?.moduleSizes },
+      analysisOrder: parsed.raceLayout?.analysisOrder ? [...parsed.raceLayout.analysisOrder, ...INSTANCE_RACE_LAYOUT.analysisOrder.filter((id) => !parsed.raceLayout?.analysisOrder?.includes(id))] : INSTANCE_RACE_LAYOUT.analysisOrder,
     } as RaceLayoutConfig;
     return {
       appearance: { ...DEFAULT_APPEARANCE, ...parsed.appearance },
@@ -78,7 +83,7 @@ function readDevicePreferences(): StoredPreferences {
         practice: typeof parsed.sessionWidths?.practice === "number" && Number.isFinite(parsed.sessionWidths.practice) ? parsed.sessionWidths.practice : 66,
       },
       lastDriverNumber: parsed.lastDriverNumber ?? null,
-      battle: { ...DEFAULT_BATTLE_PREFERENCES, ...parsed.battle },
+      battle: parsed.battle ? { ...DEFAULT_BATTLE_PREFERENCES, ...parsed.battle } : { mode: parsed.tv?.battleMode ?? DEFAULT_BATTLE_PREFERENCES.mode, pinnedPair: parsed.tv?.pinnedBattle ?? DEFAULT_BATTLE_PREFERENCES.pinnedPair },
       tv: { ...DEFAULT_TV_PREFERENCES, ...parsed.tv },
     };
   } catch {
@@ -95,15 +100,21 @@ export function useProductPreferences() {
   const [sessionWidths, setSessionWidths] = useState(initial.sessionWidths);
   const [lastDriverNumber, setLastDriverNumber] = useState<string | null>(initial.lastDriverNumber);
   const [battle, setBattle] = useState<BattlePreferences>(initial.battle);
-  const [tv, setTV] = useState<TVPreferences>(initial.tv);
+  const [tv, setTVState] = useState<TVPreferences>(initial.tv);
+  // One viewer owns its pinned pair; TV only changes presentation of that pair.
+  const viewerTV = { ...tv, battleMode: battle.mode, pinnedBattle: battle.pinnedPair };
+  const setTV = (value: TVPreferences) => {
+    setTVState(value);
+    setBattle({ mode: value.battleMode, pinnedPair: value.pinnedBattle });
+  };
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ appearance, raceLayout, towerView, qualifyingTowerView, sessionWidths, lastDriverNumber, battle, tv }));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ appearance, raceLayout, towerView, qualifyingTowerView, sessionWidths, lastDriverNumber, battle, tv: { ...tv, battleMode: battle.mode, pinnedBattle: battle.pinnedPair } }));
     } catch {
       // Storage can be disabled; preferences still work for this page lifetime.
     }
   }, [appearance, battle, lastDriverNumber, raceLayout, towerView, qualifyingTowerView, sessionWidths, tv]);
 
-  return { appearance, setAppearance, raceLayout, setRaceLayout, towerView, setTowerView, qualifyingTowerView, setQualifyingTowerView, sessionWidths, setSessionWidths, lastDriverNumber, setLastDriverNumber, battle, setBattle, tv, setTV };
+  return { appearance, setAppearance, raceLayout, setRaceLayout, towerView, setTowerView, qualifyingTowerView, setQualifyingTowerView, sessionWidths, setSessionWidths, lastDriverNumber, setLastDriverNumber, battle, setBattle, tv: viewerTV, setTV };
 }

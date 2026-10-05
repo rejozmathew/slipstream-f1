@@ -439,4 +439,6 @@ def test_completed_gap_history_is_lap_scoped_and_request_order_independent(
         direct["battle"]["heldRecommendation"]
         == reordered["battle"]["heldRecommendation"]
     )
-    assert direct["battle"]["stabilizedRecommended"] is not None
+    # Owner-approved redesign: lap 1/2 cannot publish a Battle recommendation.
+    # Keep the original cursor/evidence fixture and deterministic replay check.
+    assert direct["battle"]["stabilizedRecommended"] is None

@@ -63,4 +63,8 @@ When ordered circuit geometry is absent, the 2026 Madring view links and embeds 
 
 ## Project boundary
 
+The React redesign bundles Saira and JetBrains Mono font subsets from the supplied design assets. Their upstream SIL Open Font License notices are distributed in `web/public/licenses/Saira-OFL.txt` and `web/public/licenses/JetBrainsMono-OFL.txt`, sourced from the official [Saira font distribution](https://github.com/google/fonts/tree/main/ofl/saira) and [JetBrains Mono font distribution](https://github.com/google/fonts/tree/main/ofl/jetbrainsmono). These font notices remain separate from Slipstream's MIT source license. The supplied Slipstream brand assets are reused as project assets.
+
+The session story adds no provider, subscription, or external inference service. It deterministically reduces the same normalized events described above; [story.md](story.md) records the derivation rules and limits.
+
 Do not copy code or fixtures from a repository unless its license is compatible and the reuse is deliberate, attributed, and documented. AGPL material is out of scope for this MIT project. When a source is used only to validate a protocol fact, implement the behavior independently and test it against Slipstream’s own captures.

@@ -295,8 +295,9 @@ def test_driver_context_and_recommended_battle_share_one_model(tmp_path: Path) -
 
     assert snapshot["drivers"]["2"]["ahead"]["driverNumber"] == "1"
     assert snapshot["drivers"]["2"]["behind"]["driverNumber"] == "3"
-    assert snapshot["battle"]["recommended"]["aheadDriverNumber"] == "1"
-    assert snapshot["battle"]["recommended"]["behindDriverNumber"] == "2"
+    # The approved redesign requires known green running and same-lap evidence
+    # from lap 3; this original fixture establishes none of those facts.
+    assert snapshot["battle"]["recommended"] is None
     assert snapshot["battle"]["hysteresis"]["minimumHoldSeconds"] == 20
     assert snapshot["battle"]["hysteresis"]["switchMargin"] == 8
     assert snapshot["battle"]["hysteresis"]["owner"] == "server"

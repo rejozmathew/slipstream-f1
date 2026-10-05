@@ -6,6 +6,8 @@ Slipstream is unofficial and unaffiliated with Formula 1, FIA, Pirelli, or any t
 
 ## Current status
 
+The session redesign is implemented in React on top of the M3.5 factual baseline: shared Saira/JetBrains Mono typography and brand, responsive desktop and phone layouts, remote-operated TV, token-based density and reduced motion, private Live pause, and a server-authored session story. See [Session experience](docs/session-experience.md) for controls and [Story model](docs/story.md) for evidence, confirmation, corrections, and explicit limits. This branch has not been deployed to Unraid or packaged as a native Android TV application.
+
 Milestone 3.5 delivers source/live/replay correctness, in-memory replay readiness, bounded resource caching, atomic first-frame playback readiness, and live completion/drain decoupling. Live timing, viewer delay, deltas, replay behavior, and general performance were accepted after a real live race; the local NordVPN route causing F1 HTTP 403 responses had to be disabled. The first unprepared seek still exceeds the 300 ms target (1.085 s in the last recorded workload). See the [closure record](docs/consolidated-closure-20260906.md#final-branch-acceptance--6-september-2026) for validation scope and remaining limitations.
 
 | Capability | Current behavior |
@@ -24,6 +26,7 @@ Milestone 3.5 delivers source/live/replay correctness, in-memory replay readines
 | Race intelligence | Cursor-safe RaceRead, pace/stint evidence, Driver, Strategy, and Battle context |
 | Pirelli | Bundled normalized seed, official pre-race archive, quiet historical catch-up, deterministic extraction, and explicit evidence tiers |
 | TV Mode | Authored session-aware rendering of the same canonical contracts |
+| Session story | Cursor-safe Activity history, separate inspection and replay, TV ticker and major moments |
 | Deployment | One container, one runtime process, and one HTTP/WebSocket origin |
 
 Intentionally deferred: authentication and SQLite control plane, Sync Groups and device pairing, deterministic archived-session backtesting, Net Pit Loss, defensible stationary pit-box duration, protected/authenticated telemetry, precise live X/Y, and hardware clients.
@@ -100,7 +103,9 @@ viewer C: 120 s
 RaceState + AnalyticsSnapshot at each viewer's cursor
 ```
 
-The protocol accepts 0–300 seconds. The browser offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry, such as `2:17`. The active delay follows server confirmation. `GO LIVE` returns only that viewer to zero delay. Live mode does not expose replay pause, historical seek, step, or speed commands.
+The protocol accepts 0–300 seconds. The browser offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry, such as `2:17`. Requested and effective delay are separate; the active label follows server confirmation. `GO LIVE` returns only that viewer to zero delay. Pausing Live holds the viewer's source moment while delay grows, up to five minutes. At the cap, playback resumes with a visible notice. Live has no historical seek, step, or variable playback speed.
+
+Desktop, phone, and TV share the same controller when switching views. In Replay, an Activity event opens for inspection first; its explicit replay action saves a return point with the exact cursor, clock, speed, and play/pause state. Seeking or reconnecting rebuilds story history silently.
 
 ## Race, Qualifying, and Practice
 
@@ -152,7 +157,7 @@ The default `SLIPSTREAM_MODE=full` serves the browser UI, REST API, and WebSocke
 Requirements:
 
 - Python 3.11+
-- Node 22+
+- Node 22.13+ (or a newer supported LTS)
 
 Backend:
 
@@ -170,7 +175,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:3344`. Vite is fixed to port 3344 and proxies API/WebSocket requests to the backend at `127.0.0.1:8000`; do not run `slipstream serve` on 3344.
+Open `http://127.0.0.1:3344`. Vite defaults to port 3344 and proxies API/WebSocket requests to the backend at `127.0.0.1:8000`; do not run `slipstream serve` on 3344. Set `VITE_SLIPSTREAM_API` and explicitly override the Vite port when an isolated second preview is needed. Production still uses one Python process and one origin.
 
 ## Pirelli sync
 
@@ -251,7 +256,7 @@ npm install --no-save --package-lock=false playwright
 
 ## Documentation
 
-- [Consolidated closure and current release gates](docs/consolidated-closure-20260906.md)
+- [Historical M3.5 closure and acceptance scope](docs/consolidated-closure-20260906.md)
 - [Architecture](ARCHITECTURE.md)
 - [Data flows and source precedence](docs/data-flow.md)
 - [Product and session flows](docs/product-flows.md)
@@ -259,6 +264,7 @@ npm install --no-save --package-lock=false playwright
 - [Session experience](docs/session-experience.md)
 - [Published Pirelli strategy](docs/pirelli-strategy.md)
 - [Analytics](docs/analytics.md)
+- [Session story: evidence and presentation](docs/story.md)
 - [Source and license notes](docs/sources.md)
 - [Implementation map](IMPLEMENTATION_MAP.md)
 - [Roadmap](ROADMAP.md)

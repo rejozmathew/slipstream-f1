@@ -105,6 +105,9 @@ export function battleFactorPresentation(factor) {
 }
 
 export function battleGapPresentation(candidate) {
+  if (!candidate || candidate.comparisonState === "NOT_COMPARABLE") {
+    return { label: "PAIR GAP · UNAVAILABLE", note: candidate?.reason ?? "COMPARABLE SOURCE GAP IS NOT AVAILABLE", sameSnapshotArithmetic: false };
+  }
   if (candidate?.gapBasis === "interval_to_ahead") {
     return {
       label: "PAIR INTERVAL · SOURCE FEED",

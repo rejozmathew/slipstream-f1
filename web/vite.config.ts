@@ -9,7 +9,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api/v1": {
-        target: "http://127.0.0.1:8000",
+        target: process.env.VITE_SLIPSTREAM_API ?? "http://127.0.0.1:8000",
         ws: true,
       },
     },

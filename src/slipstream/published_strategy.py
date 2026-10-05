@@ -214,11 +214,12 @@ def _actual_strategy(
     compounds: list[str | None] = [initial] if initial is not None or events else []
     for event in events:
         compounds.append(_compound(event.new_compound))
-    if events and compounds and compounds[-1] is None:
-        compounds[-1] = _compound(driver.compound)
-    completed_stops = max(int(driver.pit_count or 0), 0)
+    # The source pit counter may increment at entry. A completed, cursor-scoped
+    # pit observation is required before it joins actual stop history. Missing
+    # new-compound evidence must not be filled with the car's old/current tyre.
+    completed_stops = len(events)
     evidence_complete = (
-        len(events) == completed_stops
+        len(events) == max(int(driver.pit_count or 0), 0)
         and len(compounds) == len(events) + 1
         and all(compound is not None for compound in compounds)
     )

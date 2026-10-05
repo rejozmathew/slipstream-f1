@@ -205,7 +205,7 @@ def field_distributions(
         ],
         "evidenceBasis": [
             "starting tyres use first-stint/race-start evidence, including later terminal starters",
-            f"current tyres and completed stops use {len(current_field)} factually running or in-pit drivers at this cursor",
+            f"current tyres and reported pit counts use {len(current_field)} factually running or in-pit drivers at this cursor",
             "observed sequences use only the factual running or in-pit population at this cursor",
         ],
     }
@@ -299,7 +299,13 @@ def race_read(
             }
 
     summary: list[str] = []
-    stop_distribution = distributions["stopDistribution"]
+    # A provider can increment pit_count on entry. Completed stops come from
+    # the same cursor-filtered, deduplicated pit observations as actualStrategy.
+    completed_by_driver = Counter(event.driver_number for event in pit_events)
+    completed_stops = Counter(completed_by_driver[number] for number in current_field)
+    stop_distribution = {
+        str(count): drivers for count, drivers in sorted(completed_stops.items())
+    }
     if stop_distribution:
         dominant_stops, count = max(stop_distribution.items(), key=lambda item: item[1])
         noun = "stop" if dominant_stops == "1" else "stops"
@@ -432,7 +438,7 @@ def hard_projection_violations(
     if driver is not None:
         remaining = strategy.get("likelyStopCount", {}).get("value")
         if isinstance(remaining, (int, float)) and remaining < driver.pit_count:
-            violations.append("likely total stop count is below completed stops")
+            violations.append("likely total stop count is below the reported pit count")
     return violations
 
 

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { slipstreamApi, type DownloadJob } from "../api/client";
 import { connectReplaySocket, type ReplaySocket } from "../api/replaySocket";
 import { shouldPollAnalytics } from "../domain/analyticsPolling.mjs";
+import { canViewerCommand, isNavigationCommand } from "../domain/viewerCommands.mjs";
 import {
   EMPTY_RACE_STATE,
   type AnalyticsSnapshot,
@@ -57,6 +58,12 @@ export function useSlipstreamSession() {
   const [viewingMode, setViewingMode] = useState<ViewingMode>("replay");
   const [liveStatus, setLiveStatus] = useState<LiveConnectionStatus>("OFFLINE");
   const [liveDelaySeconds, setLiveDelaySeconds] = useState(0);
+  const [requestedLiveDelaySeconds, setRequestedLiveDelaySeconds] = useState(0);
+  const [liveNotice, setLiveNotice] = useState<string | null>(null);
+  const [navigationGeneration, setNavigationGeneration] = useState(0);
+  const [watchedUntil, setWatchedUntil] = useState<string | null>(null);
+  const [playbackSpeed, setPlaybackSpeedState] = useState(10);
+  const [returnPoint, setReturnPoint] = useState<{ at: string; seq: number; playing: boolean; speed: number; delay: number } | null>(null);
   const [livePositionMode, setLivePositionMode] = useState<import("../domain/protocol").PositionMode>("unavailable");
   const [livePhase, setLivePhase] = useState<LiveProductPhase>("UNAVAILABLE");
   const [playhead, setPlayhead] = useState<string | null>(null);
@@ -78,6 +85,7 @@ export function useSlipstreamSession() {
   const catalogRef = useRef<ReplayCatalog | null>(null);
   const jobStatusesRef = useRef(new Map<string, DownloadJob["status"]>());
   const delayRef = useRef(0);
+  const pausedAtRef = useRef<string | null>(null);
   const socketRef = useRef<ReplaySocket | null>(null);
   const selectedSessionKeyRef = useRef<string | null>(null);
   const viewingModeRef = useRef<ViewingMode>("replay");
@@ -104,6 +112,13 @@ export function useSlipstreamSession() {
     setSequence(0);
     setPlayhead(null);
     setIsPlaying(false);
+    setNavigationGeneration((value) => value + 1);
+    setWatchedUntil(null);
+    setReturnPoint(null);
+    pausedAtRef.current = null;
+    setLiveDelaySeconds(0);
+    setRequestedLiveDelaySeconds(0);
+    setLiveNotice(null);
   };
 
   const reopenPublishedReplay = useCallback((key: string, version?: string | null, force = false) => {
@@ -192,6 +207,10 @@ export function useSlipstreamSession() {
     let analyticsRequested = false;
     let replayAvailable = false;
     let recordingVersion: string | null | undefined;
+    let firstSnapshot = true;
+    let liveGeneration: number | undefined;
+    let replayGeneration: number | undefined;
+    let wasStale = false;
 
     // Event counts belong to one recording. A catalog placeholder or a prior
     // download revision cannot supply a cursor for the newly published file.
@@ -208,6 +227,23 @@ export function useSlipstreamSession() {
       if (!active) return;
       envelopeEpochRef.current++;
       const currentEpoch = envelopeEpochRef.current;
+      const previousCursor = cursorRef.current;
+      const replacement = Boolean(previousCursor?.recordingVersion && envelope.metadata?.recordingVersion
+        && previousCursor.recordingVersion !== envelope.metadata.recordingVersion);
+      const jumped = firstSnapshot || replacement || envelope.seq < (previousCursor?.seq ?? 0)
+        || (envelope.live?.navigationGeneration != null && liveGeneration != null && envelope.live.navigationGeneration !== liveGeneration)
+        || (envelope.playback.navigationGeneration != null && replayGeneration != null && envelope.playback.navigationGeneration !== replayGeneration)
+        || (wasStale && envelope.live?.stale === false);
+      firstSnapshot = false;
+      liveGeneration = envelope.live?.navigationGeneration;
+      replayGeneration = envelope.playback.navigationGeneration;
+      wasStale = envelope.live?.stale ?? false;
+      if (jumped) setNavigationGeneration((value) => value + 1);
+      const confirmedTime = envelope.sessionTime ?? envelope.data.updated_at;
+      if (confirmedTime && Number.isFinite(Date.parse(confirmedTime))) {
+        setWatchedUntil((current) => replacement || !current || Date.parse(confirmedTime) > Date.parse(current) ? confirmedTime : current);
+      }
+      if (replacement) setReturnPoint(null);
       if (envelope.metadata) {
         replayAvailable = envelope.metadata.available;
         recordingVersion = envelope.metadata.recordingVersion;
@@ -225,14 +261,18 @@ export function useSlipstreamSession() {
       if (replayAvailable && pendingPublicationRef.current?.key === selectedSessionKey
         && libraryRevision > pendingPublicationRef.current.revision) pendingPublicationRef.current = null;
       setState(envelope.data);
-      setStateHistory((current) => current.at(-1)?.updated_at === envelope.data.updated_at ? current : [...current, envelope.data].slice(-90));
+      setStateHistory((current) => jumped ? [envelope.data] : current.at(-1)?.updated_at === envelope.data.updated_at ? current : [...current, envelope.data].slice(-90));
       setSequence(envelope.seq);
       setPlayhead(envelope.sessionTime ?? envelope.data.updated_at);
-      setIsPlaying(viewingMode === "replay" && (envelope.playback?.playing ?? false));
+      setIsPlaying(viewingMode === "live" ? !(envelope.live?.paused ?? false) : (envelope.playback?.playing ?? false));
       if (envelope.metadata) setMetadata(envelope.metadata);
       if (envelope.capabilities) setCapabilities(envelope.capabilities);
       if (viewingMode === "live") {
         setLiveDelaySeconds(envelope.live?.delaySeconds ?? delayRef.current);
+        delayRef.current = envelope.live?.requestedDelaySeconds ?? envelope.live?.delaySeconds ?? delayRef.current;
+        setRequestedLiveDelaySeconds(delayRef.current);
+        pausedAtRef.current = envelope.live?.paused ? confirmedTime : null;
+        setLiveNotice(envelope.live?.notice ?? null);
         setLivePositionMode(envelope.live?.positionMode ?? "unavailable");
         setLiveStatus(envelope.live?.status ?? "UNAVAILABLE");
         setLivePhase(envelope.live?.phase ?? "UNAVAILABLE");
@@ -293,7 +333,7 @@ export function useSlipstreamSession() {
       const requestGeneration = generation;
       const requestEpoch = envelopeEpochRef.current;
       try {
-        const envelope = await slipstreamApi.state(selectedSessionKey, viewingMode, resumeSequence(), delayRef.current, resumeVersion());
+        const envelope = await slipstreamApi.state(selectedSessionKey, viewingMode, resumeSequence(), delayRef.current, resumeVersion(), pausedAtRef.current);
         if (!active || streamReady || generation !== requestGeneration || envelopeEpochRef.current !== requestEpoch) return;
         applyEnvelope(envelope);
         setTransport("rest");
@@ -310,11 +350,9 @@ export function useSlipstreamSession() {
       if (!active) return;
       const version = ++generation;
       streamReady = false;
-      socket = connectReplaySocket(slipstreamApi.streamUrl(selectedSessionKey, viewingMode, resumeSequence(), delayRef.current, resumeVersion()), {
-        onOpen: () => {
-          if (!active || version !== generation) return;
-          if (viewingMode === "live" && delayRef.current) socket?.send({ type: "delay", seconds: delayRef.current });
-        },
+      firstSnapshot = true;
+      socket = connectReplaySocket(slipstreamApi.streamUrl(selectedSessionKey, viewingMode, resumeSequence(), delayRef.current, resumeVersion(), pausedAtRef.current), {
+        onOpen: () => {},
         onSnapshot: (envelope) => {
           if (!active || version !== generation) return;
           applyEnvelope(envelope);
@@ -450,11 +488,47 @@ export function useSlipstreamSession() {
     return () => { active = false; window.clearInterval(timer); };
   }, [acceptCatalog, reopenPublishedReplay]);
 
+  const canCommand = (command: ReplayCommand | ReplayCommand["type"]) => canViewerCommand(viewingMode, commandAvailable, metadata?.available === true, command);
+
   const sendReplayCommand = (command: ReplayCommand) => {
-    const sent = commandAvailable && socketRef.current?.send(command) === true;
-    if (sent && command.type === "delay") delayRef.current = command.seconds;
-    if (sent && ["reset", "live"].includes(command.type)) delayRef.current = 0;
+    const sent = canCommand(command) && socketRef.current?.send(command) === true;
+    if (sent && isNavigationCommand(command)) {
+      setNavigationGeneration((value) => value + 1);
+      setStateHistory([]);
+    }
+    if (sent && command.type === "play" && viewingMode === "replay") setPlaybackSpeedState(command.speed);
+    if (sent && viewingMode === "live") {
+      if (command.type === "pause") pausedAtRef.current = playhead;
+      if (command.type === "delay") delayRef.current = command.seconds;
+      if (command.type === "reset") delayRef.current = 0;
+      if (["play", "delay", "reset"].includes(command.type)) pausedAtRef.current = null;
+    }
     return sent;
+  };
+
+  const setPlaybackSpeed = (speed: number) => {
+    if (viewingMode !== "replay" || !canCommand({ type: "play", speed })) return false;
+    if (isPlaying) return sendReplayCommand({ type: "play", speed });
+    setPlaybackSpeedState(speed);
+    return true;
+  };
+
+  const replayMoment = (at: string) => {
+    if (viewingMode !== "replay" || !playhead || !canCommand({ type: "seek", at })) return false;
+    const saved = { at: playhead, seq: sequence, playing: isPlaying, speed: playbackSpeed, delay: delayRef.current };
+    if (!sendReplayCommand({ type: "seek", at })) return false;
+    setReturnPoint((current) => current ?? saved);
+    sendReplayCommand({ type: "play", speed: 1 });
+    return true;
+  };
+
+  const returnFromMoment = () => {
+    if (!returnPoint || viewingMode !== "replay" || !sendReplayCommand({ type: "seek", seq: returnPoint.seq, playhead: returnPoint.at })) return false;
+    setPlaybackSpeedState(returnPoint.speed);
+    delayRef.current = returnPoint.delay;
+    if (returnPoint.playing) sendReplayCommand({ type: "play", speed: returnPoint.speed });
+    setReturnPoint(null);
+    return true;
   };
 
   useEffect(() => {
@@ -505,6 +579,15 @@ export function useSlipstreamSession() {
     liveStatus,
     livePhase,
     liveDelaySeconds,
+    requestedLiveDelaySeconds,
+    liveNotice,
+    navigationGeneration,
+    watchedUntil,
+    playbackSpeed,
+    setPlaybackSpeed,
+    hasReturnPoint: returnPoint !== null,
+    replayMoment,
+    returnFromMoment,
     livePositionMode,
     playhead,
     isPlaying,
@@ -518,6 +601,7 @@ export function useSlipstreamSession() {
     watchReplay,
     downloadReplay,
     commandAvailable,
+    canCommand,
     sendReplayCommand,
   };
 }

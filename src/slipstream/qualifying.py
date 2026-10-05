@@ -55,6 +55,19 @@ def build_qualifying_snapshot(
         "FINISHED",
         "CANCELLED",
     }
+    # A segment flag does not settle laps already in progress. Keep `final`
+    # as the legacy final-segment flag indicator; presentation consumes the
+    # stronger, explicit source-completion verdict below.
+    explicitly_complete = any(
+        event.kind == "session" and (
+            event.payload.get("session_complete") is True
+            or str(event.payload.get("status", "")).upper() in {
+                "COMPLETE", "FINAL", "FINALIZED", "FINALISED", "ENDED", "CANCELLED"
+            }
+        )
+        for event in resource.events[:sequence]
+    )
+    settlement = "SOURCE_COMPLETE" if explicitly_complete else "SETTLING" if state.session.status == "FINISHED" else "RUNNING"
     ordered = sorted(state.drivers.values(), key=lambda item: item.position or 999)
     attempts_by_driver = {
         driver.number: _attempts(resource, driver.number, sequence, sprint=sprint)
@@ -97,6 +110,7 @@ def build_qualifying_snapshot(
                 if phase == "UNKNOWN" or attempt["phase"] == phase
             ]),
             "cutState": cut_state,
+            "cutLabel": "ELIMINATED" if cut_state == "ELIMINATED" else "ABOVE CUT" if cut_state == "ADVANCING" else "BELOW CUT" if cut_state == "BELOW_CUT" else "UNKNOWN",
             "qStatus": _q_status(driver),
             "segmentResults": segment_results,
             "attempts": attempts_by_driver[driver.number],
@@ -143,6 +157,9 @@ def build_qualifying_snapshot(
         "status": "AVAILABLE",
         "phase": phase,
         "final": final,
+        "settlement": settlement,
+        "resultStatus": "provisional" if final or explicitly_complete else "none",
+        "settlementReason": "Source confirms session completion; classification remains provisional." if explicitly_complete else "Flag shown; laps already in progress may still change the order." if settlement == "SETTLING" else "Current order; advancement is not yet a final result.",
         "phaseEvidence": (
             "normalized public SessionData"
             if phase_from_state

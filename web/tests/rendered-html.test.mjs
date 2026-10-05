@@ -72,7 +72,7 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(socketClient, /new WebSocket/);
   assert.match(page, /AppShell/);
   assert.doesNotMatch(page, /sampleState|sampleDrivers/);
-  assert.match(viteConfig, /target: "http:\/\/127\.0\.0\.1:8000"/);
+  assert.match(viteConfig, /target: process\.env\.VITE_SLIPSTREAM_API \?\? "http:\/\/127\.0\.0\.1:8000"/);
   assert.match(packageJson, /"typecheck": "tsc --noEmit"/);
   assert.match(replayControls, /commandAvailable/);
   assert.match(replayControls, /if \(isPlaying && commandAvailable\).*type: "play"/);
@@ -86,16 +86,19 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(replayControls, /SESSION/);
   assert.match(liveControls, /LIVE_DELAY_PRESETS/);
   assert.match(liveControls, /GO LIVE/);
-  assert.doesNotMatch(liveControls, /seek|pause|speed/);
+  // Owner-approved live pause resumes at the fixed source rate.
+  assert.match(liveControls, /type: "pause"/);
+  assert.match(liveControls, /type: "play", speed: 1/);
+  assert.doesNotMatch(liveControls, /type: "seek"|type: "seek_relative"|speed-select/);
   assert.match(replayLibrary, /aria-label="Season"/);
   assert.match(replayLibrary, /aria-label="Race weekend"/);
   assert.match(replayLibrary, /aria-label="Weekend session"/);
   assert.match(replayLibrary, /preferredWeekendSession/);
   assert.match(replayLibrary, /removeAttribute\("open"\)/);
-  assert.match(sessionHook, /commandAvailable && socketRef\.current\?\.send/);
+  assert.match(sessionHook, /canCommand\(command\) && socketRef\.current\?\.send/);
   assert.match(sessionHook, /envelope\.analytics\?\.sessionKey === selectedSessionKey/);
   assert.match(sessionHook, /envelope\.analytics\.sequence === envelope\.seq/);
-  assert.match(sessionHook, /slipstreamApi\.state\(selectedSessionKey, viewingMode, resumeSequence\(\), delayRef\.current, resumeVersion\(\)\)/);
+  assert.match(sessionHook, /slipstreamApi\.state\(selectedSessionKey, viewingMode, resumeSequence\(\), delayRef\.current, resumeVersion\(\), pausedAtRef\.current\)/);
   assert.match(sessionHook, /envelope\.playbackReady && envelope\.metadata && envelope\.capabilities/);
   assert.match(sessionHook, /shouldPollAnalytics/);
   assert.match(sessionHook, /analytics\?\.context\.status/);
@@ -288,8 +291,10 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(tvMode, /driver-status-badge terminal/);
   assert.match(driverFocus, /segmentResults/);
   assert.match(driverFocus, /formatLapTime/);
-  assert.match(tvMode, /QUALIFYING FINAL/);
-  assert.match(tvMode, /qualifying\.final === true/);
+  // Final-phase flag is not a final classification under the approved settlement contract.
+  assert.match(tvMode, /LAPS FINISHING/);
+  assert.match(tvMode, /QUALIFYING · PROVISIONAL/);
+  assert.match(tvMode, /qualifying\.settlement/);
   assert.doesNotMatch(tvMode, /DRIVER · NOT SELECTED/);
   assert.match(tvMode, /COMPLETED-LAP TREND/);
   assert.match(tvMode, /pitLaneDuration/);
@@ -302,13 +307,21 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
 
   assert.match(qualifyingView, /title="SESSION"/);
   assert.match(qualifyingView, /SEGMENT TIMING WAS NOT RECORDED FOR THIS REPLAY/);
-  assert.doesNotMatch(qualifyingView, /Cut Line|AT RISK|ACTIVITY/);
+  // Approved navigation retains source-driven qualification status.
+  assert.match(qualifyingView, /session: "CUT LINE"/);
+  assert.match(qualifyingView, /control: "ACTIVITY"/);
+  assert.doesNotMatch(qualifyingView, /AT RISK/);
   assert.match(trackMap, /CAR POSITION NOT AVAILABLE FOR THIS REPLAY/);
   assert.match(trackMap, /POSITION · APPROX/);
   assert.doesNotMatch(trackMap, /UNKNOWN over|PHASE UNKNOWN/);
 
-  assert.match(practiceView, /\["timing", "track", "conditions", "control"\]/);
-  assert.doesNotMatch(practiceView, /ANALYTICS - NOT ENABLED|RUNS|PACE|STINTS/);
+  // Owner-approved 2026-10-04 redesign retains weather under Track and official control under Activity.
+  assert.match(practiceView, /\["timing", "runs", "track", "control"\]/);
+  assert.match(practiceView, /runs: "RUNS"/);
+  assert.match(practiceView, /control: "ACTIVITY"/);
+  assert.match(practiceView, /<Conditions weather=\{state.weather\}/);
+  assert.match(practiceView, /<RaceControl messages=\{state.race_control\}/);
+  assert.doesNotMatch(practiceView, /ANALYTICS - NOT ENABLED|PACE|STINTS/);
   assert.match(tvMode, /qualifying: \["tower"\]/);
   assert.match(tvMode, /practice: \["tower"\]/);
   assert.doesNotMatch(tvMode, /QUALIFYING CUT LINE|CLOCK UNKNOWN|PHASE UNKNOWN|ANALYTICS · UNKNOWN/);

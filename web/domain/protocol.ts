@@ -116,6 +116,12 @@ export type LiveSourceState = {
   replayReady: boolean;
   finalRecording: string | null;
   delaySeconds: number;
+  requestedDelaySeconds?: number;
+  availableDelaySeconds?: number;
+  paused?: boolean;
+  edgeTime?: string | null;
+  navigationGeneration?: number;
+  notice?: string | null;
   positionMode?: PositionMode;
   nextSessionKey?: string;
 };
@@ -126,7 +132,7 @@ export type StateEnvelope = {
   type: "state.snapshot" | "error";
   sessionTime: string | null;
   sourceTime: string | null;
-  playback: { playing: boolean };
+  playback: { playing: boolean; navigationGeneration?: number };
   mode?: ViewingMode;
   handoff?: "REPLAY_READY";
   live?: LiveSourceState;
@@ -526,6 +532,7 @@ export type QualifyingDriverIntelligence = {
   intervalToAhead?: number | null;
   scopeLatestLap?: QualifyingLap | null;
   cutState: "ADVANCING" | "BELOW_CUT" | "ELIMINATED" | "UNKNOWN";
+  cutLabel?: "ABOVE CUT" | "BELOW CUT" | "ELIMINATED" | "UNKNOWN";
   qStatus: string | null;
   segmentResults: [number | null, number | null, number | null];
   attempts: QualifyingAttempt[];
@@ -543,6 +550,9 @@ export type QualifyingIntelligence = {
   status: "AVAILABLE" | "NOT_APPLICABLE";
   phase: QualifyingPhase;
   final: boolean;
+  settlement?: "RUNNING" | "SETTLING" | "SOURCE_COMPLETE";
+  resultStatus?: "none" | "provisional";
+  settlementReason?: string;
   phaseEvidence?: string;
   sessionClock: string | null;
   sessionClockRunning?: boolean | null;
@@ -556,6 +566,38 @@ export type QualifyingIntelligence = {
   drivers: Record<string, QualifyingDriverIntelligence>;
   modelVersion: string;
 };
+export type StoryEvent = {
+  id: string;
+  sessionKey: string;
+  kind: string;
+  occurredAt: string;
+  availableAt: string;
+  availableSequence: number;
+  driverNumbers: string[];
+  cause: string | null;
+  state: "provisional" | "confirmed" | "corrected";
+  supersedes: string | null;
+  priority: 1 | 2 | 3;
+  lap: number | null;
+  phase: string | null;
+  title: string;
+  detail: string;
+  evidence: Array<{ sequence: number; occurredAt: string; fields: string[] }>;
+  data: Record<string, unknown>;
+};
+
+export type StorySnapshot = {
+  modelVersion: string;
+  sequence: number;
+  asOf: string | null;
+  revision: string;
+  events: StoryEvent[];
+  total?: number;
+  hasMore?: boolean;
+  nextOffset?: number;
+  result: { state: "none" | "provisional" | "final"; since: string | null };
+};
+
 export type AnalyticsSnapshot = {
   v: 1;
   type: "analytics.snapshot";
@@ -568,6 +610,7 @@ export type AnalyticsSnapshot = {
   sequence: number;
   asOf: string | null;
   stage: AnalyticsStage;
+  story?: StorySnapshot;
   publishedStrategy: PublishedStrategyIntelligence;
   qualifying: QualifyingIntelligence;
   // v2.1 §11: race-level strategy validity (SC/VSC/Red resets this).
@@ -633,6 +676,14 @@ export type AnalyticsSnapshot = {
   raceStrategy: StrategyAnalytics;
   drivers: Record<string, DriverAnalytics>;
   battle: {
+    pairs?: Record<string, {
+      aheadDriverNumber: string;
+      behindDriverNumber: string;
+      gapSeconds: number | null;
+      gapBasis: "interval_to_ahead" | "leader_gap_difference" | null;
+      comparisonState: "COMPARABLE" | "NOT_COMPARABLE";
+      reason: string | null;
+    }>;
     recommended: BattleCandidate | null;
     candidates: BattleCandidate[];
     // v2.1 §20 / invariant 6: server-stabilized recommendation (session-scoped,
@@ -714,7 +765,7 @@ export type ReplayCommand =
   | { type: "snapshot" | "pause" | "step" | "reset" }
   | { type: "play"; speed: number }
   | { type: "seek"; at: string }
-  | { type: "seek"; seq: number }
+  | { type: "seek"; seq: number; playhead?: string }
   | { type: "seek_relative"; seconds: number }
   | { type: "delay"; seconds: number };
 

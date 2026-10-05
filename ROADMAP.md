@@ -70,11 +70,11 @@ The owner accepted live timing, delay, deltas, replay behavior, and general perf
 
 Persistent disk preparation proposals were not approved and are superseded by this in-memory model.
 
-## Following phase - visual and interaction design
+## Session redesign — implemented on the design branch
 
-The immediate product phase after the M3.5 baseline is merged is a bounded visual and interaction pass over stable contracts.
+The approved round-two design is implemented in the React application, with responsive session layouts, adaptive timing identity protection, shared branding and fonts, token-based density, reduced motion, phone navigation, TV remote interaction, and a standalone browser TV entry. The server now owns the [session story](docs/story.md), arbitrary pair comparisons, stricter battle eligibility, and bounded Live pause.
 
-Primary targets:
+The pass covers:
 
 - Strategy/Pirelli hierarchy and density;
 - Driver and Pit History composition;
@@ -85,7 +85,7 @@ Primary targets:
 - mobile/landscape polish;
 - spacing, typography, and interaction clarity.
 
-The design pass must not silently change provider/source truth, lifecycle meaning, evidence cutoffs, source precedence, or analytics formulas.
+Provider/source truth, lifecycle meaning, evidence cutoffs, and source precedence remain server-owned. The explicitly approved Live pause behavior and story/battle/settlement rules are documented in the active contracts. Branch validation does not imply a production deployment, native Android TV package, or owner visual acceptance on every device.
 
 ## Milestone 4 - persistent control plane and access
 

@@ -1,6 +1,8 @@
 # Slipstream session redesign — design workspace
 
-An evolutionary redesign of the session experience for **TV, desktop and phone**. It keeps the approved language (Saira + JetBrains Mono and the existing palette) and adds the Slipstream mark. It runs on real recordings, and nothing in it is committed to git.
+An evolutionary redesign of the session experience for **TV, desktop and phone**. It keeps the approved language (Saira + JetBrains Mono and the existing palette) and adds the Slipstream mark. The source and handoff were checkpointed before production implementation; generated recording data and captures remain ignored.
+
+The production implementation is in [`web/`](../web/README.md) and `src/slipstream/`. These prototypes preserve the approved visual direction and earlier review context. Their simulated player and historical logic defects are not the production runtime. Current truth, transport, and Story contracts are documented in [Session experience](../docs/session-experience.md), [Protocol](../docs/protocol.md), and [Story](../docs/story.md).
 
 **Start here:** open `design/index.html` in Chrome or Edge. It links every prototype, scenario and document.
 

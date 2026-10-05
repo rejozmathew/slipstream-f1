@@ -1,14 +1,21 @@
 export type BackgroundTheme = "flat-dark" | "midnight-gradient" | "graphite-gradient";
 export type AccentColor = "cyan" | "papaya" | "red" | "blue" | "purple" | "green";
 
+export type MotionPreference = "system" | "full" | "reduced";
+export type DisplaySize = 75 | 80 | 90 | 100;
+
 export type AppearancePreferences = {
   background: BackgroundTheme;
   accent: AccentColor;
+  displaySize?: DisplaySize;
+  motion?: MotionPreference;
 };
 
 export const DEFAULT_APPEARANCE: AppearancePreferences = {
-  background: "midnight-gradient",
-  accent: "cyan",
+  background: "flat-dark",
+  accent: "red",
+  displaySize: 80,
+  motion: "system",
 };
 
 export const BACKGROUND_OPTIONS: Array<{ id: BackgroundTheme; label: string; description: string }> = [

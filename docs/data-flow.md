@@ -125,6 +125,8 @@ RaceState(cursor) + SessionEvidence(cursor) + AnalyticsSnapshot(cursor)
 
 Seeking backward makes future laps, pit events, lifecycle results, and analytics physically unreachable.
 
+The story ledger reduces the same canonical events alongside session evidence. Each story item records occurrence time separately from availability time and sequence. Snapshot filtering uses the availability cursor, so a later pass confirmation, result, or correction cannot leak into an earlier view. Compact pages travel in analytics; `/api/v1/story` pages older recorded activity using an explicit cursor and recording identity. All browser presentations consume that shared output. See [story.md](story.md).
+
 ## Live delay
 
 Live delay is a private cursor over the shared normalized Live history; it never switches to an historical provider.
@@ -139,13 +141,15 @@ flowchart LR
     V120 --> S120[State + analytics at cursor C]
 ```
 
-The WebSocket protocol accepts 0–300 seconds. The current browser offers 0/5/10/15/30-second presets. Reset/Live returns only that viewer to zero. State, lifecycle, evidence, map eligibility, analytics sequence, and envelope playhead are all derived from the same inclusive delayed cursor.
+The WebSocket protocol accepts 0–300 seconds. The browser offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS. Reset/Live returns only that viewer to zero. `LiveViewer` separates requested from effective delay when retained history is shorter. Pause holds the private source cursor; source progress accrues delay until the five-minute limit resumes playback with a notice. Resume follows at 1× with accrued delay. An active stale source freezes rather than advancing on wall time; only a completed retained tail uses elapsed time to drain. State, lifecycle, evidence, map eligibility, analytics sequence, and envelope playhead are derived from the same inclusive cursor.
 
 ## Evidence layer
 
 `RaceState` answers what is true now. `SessionEvidence` answers what source-neutral history is known by this cursor.
 
 Evidence includes completed laps, sectors, stint/compound assignments, qualifying phase/usage, pit events, compound transitions, and quality/contamination reasons. Driver history is requested on demand rather than included in every high-frequency state snapshot.
+
+Backend pair truth admits known same-lap completed samples and current arbitrary-pair gaps. Recommendations additionally require green running from race lap 3 and both cars on track. Nonadjacent gap subtraction is allowed only in the server with numeric comparable evidence; missing laps, lapped pairs, or incompatible gaps produce an explicit unavailable reason.
 
 ## Pit timing
 
@@ -157,6 +161,8 @@ pit_lane_duration
 
 It is not stationary pit-box time (`stop_duration`) and does not satisfy Net Pit Loss. Only values in `0 < duration <= 300 seconds` are admitted. Out-of-domain suspension-spanning values remain unavailable rather than being clamped. Missing duration never removes the factual pit event.
 
+Actual strategy counts completed normalized pit events. The canonical pit counter may move at pit entry, so it remains a reconciliation check. Stop-specific unknown compounds are retained instead of being filled from current tyres.
+
 ## Track position
 
 Circuit geometry and car position are independent capabilities.
@@ -164,7 +170,7 @@ Circuit geometry and car position are independent capabilities.
 - catalog geometry supplies a durable exact outline;
 - official static/OpenF1 historical timing can support approximate progress when declared;
 - optional OpenF1 `--include-location` captures source X/Y separately;
-- public Live currently declares `positionMode: unavailable` because the default slice has no supported car-position product capability.
+- public Live can declare `timing_estimate` once complete mini-sector evidence reaches the viewer cursor; otherwise its position mode remains `unavailable`.
 
 Stopped, retired-indicated, and final-out cars are not left frozen as circulating markers. A transient `IN_PIT` car may be omitted from markers, but it is not an `OUT / STOPPED` label.
 
@@ -211,7 +217,7 @@ Deleting one replay removes its canonical/raw timing, in-progress timing where a
 | Current F1 source condition | Yes | Yes | Source-dependent |
 | Pit-lane duration | When published | When published | When supplied and valid |
 | Race control/weather | Yes | Yes | Yes |
-| Timing-derived car placement | Product mode unavailable | When reconstructed and declared | When reconstructed and declared |
+| Timing-derived car placement | When complete mini-sector evidence is available at the cursor | When reconstructed and declared | When reconstructed and declared |
 | Source X/Y | No | No | Optional CLI location capture |
 | Final classification | At factual settlement | At factual settlement | From session result evidence |
 | Pirelli strategy | Separate sidecar | Separate sidecar | Separate sidecar |

@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Conditions } from "../components/analysis/Conditions";
 import { RaceControl } from "../components/analysis/RaceControl";
 import { TrackMap } from "../components/analysis/TrackMap";
 import { Panel } from "../components/shared/Panel";
 import { SessionSplit } from "../components/shared/SessionSplit";
+import { PhoneTimingTower } from "../components/timing/PhoneTimingTower";
 import { TimingTower } from "../components/timing/TimingTower";
 import type { QualifyingTowerView } from "../domain/layout";
 import type { AnalyticsSnapshot, PositionMode, ViewingMode, QualifyingIntelligence, RaceState, SessionKind } from "../domain/protocol";
 
-function SessionPanel({ intelligence }: { intelligence: QualifyingIntelligence | null }) {
+export function SessionPanel({ intelligence }: { intelligence: QualifyingIntelligence | null }) {
   const phaseKnown = intelligence?.phase && intelligence.phase !== "UNKNOWN";
   const showAdvance = phaseKnown && !["Q3", "SQ3"].includes(intelligence.phase);
   return <Panel eyebrow="QUALIFYING" title="SESSION" className="qualifying-session-panel">
@@ -19,21 +20,24 @@ function SessionPanel({ intelligence }: { intelligence: QualifyingIntelligence |
       {intelligence?.benchmark && <div><span>FASTEST</span><strong>{intelligence.benchmark.code ?? intelligence.benchmark.driverNumber} {intelligence.benchmark.lapTime}</strong></div>}
       {showAdvance && intelligence.cutLine.advancePosition && <div><span>ADVANCE</span><strong>TOP {intelligence.cutLine.advancePosition}</strong></div>}
     </div>
+    {intelligence?.settlement === "SETTLING" && <p className="qualifying-evidence-note">{intelligence.phase} FLAG · LAPS FINISHING</p>}
+    {intelligence?.settlement === "SOURCE_COMPLETE" && <p className="qualifying-evidence-note">CLASSIFICATION · PROVISIONAL</p>}
     {intelligence?.phase === "UNKNOWN" && <p className="qualifying-evidence-note">SEGMENT TIMING WAS NOT RECORDED FOR THIS REPLAY</p>}
   </Panel>;
 }
 
-export function QualifyingView({ timingWidth = 66, onTimingWidthChange = () => {}, state, analytics, replayAvailable, positionMode, viewingMode, sectorTimingAvailable, onSelectDriver, towerView, onTowerViewChange }: { timingWidth?: number; onTimingWidthChange?: (width: number) => void; towerView: QualifyingTowerView; onTowerViewChange: (mode: QualifyingTowerView) => void; state: RaceState; analytics: AnalyticsSnapshot | null; sessionKind: SessionKind; replayAvailable: boolean; positionMode: PositionMode; viewingMode: ViewingMode; sectorTimingAvailable: boolean; onSelectDriver: (driverNumber: string) => void }) {
-  const [mobileTab, setMobileTab] = useState<"timing" | "session" | "track" | "conditions" | "control">("timing");
+export function QualifyingView({ timingWidth = 66, onTimingWidthChange = () => {}, state, analytics, replayAvailable, positionMode, viewingMode, sectorTimingAvailable, onSelectDriver, towerView, onTowerViewChange, story }: { story?: ReactNode; timingWidth?: number; onTimingWidthChange?: (width: number) => void; towerView: QualifyingTowerView; onTowerViewChange: (mode: QualifyingTowerView) => void; state: RaceState; analytics: AnalyticsSnapshot | null; sessionKind: SessionKind; replayAvailable: boolean; positionMode: PositionMode; viewingMode: ViewingMode; sectorTimingAvailable: boolean; onSelectDriver: (driverNumber: string) => void }) {
+  const [mobileTab, setMobileTab] = useState<"timing" | "session" | "track" | "control">("timing");
   const drivers = Object.values(state.drivers).sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
   const intelligence = analytics?.qualifying?.status === "AVAILABLE" ? analytics.qualifying : null;
   const session = <SessionPanel intelligence={intelligence} />;
-  const tabs = ["timing", "session", "track", "conditions", "control"] as const;
+  const tabs = ["timing", "session", "track", "control"] as const;
   const toolbar = <div className="tower-view-modes qualifying-view-modes" role="group" aria-label="Qualifying timing tower view"><span>TOWER VIEW</span>{(["standard", "timing"] as const).map((mode) => <button type="button" key={mode} className={towerView === mode ? "active" : ""} aria-pressed={towerView === mode} onClick={() => onTowerViewChange(mode)}>{mode.toUpperCase()}</button>)}</div>;
   return <><SessionSplit className="session-layout qualifying-layout session-desktop" timingWidth={timingWidth} onTimingWidthChange={onTimingWidthChange} timing={<TimingTower drivers={drivers} variant="qualifying" mode={towerView} toolbar={toolbar} analytics={analytics} replayAvailable={replayAvailable} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={onSelectDriver} />} analysis={<div className="analysis-stack">
       {session}
       <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} />
       <Conditions weather={state.weather} session={state.session} />
+      {story && <div className="session-story">{story}</div>}
       <RaceControl messages={state.race_control} />
-    </div>} /><div className="mobile-session mobile-qualifying-session"><nav className="mobile-priority-tabs" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>{tabs.map((tab) => <button className={mobileTab === tab ? "active" : ""} key={tab} onClick={() => setMobileTab(tab)}>{tab.toUpperCase()}</button>)}</nav><div className="mobile-session-content">{mobileTab === "timing" ? <TimingTower drivers={drivers} variant="qualifying" mode={towerView} toolbar={toolbar} analytics={analytics} replayAvailable={replayAvailable} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={onSelectDriver} /> : mobileTab === "session" ? session : mobileTab === "track" ? <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} /> : mobileTab === "conditions" ? <Conditions weather={state.weather} session={state.session} /> : <RaceControl messages={state.race_control} />}</div></div></>;
+    </div>} /><div className="mobile-session mobile-qualifying-session"><nav className="mobile-priority-tabs" aria-label="Qualifying views">{tabs.map((tab) => <button className={mobileTab === tab ? "active" : ""} key={tab} onClick={() => setMobileTab(tab)}>{({ timing: "TIMING", session: "CUT LINE", track: "TRACK", control: "ACTIVITY" })[tab]}</button>)}</nav><div className="mobile-session-content"><div className="mobile-primary">{mobileTab === "timing" ? <div className="phone-timing-with-detail"><PhoneTimingTower drivers={drivers} variant="qualifying" analytics={analytics} replayAvailable={replayAvailable} onSelectDriver={onSelectDriver} /><details className="phone-full-timing"><summary>FULL TIMING TABLE</summary><TimingTower drivers={drivers} variant="qualifying" mode={towerView} toolbar={toolbar} analytics={analytics} replayAvailable={replayAvailable} sectorTimingAvailable={sectorTimingAvailable} onSelectDriver={onSelectDriver} /></details></div> : mobileTab === "session" ? <>{session}<div className="qualifying-cut-summary">{intelligence?.cutLine.status === "AVAILABLE" ? <><strong>TOP {intelligence.cutLine.advancePosition} ADVANCE</strong><p>Current boundary · qualification remains subject to the official session result.</p></> : <p>No verified advancement boundary is available at this moment.</p>}</div><PhoneTimingTower drivers={drivers} variant="qualifying" analytics={analytics} replayAvailable={replayAvailable} onSelectDriver={onSelectDriver} /></> : mobileTab === "track" ? <div className="mobile-map-stack"><TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} /><Conditions weather={state.weather} session={state.session} /></div> : <div className="phone-activity">{story}<RaceControl messages={state.race_control} /></div>}</div><div className="landscape-companion">{mobileTab === "timing" ? <TrackMap circuit={state.circuit} session={state.session} drivers={drivers} positionMode={positionMode} viewingMode={viewingMode} /> : <PhoneTimingTower drivers={drivers} variant="qualifying" analytics={analytics} replayAvailable={replayAvailable} onSelectDriver={onSelectDriver} />}</div></div></div></>;
 }

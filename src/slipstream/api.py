@@ -13,7 +13,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,6 +26,7 @@ from .historical_download import HistoricalSessionDownloader
 from .library import ReplayBusyError, ReplayLibrary, ReplayResource
 from .live import PublicLiveSession, RecordingBusyError
 from .live_recording import NormalizedLiveRecorder
+from .live_viewer import LiveViewer
 from .pirelli.backfill import PirelliHistoricalCoordinator
 from .pirelli.contracts import SessionScope
 from .pirelli.coordinator import PirelliRuntimeCoordinator
@@ -846,7 +847,8 @@ def create_app(
         )
 
     def live_state_envelope(
-        selected: ReplayResource, *, delay_seconds: float = 0, archived=None
+        selected: ReplayResource, *, delay_seconds: float = 0, archived=None,
+        viewer: LiveViewer | None = None,
     ) -> dict[str, Any]:
         source = live.view(selected.descriptor.key)
         if archived and source.target_session_key != selected.descriptor.key:
@@ -861,7 +863,14 @@ def create_app(
             if has_live_state
             else selected.events
         )
-        if has_live_state and delay_seconds == 0:
+        viewer = viewer or LiveViewer(delay_seconds)
+        target = viewer.update(
+            parse_timestamp(events[-1].occurred_at) if events else None,
+            parse_timestamp(events[0].occurred_at) if events else None,
+            stale=source.stale and not archived,
+            tail_elapsed=clock() - archived[2] if archived else timedelta(),
+        )
+        if has_live_state and target == parse_timestamp(events[-1].occurred_at):
             state = archived[0].final_state if archived else live.state
             evidence = archived[0].evidence if archived else live.evidence
             sequence = len(events)
@@ -872,18 +881,8 @@ def create_app(
                 start_time=selected.descriptor.date_start,
                 end_time=None,
             )
-            if events and delay_seconds > 0:
-                if archived:
-                    end = parse_timestamp(events[-1].occurred_at)
-                    target = min(
-                        end,
-                        end
-                        + (clock() - archived[2])
-                        - timedelta(seconds=delay_seconds),
-                    )
-                    controller.seek(target.isoformat())
-                else:
-                    controller.seek_delay(delay_seconds)
+            if events and target is not None:
+                controller.seek(target.isoformat())
             elif events:
                 controller.seek_cursor(len(events))
             state = controller.state if events else selected.final_state
@@ -926,9 +925,11 @@ def create_app(
             analytics=analytics,
         )
         envelope["mode"] = "live"
+        envelope["playback"]["playing"] = not viewer.paused
         envelope["live"] = live_payload(
-            selected.descriptor.key, delay_seconds=delay_seconds
+            selected.descriptor.key, delay_seconds=viewer.delay
         )
+        envelope["live"].update(viewer.payload())
         envelope["live"]["positionMode"] = (
             live_position_mode(state) if has_live_state else "unavailable"
         )
@@ -975,14 +976,15 @@ def create_app(
         seq: int | None = None,
         delay_seconds: float = 0,
         recording_version: str | None = None,
+        live_paused_at: str | None = None,
     ) -> dict[str, Any]:
         async with resource_lease(session_key, http=True) as selected:
             return await state_for_resource(
-                selected, mode, at, seq, delay_seconds, recording_version
+                selected, mode, at, seq, delay_seconds, recording_version, live_paused_at
             )
 
     async def state_for_resource(
-        selected, mode, at, seq, delay_seconds, recording_version
+        selected, mode, at, seq, delay_seconds, recording_version, live_paused_at=None
     ):
         if mode not in {"auto", "live", "replay"}:
             raise HTTPException(
@@ -1006,8 +1008,15 @@ def create_app(
                     detail="live delay must be between 0 and 300 seconds",
                 )
             archived = completed_live.get(selected.descriptor.key)
+            try:
+                viewer = LiveViewer(
+                    delay_seconds,
+                    parse_timestamp(live_paused_at) if live_paused_at else None,
+                )
+            except (ValueError, TypeError) as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
             envelope = live_state_envelope(
-                selected, delay_seconds=delay_seconds, archived=archived
+                selected, archived=archived, viewer=viewer
             )
             envelope.update(
                 metadata=metadata_payload(
@@ -1204,6 +1213,35 @@ def create_app(
             ],
         }
 
+    @app.get("/api/v1/story")
+    async def get_story(
+        seq: int = Query(ge=0),
+        session_key: str | None = None,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=80, ge=1, le=100),
+        recording_version: str | None = None,
+    ) -> dict[str, Any]:
+        """Page recorded story only through the caller's explicit inclusive cursor."""
+        async with resource_lease(session_key, http=True) as selected:
+            if not selected.replay_available:
+                raise HTTPException(status_code=409, detail="Story history requires an available recording")
+            if recording_version is not None and recording_version != selected.recording_version:
+                raise HTTPException(status_code=409, detail="Recording changed; refresh state before requesting story")
+            await prepare_replay(selected)
+            controller = selected.controller(end_time=_effective_end_time(selected, clock()))
+            try:
+                await compute(controller.seek_cursor, seq)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            result = await compute(
+                selected.evidence.story.snapshot, controller.cursor, controller.playhead,
+                offset=offset, limit=limit,
+            )
+            return {
+                "v": 1, "type": "story.snapshot", "sessionKey": selected.descriptor.key,
+                "recordingVersion": selected.recording_version, **result,
+            }
+
     @app.get("/api/v1/analytics")
     async def get_analytics(
         session_key: str | None = None,
@@ -1288,6 +1326,10 @@ def create_app(
                 delay_seconds = float(websocket.query_params.get("delay_seconds", 0))
                 if not isfinite(delay_seconds) or not 0 <= delay_seconds <= 300:
                     raise ValueError("live delay must be between 0 and 300 seconds")
+                paused_at = websocket.query_params.get("live_paused_at")
+                viewer = LiveViewer(
+                    delay_seconds, parse_timestamp(paused_at) if paused_at else None
+                )
             except ValueError as error:
                 await websocket.send_json(
                     {"v": 1, "type": "error", "error": str(error)}
@@ -1308,7 +1350,7 @@ def create_app(
                                 clock(),
                             )
                     envelope = live_state_envelope(
-                        selected, delay_seconds=delay_seconds, archived=archived
+                        selected, viewer=viewer, archived=archived
                     )
                     envelope.update(
                         metadata=metadata_payload(
@@ -1353,15 +1395,24 @@ def create_app(
                                 }
                             )
                             continue
-                        delay_seconds = requested_delay
+                        viewer.set_delay(requested_delay)
                     elif message_type in {"reset", "live"}:
-                        delay_seconds = 0.0
+                        viewer.set_delay(0.0)
+                    elif message_type == "pause":
+                        viewer.pause()
+                    elif message_type == "play":
+                        if message.get("speed", 1) != 1:
+                            await websocket.send_json(
+                                {"v": 1, "type": "error", "error": "Live playback speed is fixed at 1"}
+                            )
+                            continue
+                        viewer.play()
                     elif message_type != "snapshot":
                         await websocket.send_json(
                             {
                                 "v": 1,
                                 "type": "error",
-                                "error": "Live mode supports only delay, reset/live, and snapshot",
+                                "error": "Live mode supports only pause, play at 1x, delay, reset/live, and snapshot",
                             }
                         )
             except (WebSocketDisconnect, RuntimeError):
@@ -1661,7 +1712,19 @@ async def _handle_message(
     try:
         if message_type == "seek":
             if "seq" in message:
-                await compute(controller.seek_cursor, int(message["seq"]))
+                cursor = int(message["seq"])
+                playhead = message.get("playhead")
+                if playhead is not None:
+                    if not 0 <= cursor <= len(controller.events):
+                        raise ValueError("cursor is outside the recording")
+                    target = parse_timestamp(str(playhead))
+                    lower = controller.events[cursor - 1].occurred_at if cursor else controller.start_time
+                    upper = controller.events[cursor].occurred_at if cursor < len(controller.events) else controller.end_time
+                    if (lower and target < parse_timestamp(lower)) or (upper and target > max(parse_timestamp(upper), parse_timestamp(lower or upper))):
+                        raise ValueError("saved playhead must belong to its event cursor")
+                await compute(controller.seek_cursor, cursor)
+                if playhead is not None:
+                    controller.playhead = str(playhead)
             else:
                 await compute(controller.seek, str(message["at"]))
         elif message_type == "seek_relative":
@@ -1682,6 +1745,8 @@ async def _handle_message(
     except (KeyError, ValueError) as error:
         await websocket.send_json({"v": 1, "type": "error", "error": str(error)})
         return
+    if message_type in {"seek", "seek_relative", "step", "delay", "reset"}:
+        controller.navigation_generation += 1
     await _send_snapshot(
         websocket,
         controller,
@@ -1710,6 +1775,7 @@ async def _send_snapshot(
             playing=controller.is_playing,
             analytics=analytics_supplier() if analytics_supplier else analytics,
         )
+        payload["playback"]["navigationGeneration"] = controller.navigation_generation
         if opening:
             payload.update(opening)
         return payload

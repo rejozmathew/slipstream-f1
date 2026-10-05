@@ -68,11 +68,12 @@ test("Practice renders normalized GAP, factual statuses and quiet running rows",
     { ...driver, number: "3", source_condition: "STOPPED" },
     { ...driver, number: "4", classification: "DNF" },
   ] });
-  for (const label of ["GAP", "STOPS", "STATUS", "+0.249", "IN PIT", "STOPPED", "DNF"]) assert.ok(html.includes(label), label);
+  // Source pit_count records visits; it does not establish completed stops.
+  for (const label of ["GAP", "PIT", "STATUS", "+0.249", "IN PIT", "STOPPED", "DNF"]) assert.ok(html.includes(label), label);
   assert.match(html, /title="Best-lap difference to the driver above\."/);
   assert.doesNotMatch(html, /BENCHMARK|\+0\.685/);
   assert.match(html, /class="practice-driver-status"><\/span>/);
-  assert.doesNotMatch(html, />PIT<|NO_RECENT_PROGRESS/);
+  assert.doesNotMatch([...new JSDOM(html).window.document.querySelectorAll(".practice-driver-status")].map((cell) => cell.textContent).join("\n"), /^PIT$|NO_RECENT_PROGRESS/m);
 });
 
 test("Practice Driver Focus cannot render actionable Race strategy even with a mismatched sidecar", () => {
@@ -283,7 +284,9 @@ test("Qualifying Timing supports absent sectors, missing scope data and final cl
   const props = { variant: "qualifying", mode: "timing", drivers: [driver], replayAvailable: true, analytics };
   const absent = render(TimingTower, props);
   assert.deepEqual(tableHeaders(absent), ["P", "DRIVER / TEAM", "Q3", "GAP", "INT", "TYRE", "STATUS", "Q STATUS"]);
-  assert.match(absent, /QUALIFYING FINAL/);
+  // A legacy final-phase flag alone cannot promote the result to final.
+  assert.match(absent, /QUALIFYING · Q3 FLAG/);
+  assert.doesNotMatch(absent, /QUALIFYING FINAL/);
   assert.match(absent, /OUT Q2/);
   const missing = render(TimingTower, { ...props, sectorTimingAvailable: true });
   assert.ok(tableHeaders(missing).includes("S1"));

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased — session redesign and evidence-timed story
+
+### Added
+
+- Production React desktop/phone/TV presentation based on the approved round-two design, shared branding and bundled fonts, token-based density, reduced motion, adaptive timing columns, and phone-specific navigation.
+- Source-neutral `causal-story-v1` ledger with separate occurrence/publication times, neutral order observations, corroborated passes, pit/lifecycle/flag/lap/weather history, provisional results and later corrections.
+- Cursor- and recording-identity-scoped story pagination, Everything/Highlights/Following filters, separate inspection/replay actions, and exact return to the saved replay moment.
+- TV Activity and major-moment presentation with silent navigation rebuilds, playback-speed suppression, and remote controls; standalone browser TV entry remains separate from a future native Android TV package.
+- Private Live pause/resume bounded by a five-minute delay, requested/effective delay separation, reconnect continuity, and a visible automatic-resume notice.
+
+### Corrected
+
+- Racing battle recommendations require known green running from lap 3, eligible on-track drivers, and matching known laps. Pinned non-adjacent comparisons now use server-authored pair truth instead of browser arithmetic.
+- Completed pit stops come from cursor-scoped completed evidence; pit entry counts and later compound observations cannot fill missing earlier facts.
+- Partial race history and unverified sporting profiles remain UNKNOWN for dry-tyre requirements; observed wet/intermediate use is handled explicitly.
+- Qualifying flag/settlement state is distinct from a final result. Above the current cut is not declared guaranteed advancement.
+- Story identities are independent of Live/static transport labels. Real-recording prefix checks cover the earlier confirmation, tyre, caution, stop, and result regressions.
+
+### Documentation and scope
+
+- Added a detailed story derivation contract and reconciled architecture, protocol, analytics, strategy, experience, contributor maps, and product flows.
+- This is a branch implementation, not a production deployment or renewed certification of the historical cold-seek, protected-fixture, or Unraid hardware limits below.
+
 ## Unreleased — Milestone 3.5 source unification and replay readiness
 
 ### Added
@@ -46,7 +69,7 @@
 - Historical Pirelli strict-model coverage remains conservative when exact version provenance is unavailable; the separately labelled display tier is not model-admissible.
 - Protected GPS, high-frequency car data, team radio, and precise live X/Y are outside the default public-source slice.
 - Deterministic archived-session backtesting, authentication/control plane, Sync Groups, and hardware clients remain deferred.
-- Broad visual redesign remains a separate post-M3.5 phase.
+- The visual redesign was a separate post-M3.5 phase; its implementation is recorded in the newer entry above.
 - The first cold seek still misses the 300 ms target (1.085 s in the last recorded workload); it remains an accepted documented limitation, not a completed optimization.
 - The owner 11353 OpenF1 protected archive is missing from the test environment; its existing test remains skipped.
 - Genuine public live-race operation was validated locally after disabling the NordVPN route causing HTTP 403. Actual Unraid hardware and the production reverse proxy were not separately validated or modified during branch closure.

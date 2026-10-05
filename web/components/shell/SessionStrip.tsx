@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { formatSessionDate, utcOffsetLabel } from "../../domain/format";
 import type { CatalogSession, LiveProductPhase, RaceState, ViewingMode } from "../../domain/protocol";
+import { RailTransition } from "../shared/RailTransition";
 import { SessionProgress } from "../shared/SessionProgress";
 import { DataValue } from "../shared/DataValue";
 
@@ -21,13 +22,14 @@ function sessionStartLabel(date: string | null, offset: string | null) {
   return `${new Date(Date.parse(date) + offsetMs).toISOString().slice(11, 16)} ${utcOffsetLabel(offset)}`;
 }
 
-export function SessionStrip({ session, selected, viewingMode, livePhase, liveNow, onGoLive }: {
+export function SessionStrip({ session, selected, viewingMode, livePhase, liveNow, onGoLive, navigationGeneration = 0 }: {
   session: RaceState["session"];
   selected: CatalogSession | null;
   viewingMode: ViewingMode;
   livePhase: LiveProductPhase;
   liveNow: boolean;
   onGoLive: () => void;
+  navigationGeneration?: number;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const date = session.started_at ?? selected?.dateStart ?? null;
@@ -44,7 +46,8 @@ export function SessionStrip({ session, selected, viewingMode, livePhase, liveNo
     return () => window.clearInterval(timer);
   }, [preEvent]);
   return (
-    <section className={`session-strip${preEvent ? " session-strip-pre-event" : ""}`}>
+    <section className={`session-strip${preEvent ? " session-strip-pre-event" : ""}`} data-track-status={displayStatus?.toLowerCase().replaceAll(" ", "-") ?? "unknown"}>
+      <RailTransition status={canonicalStatus} generation={navigationGeneration} />
       <div className="session-title">
         <span className={`session-mode ${viewingMode === "live" ? `live live-${livePhase.toLowerCase()}` : ""}`}>{modeLabel}</span>
         <h1>{session.meeting_name ?? selected?.meetingName ?? "Session unavailable"}</h1>

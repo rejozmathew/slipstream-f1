@@ -1,13 +1,16 @@
 export const SESSION_SPLIT_LIMITS = { minimum: 35, maximum: 80 } as const;
 
 export type LayoutOwner = "instance" | "user" | "device";
-export type AnalysisModuleId = "strategy" | "map" | "conditions" | "raceControl";
+export type AnalysisModuleId = "strategy" | "map" | "conditions" | "raceControl" | "story";
 export type ModuleSize = "compact" | "standard" | "tall";
 export type RacePresetId = "balanced" | "towerWide" | "analysisWide" | "custom";
 export type TowerView = "standard" | "timing" | "strategy";
 export type QualifyingTowerView = Exclude<TowerView, "strategy">;
 
+export type AnalysisPreset = "brief" | "map" | "story" | "custom";
+
 export type RaceLayoutConfig = {
+  analysisPreset?: AnalysisPreset;
   timingWidth: number;
   preset: RacePresetId;
   analysisOrder: AnalysisModuleId[];
@@ -21,6 +24,7 @@ export type LayoutLayer = {
 };
 
 export const ANALYSIS_MODULES: Array<{ id: AnalysisModuleId; label: string; description: string }> = [
+  { id: "story", label: "Story", description: "Events supported by evidence at this moment" },
   { id: "strategy", label: "Published strategy", description: "Pirelli baseline and current-race context" },
   { id: "map", label: "Track Map", description: "Circuit shape and factual car position" },
   { id: "conditions", label: "Conditions", description: "Weather and track-local context" },
@@ -28,17 +32,19 @@ export const ANALYSIS_MODULES: Array<{ id: AnalysisModuleId; label: string; desc
 ];
 
 export const RACE_PRESETS: Record<Exclude<RacePresetId, "custom">, number> = {
-  balanced: 66,
-  towerWide: 76,
-  analysisWide: 56,
+  balanced: 50,
+  towerWide: 62,
+  analysisWide: 40,
 };
 
 export const INSTANCE_RACE_LAYOUT: RaceLayoutConfig = {
   timingWidth: RACE_PRESETS.balanced,
   preset: "balanced",
-  analysisOrder: ["strategy", "map", "conditions", "raceControl"],
+  analysisPreset: "brief",
+  analysisOrder: ["map", "strategy", "story", "conditions", "raceControl"],
   hiddenModules: [],
   moduleSizes: {
+    story: "standard",
     strategy: "standard",
     map: "standard",
     conditions: "compact",
@@ -69,6 +75,6 @@ export function moveAnalysisModule(layout: RaceLayoutConfig, id: AnalysisModuleI
   if (current < 0 || next < 0 || next >= layout.analysisOrder.length) return layout;
   const analysisOrder = [...layout.analysisOrder];
   [analysisOrder[current], analysisOrder[next]] = [analysisOrder[next], analysisOrder[current]];
-  return { ...layout, preset: "custom", analysisOrder };
+  return { ...layout, preset: "custom", analysisPreset: "custom", analysisOrder };
 }
 

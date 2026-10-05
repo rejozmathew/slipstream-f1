@@ -46,8 +46,8 @@ export function gapBetween(left: Driver | null, right: Driver | null): number | 
  * candidate, the visible "current gap" is the server's published `gapSeconds`
  * (scored on interval-to-ahead) — NOT a client recompute from gap-to-leader,
  * which yields the "RECOMMENDED BATTLE / OBSERVED GAP —" defect for a live
- * battle whose gap-to-leader is missing. Falls back to the derived
- * gap-to-leader value only for non-candidate (pinned) pairs.
+ * battle whose gap-to-leader is missing. Pinned pairs also consume the server
+ * comparison; absent or non-comparable source evidence remains unavailable.
  */
 export function currentPairGap(
   analytics: import("./protocol").AnalyticsSnapshot | null,
@@ -55,6 +55,9 @@ export function currentPairGap(
   right: Driver | null,
 ): number | null {
   if (!left || !right) return null;
+  const comparison = analytics?.battle.pairs?.[`${left.number}:${right.number}`]
+    ?? analytics?.battle.pairs?.[`${right.number}:${left.number}`];
+  if (comparison) return comparison.comparisonState === "COMPARABLE" ? comparison.gapSeconds : null;
   const candidates = analytics?.battle.candidates ?? [];
   const match =
     candidates.find(
@@ -68,7 +71,7 @@ export function currentPairGap(
         item.behindDriverNumber === left.number,
     );
   if (match && typeof match.gapSeconds === "number") return match.gapSeconds;
-  return gapBetween(left, right);
+  return null;
 }
 
 export function completedLapGapTrend(samples: Array<{ gapSeconds: number }>) {

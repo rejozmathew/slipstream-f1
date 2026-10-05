@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatDuration } from "../../domain/format";
 import { reconciledPendingPosition, replayDisplayPosition, replayKeyboardPosition, sessionClockLabel } from "../../domain/replayControls.mjs";
@@ -11,10 +11,17 @@ type ReplayControlsProps = {
   isPlaying: boolean;
   commandAvailable: boolean;
   onCommand: (command: ReplayCommand) => boolean;
+  speed?: number;
+  onSpeedChange?: (speed: number) => boolean | void;
+  hasReturnPoint?: boolean;
+  onReturn?: () => boolean | void;
 };
 
-export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, commandAvailable, onCommand }: ReplayControlsProps) {
-  const [speed, setSpeed] = useState(10);
+export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, commandAvailable, onCommand, speed: controlledSpeed, onSpeedChange, hasReturnPoint, onReturn }: ReplayControlsProps) {
+  const [localSpeed, setLocalSpeed] = useState(10);
+  const speed = controlledSpeed ?? localSpeed;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButton = useRef<HTMLButtonElement>(null);
   const [delaySeconds, setDelaySeconds] = useState(0);
   const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
   const [pendingSeconds, setPendingSeconds] = useState<number | null>(null);
@@ -43,17 +50,23 @@ export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, comma
     }
   };
   const changeSpeed = (nextSpeed: number) => {
-    setSpeed(nextSpeed);
+    if (onSpeedChange) { onSpeedChange(nextSpeed); return; }
+    setLocalSpeed(nextSpeed);
     if (isPlaying && commandAvailable) onCommand({ type: "play", speed: nextSpeed });
   };
 
   return (
-    <section className="replay-controls" aria-label="Replay controls">
+    <section className="replay-controls" aria-label="Replay controls" onKeyDownCapture={(event) => {
+      if (event.key === "Escape" && settingsOpen) {
+        event.preventDefault(); event.stopPropagation(); setSettingsOpen(false); settingsButton.current?.focus();
+      }
+    }}>
       <div className="transport-controls">
         <button className="transport-button" disabled={!enabled} onClick={() => onCommand({ type: "reset" })} title="Return to session start">|&lt;</button>
         <button className="transport-button" disabled={!enabled} onClick={() => onCommand({ type: "seek_relative", seconds: -30 })}>-30s</button>
         <button className="play-button" disabled={!enabled} onClick={() => onCommand(isPlaying ? { type: "pause" } : { type: "play", speed })}>{isPlaying ? "PAUSE" : "PLAY"}</button>
         <button className="transport-button" disabled={!enabled} onClick={() => onCommand({ type: "seek_relative", seconds: 30 })}>+30s</button>
+        {hasReturnPoint && <button className="transport-button moment-return" disabled={!enabled} onClick={() => onReturn?.()} title="Return to saved playback position">↩ RETURN</button>}
       </div>
       <div className="timeline">
         <input
@@ -86,13 +99,16 @@ export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, comma
           <time>TOTAL {formatDuration(duration)}</time>
         </div>
       </div>
+      <button ref={settingsButton} className="transport-settings-toggle" aria-expanded={settingsOpen} aria-controls="replay-advanced-settings" onClick={() => setSettingsOpen((value) => !value)}>PLAYBACK</button>
+      <div id="replay-advanced-settings" className={`transport-settings${settingsOpen ? " is-open" : ""}`}>
       <label className="speed-select"><span>SPEED</span><select aria-label="Replay speed" value={speed} disabled={!enabled} onChange={(event) => changeSpeed(Number(event.target.value))}>
-        {[0.5, 1, 2, 5, 10, 30, 60, 120].map((value) => <option value={value} key={value}>{value}x</option>)}
+        {[0.5, 1, 2, 5, 10, 20, 30, 60, 120].map((value) => <option value={value} key={value}>{value}x</option>)}
       </select></label>
       <div className="delay-control">
         <label><span>SYNC DELAY</span><input aria-label="Seconds behind session data" type="number" min={0} step={1} value={delaySeconds} disabled={!enabled} onChange={(event) => setDelaySeconds(Math.max(0, Number(event.target.value) || 0))} /></label>
         <span>SEC</span>
         <button disabled={!enabled} onClick={() => onCommand({ type: "delay", seconds: delaySeconds })}>APPLY</button>
+      </div>
       </div>
     </section>
   );

@@ -1,4 +1,39 @@
-# Documentation audit — M3.5 source-unification baseline
+# Documentation audit
+
+## Session redesign and Story — 2026-10-04
+
+The current documentation describes the React implementation on `design/session-redesign`. The prototype handoff remains a design reference; its simulated player and historical review findings are not the production implementation or evidence of current acceptance.
+
+| Documents | Reconciliation |
+| --- | --- |
+| `README.md`, `CHANGELOG.md`, `ROADMAP.md`, `IMPLEMENTATION_MAP.md` | Current product surfaces, implementation modules, validation commands, and remaining delivery boundaries. |
+| `ARCHITECTURE.md`, `docs/protocol.md`, `docs/data-flow.md` | Server-owned Story evidence, sequence/time availability, paged history, exact replay return, and bounded per-viewer Live pause. |
+| `docs/story.md` | New derivation authority: each story category, pass corroboration, immutable evidence, corrections, provisional results, UI behavior, validation, and explicit unknowns. |
+| `docs/analytics.md`, `docs/analytics/race-intelligence-v2.1.md`, `docs/pirelli-strategy.md` | Source-owned pair gaps, green/same-lap battle eligibility, completed pit events, partial dry-tyre evidence, and qualifying settlement. |
+| `docs/product-flows.md`, `docs/session-experience.md`, `web/README.md` | Session-aware phone tabs, desktop split presets and column priorities, density/motion, TV controls, Activity inspection, and replay return. |
+| `docs/sources.md` | Story adds no external provider; bundled fonts have attribution and redistributed licenses. |
+| `tools/README.md`, `design/README.md` | Real-recording truth harness and the distinction between checkpointed design references and production React. |
+| `docs/docker.md`, `docs/unraid.md` | Reviewed; the backend/static-frontend deployment and storage model remain applicable. No native Android TV packaging is claimed. |
+| Historical closure, PCR, acceptance, performance reports, and `docs/analytics/race-intelligence-v1.md` | Retained as historical evidence with their original dates, versions, and test scope. They do not certify the new redesign. |
+| `AGENTS.md` | Operating preferences retained. |
+
+The major stale contracts corrected in this pass were Live pause being forbidden, a universal 66/34 desktop split, every timing column always being visible, old phone navigation, and frontend pair-gap arithmetic. Current documentation separates on-road provisional results from official final certification, and source STOPPED from terminal retirement.
+
+Validation includes synthetic future-evidence and transport tests, rendered React interaction tests, and a physically truncated real-recording comparison. For the 105,307-event Hungarian race, canonical state, Story, and analytics were equal at all nine checkpoints (0, 743, 1179, 1184, 2400, 3450, 4766, 4830, and 6150 seconds after the observed race start). This establishes prefix isolation at those checkpoints, not universal interpretation accuracy. Commands and limitations are recorded in the relevant component documents.
+
+### Implementation verification
+
+- Python: **514 passed, 1 skipped**. The skip requires the absent private 11353 archive; existing FastAPI lifecycle deprecation warnings remain.
+- Frontend: **96 passed**; TypeScript, ESLint, Ruff, and production build passed. The final CSS sizing adjustment was rebuilt and inspected in the browser.
+- Real-recording prefix audits: Race 11342 (105,307 events, nine cutoffs), Qualifying 11730 (13,684 events, seven cutoffs), and Practice 11728 (16,607 events, seven cutoffs). State, Story, and analytics matched at all **23** checkpoints. No recording data was committed.
+- Browser: desktop at 1309×818; phones at 390×844 and 320×640; landscape at 843×390; TV at 1920×1080 and 1366×768. Both TV sizes fit all 22 timing rows without horizontal overflow. Inspected qualifying attempts/teammate context, Practice runs/conditions/pit history, Activity inspection, exact replay return, shared follow/pins, remote seeking/Back/edit mode, and the standalone TV library.
+- Documentation: 29 current and historical documents reviewed; 64 relative links and heading anchors resolve. Historical acceptance reports retain their original scope.
+
+Live pause, reconnect, bounded delay, recording replacement, and command guards are covered by transport fixtures; this pass did not exercise an actual live broadcast. Standalone TV is the browser entry point, not a native Android TV package. The branch has not been merged or deployed by this audit.
+
+## Historical audit — M3.5 source-unification baseline
+
+The remainder records the earlier M3.5 audit. Its statements and counts describe that baseline, not the current redesign.
 
 Reconciled against the implementation and tests on `agent/milestone-3.5-source-unification-repair`, starting from `b3c971eb3586d3fa769b1e1e055eb735c2dba87e`.
 

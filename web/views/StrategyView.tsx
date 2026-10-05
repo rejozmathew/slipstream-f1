@@ -31,7 +31,7 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
     </section>
 
     <Panel eyebrow="CURRENT RACE" title="Driver landscape" className="driver-strategy-panel">
-      <div className="driver-strategy-scroll"><table className="driver-strategy-table"><thead><tr><th>P</th><th>DRIVER</th><th>TYRE</th><th>AGE</th><th>STOPS</th><th>ACTUAL TYRE STRATEGY</th><th>DRY RULE</th>{showPublished && <><th>PIRELLI TYRE STRATEGY</th><th>PUBLISHED STOP WINDOW</th></>}</tr></thead><tbody>{drivers.map((driver) => {
+      <div className="driver-strategy-scroll"><table className="driver-strategy-table"><thead><tr><th>P</th><th>DRIVER</th><th>TYRE</th><th>AGE</th><th>PIT VISITS</th><th>ACTUAL TYRE STRATEGY</th><th>DRY RULE</th>{showPublished && <><th>PIRELLI TYRE STRATEGY</th><th>PUBLISHED STOP WINDOW</th></>}</tr></thead><tbody>{drivers.map((driver) => {
         const lifecycle = driverLifecycle(driver);
         const published = analytics?.publishedStrategy?.drivers[driver.number];
         return <tr key={driver.number} onClick={() => onSelectDriver(driver.number)} className={`clickable ${lifecycleClassName(driver)}`}><td>{driver.position ?? "—"}</td><td><strong>{driver.code ?? driver.number}</strong>{lifecycle.label && <small>{lifecycle.label}</small>}</td><td><CompoundBadge compound={driver.compound} compact /></td><td>{driver.tyre_age ?? "—"}</td><td>{driver.pit_count}</td><td><CompoundSequence compounds={actualStrategyCompounds(published)} /></td><td>{dryTyreRequirementText(published) ?? "—"}</td>{showPublished && <><td>{pirelliStrategies(baseline, published)}</td><td>{driverPirelliStopWindowsText(baseline, published, final)}</td></>}</tr>;
