@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slipstream Desktop · prototype</title>
+<link rel="icon" type="image/png" href="shared/brand/tile-64.png">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/brand.css">
+<link rel="stylesheet" href="shared/components.css">
+<link rel="stylesheet" href="shared/analysis.css">
+<link rel="stylesheet" href="web.css">
+</head>
+<body class="webbody">
+  <header class="app-head">
+    <a class="brand" href="../index.html" title="Back to the review hub"><span class="brand-mark" style="--bm-h:26px" role="img" aria-label="Slipstream"><img src="shared/brand/mark-96.png" alt="" draggable="false"></span><span><b>SLIPSTREAM</b><small>F1 TIMING</small></span></a>
+    <nav class="app-nav" aria-label="Product navigation" id="nav">
+      <a href="#" data-view="session" class="is-on">SESSION</a>
+      <a href="#" data-view="driver">DRIVER</a>
+      <a href="#" data-view="battle" data-race>BATTLE</a>
+      <a href="#" data-view="strategy" data-race>STRATEGY</a>
+      <a href="tv.html" id="navTv" title="Open TV mode at this moment, in this mode, with this delay">TV MODE ↗</a>
+      <a href="states.html#settings">SETTINGS</a>
+    </nav>
+    <div class="head-right">
+      <span class="conn" id="conn"></span>
+      <div class="picker" id="picker">
+        <button class="picker-btn" id="pickerBtn" aria-haspopup="true"><span class="picker-kind" id="pickerKind"></span><b id="pickerTitle"></b><em id="pickerSub"></em><i aria-hidden="true">▾</i></button>
+        <div class="picker-pop" id="pickerPop" hidden></div>
+      </div>
+      <div class="proto" id="proto">
+        <button class="proto-btn" id="protoBtn" title="Prototype review options">PROTOTYPE ▾</button>
+        <div class="proto-pop" id="protoPop" hidden>
+          <label><input type="checkbox" id="optLive"> Live chrome (simulated from the recording)</label>
+          <label><input type="checkbox" id="optReduced"> Reduced motion</label>
+          <label class="rv-l">Display size <select id="optDensity"><option value="0.75">75%</option><option value="0.8">80% (default)</option><option value="0.9">90%</option><option value="1">100%</option></select></label>
+          <label class="rv-l">Timeline moments <select id="optSpoil"><option value="safe">Only what I've watched (no spoilers)</option><option value="all">All (contains spoilers)</option></select></label>
+          <a class="proto-link" id="openPhone" href="phone.html">Open this moment on the phone prototype ↗</a>
+          <label><input type="checkbox" id="optTakeovers" checked> Moment cards</label>
+          <label class="rv-l">Map <select id="optMap"><option value="outline">Outline + positions</option><option value="line">No outline (track line)</option><option value="none">No positions</option></select></label>
+          <p>Real recorded data. Replay: Space play/pause · ←/→ 30 s. Live: Space pauses (delay grows) · ←/→ delay ±5 s. Click a row to open that driver; click a story item to replay it, then ↩ to return.</p>
+        </div>
+      </div>
+    </div>
+  </header>
+  <div id="rail"></div>
+  <main class="ws" id="ws">
+    <section class="ws-tower" aria-label="Timing tower">
+      <div class="ws-bar">
+        <b>TIMING TOWER</b><span class="mono dim" id="towerCount"></span>
+        <div class="ws-menu" id="splitMenu"><button class="ws-mbtn" id="splitBtn">SPLIT · BALANCED ▾</button><div class="ws-mpop" id="splitPop" hidden><span class="lbl">SPLIT</span><button data-split="balanced">BALANCED</button><button data-split="tower">TOWER WIDE</button><button data-split="analysis">ANALYSIS WIDE</button><a href="states.html#settings">EDIT LAYOUT →</a></div></div>
+        <span class="ws-hidden dim" id="colsHidden" hidden></span>
+        <div class="ws-seg" id="towerViews"></div>
+      </div>
+      <div id="tower"></div>
+    </section>
+    <section class="ws-side" id="side">
+      <div id="takeover"></div>
+      <div class="view is-on" data-view="session">
+        <div class="ws-bar side-bar"><b>ANALYSIS</b><div class="ws-seg" id="anaPreset"></div><div class="ws-seg" id="mapSize"><span class="lbl">MAP</span><button data-ms="s">S</button><button data-ms="m">M</button><button data-ms="l">L</button></div><a class="side-edit" href="states.html#settings">EDIT LAYOUT →</a></div>
+        <div class="stack" id="stack"></div>
+      </div>
+      <div class="view" data-view="driver"><div class="page" id="driverPage"></div></div>
+      <div class="view" data-view="battle"><div class="page" id="battlePage"></div></div>
+      <div class="view" data-view="strategy"><div class="page" id="strategyPage"></div></div>
+    </section>
+  </main>
+  <footer id="transport"></footer>
+
+  <script src="data/hungaroring-2026-race.js"></script>
+  <script src="data/kl-2026-qualifying.js"></script>
+  <script src="data/kl-2026-practice-2.js"></script>
+  <script src="data/server-context.js"></script>
+  <script src="shared/engine.js"></script>
+  <script src="shared/contract.js"></script>
+  <script src="shared/vm.js"></script>
+  <script src="shared/tower.js"></script>
+  <script src="shared/rail.js"></script>
+  <script src="shared/track.js"></script>
+  <script src="shared/story.js"></script>
+  <script src="shared/modules.js"></script>
+  <script src="shared/analysis.js"></script>
+  <script src="shared/player.js"></script>
+  <script src="web.js"></script>
+</body>
+</html>

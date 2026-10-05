@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#06080a">
+<title>Slipstream Phone · prototype</title>
+<link rel="icon" type="image/png" href="shared/brand/tile-64.png">
+<link rel="apple-touch-icon" href="shared/brand/tile-192.png">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/brand.css">
+<link rel="stylesheet" href="shared/components.css">
+<link rel="stylesheet" href="shared/analysis.css">
+<link rel="stylesheet" href="phone.css">
+</head>
+<body class="phbody">
+  <div class="ph" id="ph">
+    <header class="ph-app" id="app">
+      <span class="brand-mark" style="--bm-h:20px" role="img" aria-label="Slipstream"><img src="shared/brand/mark-96.png" alt="" draggable="false"></span>
+      <button class="ph-sess" id="sessBtn" type="button" aria-haspopup="dialog" title="Change session"><b id="sessMeeting"></b><span id="sessName"></span><i aria-hidden="true">▾</i></button>
+      <button class="ph-icon" id="menuBtn" type="button" aria-haspopup="dialog" aria-label="Menu">⋯</button>
+    </header>
+    <div id="rail"></div>
+    <div class="ph-health" id="health" role="status" hidden></div>
+
+    <main class="ph-main" id="main">
+      <section class="ph-pane" data-pane="timing" aria-label="Timing">
+        <div class="ph-bar"><b id="timingTitle">TIMING</b><span class="ph-hint" id="timingHint"></span><div class="ph-switch" id="metric" role="group" aria-label="Value shown"></div></div>
+        <div class="ph-result" id="resultBanner" hidden></div>
+        <div id="tower"></div>
+      </section>
+      <section class="ph-pane" data-pane="track" aria-label="Track">
+        <div class="ph-pad"><div class="ph-track" id="track"></div><div class="ph-ribbon" id="ribbon"></div><div id="battleCard"></div></div>
+      </section>
+      <section class="ph-pane" data-pane="strategy" aria-label="Strategy"><div class="ph-pad" id="strategy"></div></section>
+      <section class="ph-pane" data-pane="session" aria-label="Session"><div class="ph-pad" id="sessionPane"></div></section>
+      <section class="ph-pane" data-pane="activity" aria-label="Activity">
+        <div class="ph-bar ph-bar--seg"><div class="ph-switch" id="actSeg" role="tablist"></div><div class="ph-switch ph-switch--sm" id="storyFilter"><button data-f="hl" class="is-on" type="button">HIGHLIGHTS</button><button data-f="all" type="button">ALL</button></div></div>
+        <div class="ph-act" data-act="story"><p class="ph-actnote" id="storyNote"></p><div id="feed"></div></div>
+        <div class="ph-act" data-act="rc" hidden><div class="ph-pad" id="rcLog"></div></div>
+      </section>
+      <div class="ph-ctxbar" id="ctxbar" aria-label="Panel"></div>
+
+      <!-- Driver focus and compare open over the content; the rail, transport and tabs stay. -->
+      <section class="ph-page" id="focusPage" hidden aria-label="Driver"></section>
+      <section class="ph-page" id="comparePage" hidden aria-label="Compare"></section>
+      <div id="takeover" aria-live="polite"></div>
+    </main>
+
+    <button class="ph-follow" id="follow" type="button" hidden></button>
+    <div class="ph-tp" id="transport"></div>
+    <nav class="ph-tabs" id="tabs" aria-label="Sections"></nav>
+
+    <div class="ph-scrim" id="scrim" hidden></div>
+    <section class="ph-sheet" id="sheet" role="dialog" aria-modal="true" hidden></section>
+  </div>
+
+  <script src="data/hungaroring-2026-race.js"></script>
+  <script src="data/kl-2026-qualifying.js"></script>
+  <script src="data/kl-2026-practice-2.js"></script>
+  <script src="data/server-context.js"></script>
+  <script src="shared/engine.js"></script>
+  <script src="shared/contract.js"></script>
+  <script src="shared/vm.js"></script>
+  <script src="shared/tower.js"></script>
+  <script src="shared/rail.js"></script>
+  <script src="shared/track.js"></script>
+  <script src="shared/story.js"></script>
+  <script src="shared/modules.js"></script>
+  <script src="shared/analysis.js"></script>
+  <script src="shared/player.js"></script>
+  <script src="phone.js"></script>
+</body>
+</html>
