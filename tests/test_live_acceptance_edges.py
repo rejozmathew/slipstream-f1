@@ -249,6 +249,7 @@ def test_slow_optional_seed_and_failed_catalog_do_not_gate_http_or_live(
         now=lambda: datetime(2026, 9, 5, 14, 10, tzinfo=UTC),
         live_session=live,
         refresh_catalog=failed_catalog,
+        prepare_weekend_context=lambda **_: {},
     )
     try:
         with TestClient(app) as client:
