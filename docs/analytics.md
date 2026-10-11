@@ -9,6 +9,12 @@ Slipstream keeps factual `RaceState` separate from deterministic `AnalyticsSnaps
 
 See the [CHANGELOG](../CHANGELOG.md) for release history.
 
+## Story and viewer navigation
+
+`SessionEvidence.story` authors the causal ledger exposed as `AnalyticsSnapshot.story`. Occurrence time and evidence availability are distinct, and both timestamp and sequence gates apply at the viewer cursor. The browser formats authored copy, opens event details, and requests replay separately; it does not classify passes, qualifying settlement, or results. See [Story contract](story.md) for evidence, correction, pagination and notification rules.
+
+Battle recommendations require a Race/Sprint in known green running from lap 3 and two on-track drivers on the same known lap. The existing 12-second scoring limit remains separate from the stricter one-second story-event battle definition. Pinned pair comparisons are also server-authored: an adjacent pair uses its source interval; a non-adjacent pair may use comparable numeric leader-gap differences. Missing or lapped evidence never becomes zero.
+
 ## Qualifying intelligence
 
 `qualifying-intelligence-v1` is a deterministic `AnalyticsSnapshot.qualifying` sidecar. The server—not React—authors phase, session clock, benchmark scope, verified advancement boundary, per-driver best/delta/elimination state, teammate comparison, and completed-lap history at the inclusive replay or delayed-live cursor.
@@ -32,4 +38,4 @@ Pirelli discovery is event-aware and purpose-aware. Exact official event tags ad
 
 The server compares only `ORDERED` options. It retains all compatible option IDs and windows, marks observed transitions `COMPLETED`, derives remaining window state from the replay lap, and suppresses live/future windows in FINAL state. `ANY_ORDER` remains non-directional published context. Missing or ambiguous prose, tyre-bank artifacts, or applicability remains absent/`UNKNOWN` rather than being completed in React.
 
-`actualStrategy` is a separate stop-preserving factual path. It records `completedStops`, `observedStops`, `stopLaps`, and `evidenceComplete`, and keeps repeats such as `S → S` or `M → M → H` instead of collapsing compounds. Pirelli comparison assessments and dry-tyre requirement states are server-authored; only a proven `UNSATISFIED` dry requirement is actionable, while `UNKNOWN` never invents a warning.
+`actualStrategy` is a separate stop-preserving factual path. It records `completedStops`, `observedStops`, `stopLaps`, and `evidenceComplete`, and keeps repeats such as `S → S` or `M → M → H` instead of collapsing compounds. Completed stops require cursor-scoped pit observations; the canonical counter can increment at pit entry and is not sufficient. Missing new-compound evidence stays null. Pirelli comparison assessments and dry-tyre requirement states are server-authored; only a proven `UNSATISFIED` dry requirement is actionable, while `UNKNOWN` never invents a warning.

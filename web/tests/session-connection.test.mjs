@@ -64,6 +64,7 @@ async function scenario(modeOrOptions, check) {
   window.localStorage.clear();
   window.localStorage.setItem("slipstream.selected-session.v1", initialSessionKey);
   window.localStorage.setItem("slipstream.viewing-intent.v2", JSON.stringify({ mode, followLive }));
+  if (options.freshStorage) window.localStorage.clear();
   const root = createRoot(document.getElementById("root"));
   function Host() { current = useSlipstreamSession(); return null; }
   const frame = (seq, available, extra = {}) => {
@@ -104,6 +105,57 @@ async function scenario(modeOrOptions, check) {
     globalThis.WebSocket = savedSocket;
   }
 }
+
+test("refresh prefers current Live over a historical catalog default and persists automatic live entry", async () => scenario({
+  freshStorage: true,
+  catalog: { defaultSessionKey: "B", liveSessionKey: "A", sessions: [
+    { sessionKey: "B", available: false, liveAvailable: false },
+    { sessionKey: "A", available: false, liveAvailable: true },
+  ] },
+}, async ({ current, sockets }) => {
+  assert.equal(current().selectedSessionKey, "A");
+  assert.equal(current().viewingMode, "live");
+  assert.equal(new URL(sockets.at(-1).url).searchParams.get("mode"), "live");
+  assert.equal(window.localStorage.getItem("slipstream.selected-session.v1"), "A");
+  assert.deepEqual(JSON.parse(window.localStorage.getItem("slipstream.viewing-intent.v2")), { mode: "live", followLive: true });
+}));
+
+for (const followLive of [true, false]) test(`saved Live survives a temporarily missing catalog entry (follow=${followLive})`, async () => scenario({
+  mode: "live", followLive,
+  catalog: { defaultSessionKey: "B", liveSessionKey: null, sessions: [{ sessionKey: "B", available: false, liveAvailable: false }] },
+}, async ({ current, sockets, setCatalog, runTimer }) => {
+  assert.equal(current().selectedSessionKey, "A");
+  assert.equal(current().viewingMode, "live");
+  assert.equal(new URL(sockets.at(-1).url).searchParams.get("mode"), "live");
+  setCatalog({ defaultSessionKey: "B", liveSessionKey: "A", sessions: [{ sessionKey: "A", liveAvailable: true }] });
+  await act(async () => runTimer(15000, true));
+  assert.equal(current().selectedSessionKey, "A");
+  assert.equal(current().viewingMode, "live");
+}));
+
+test("explicit Replay survives refresh while another session is Live", async () => scenario({
+  mode: "replay", selectedSessionKey: "B", followLive: false,
+  catalog: { defaultSessionKey: "A", liveSessionKey: "A", sessions: [
+    { sessionKey: "A", liveAvailable: true }, { sessionKey: "B", available: true, liveAvailable: false },
+  ] },
+}, async ({ current, runTimer }) => {
+  assert.equal(current().selectedSessionKey, "B");
+  assert.equal(current().viewingMode, "replay");
+  await act(async () => runTimer(15000, true));
+  assert.equal(current().selectedSessionKey, "B");
+  assert.equal(current().viewingMode, "replay");
+}));
+
+test("refresh opens the same completed live session once its replay is confirmed ready", async () => scenario({
+  mode: "live", followLive: true,
+  catalog: { defaultSessionKey: "B", liveSessionKey: null, sessions: [
+    { sessionKey: "A", available: true, liveAvailable: false, replayReady: true },
+    { sessionKey: "B", available: false, liveAvailable: false },
+  ] },
+}, async ({ current }) => {
+  assert.equal(current().selectedSessionKey, "A");
+  assert.equal(current().viewingMode, "replay");
+}));
 
 test("placeholder reconnect and first download never reuse catalog event counts", async () => scenario("replay", async ({ sockets, frame, complete, current, runTimer }) => {
   await act(async () => sockets.at(-1).emit(frame(2, false)));

@@ -2,6 +2,21 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
+// The owner-approved Claude presentation moves TV features into shared modules.
+// Keep truth/projection guards on the complete composition, not only its shell.
+async function televisionSources() {
+  const modules = {
+    following: "../components/analysis/TVFollowing.tsx",
+    strategy: "../components/analysis/TVStrategy.tsx",
+    result: "../components/analysis/TVResult.tsx",
+    timed: "../components/analysis/NonRaceTVFeature.tsx",
+    battle: "../components/battle/BattleComposition.tsx",
+    pits: "../components/analysis/StrategyPitBoard.tsx",
+    playback: "../components/shell/TVPlaybackPanel.tsx",
+  };
+  return Object.fromEntries(await Promise.all(Object.entries(modules).map(async ([name, path]) => [name, await readFile(new URL(path, import.meta.url), "utf8")])));
+}
+
 async function builtApplication() {
   const index = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   const assetsDirectory = new URL("../dist/assets/", import.meta.url);
@@ -42,13 +57,13 @@ test("builds the replay-driven desktop shell as static files", async () => {
   assert.match(styles, /ELIMINATION ZONE/);
   assert.match(bundle, /WAITING FOR PUBLIC TIMING FEED/);
   assert.match(bundle, /LIVE DELAY/);
-  assert.match(bundle, /SYNC DELAY/);
+  assert.match(bundle, /SYNC OFFSET/);
   assert.doesNotMatch(bundle, /Carlos Sainz|Singapore Grand Prix/);
   assert.doesNotMatch(index + bundle, /codex-preview|react-loading-skeleton|Building your site/);
 });
 
 test("keeps versioned API and WebSocket transport in typed clients", async () => {
-  const [apiClient, socketClient, page, packageJson, viteConfig, replayControls, liveControls, replayLibrary, sessionHook, raceView, preferences, sessionLayout] = await Promise.all([
+  const [apiClient, socketClient, page, packageJson, viteConfig, replayControls, liveControls, replayLibrary, sessionHook, raceView, preferences, sessionLayout, shell] = await Promise.all([
     readFile(new URL("../api/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../api/replaySocket.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -61,6 +76,7 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
     readFile(new URL("../views/RaceView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../hooks/useProductPreferences.ts", import.meta.url), "utf8"),
     readFile(new URL("../domain/sessionLayout.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/shell/AppShell.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(apiClient, /api\/v1\/state/);
@@ -72,11 +88,16 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(socketClient, /new WebSocket/);
   assert.match(page, /AppShell/);
   assert.doesNotMatch(page, /sampleState|sampleDrivers/);
-  assert.match(viteConfig, /target: "http:\/\/127\.0\.0\.1:8000"/);
+  assert.match(viteConfig, /target: process\.env\.VITE_SLIPSTREAM_API \?\? "http:\/\/127\.0\.0\.1:8000"/);
   assert.match(packageJson, /"typecheck": "tsc --noEmit"/);
   assert.match(replayControls, /commandAvailable/);
   assert.match(replayControls, /if \(isPlaying && commandAvailable\).*type: "play"/);
-  assert.match(replayControls, /type: "delay"/);
+  // Replay sync is one shared offset that seeks by its change, rather than Live delay.
+  assert.match(replayControls, /onSyncOffsetChange\?\.\(delaySeconds\)/);
+  assert.doesNotMatch(replayControls, /type: "delay"/);
+  assert.match(sessionHook, /const setReplaySyncOffset = \(seconds: number\)/);
+  assert.match(sessionHook, /type: "seek_relative", seconds: syncOffsetSeconds - next/);
+  assert.equal((shell.match(/onSyncOffsetChange=\{session\.setReplaySyncOffset\}/g) ?? []).length, 2, "desktop and TV use the same replay-sync handler");
   assert.match(replayControls, /disabled={!enabled}/);
   assert.match(replayControls, /onPointerDown/);
   assert.match(replayControls, /onPointerUp/);
@@ -86,16 +107,19 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
   assert.match(replayControls, /SESSION/);
   assert.match(liveControls, /LIVE_DELAY_PRESETS/);
   assert.match(liveControls, /GO LIVE/);
-  assert.doesNotMatch(liveControls, /seek|pause|speed/);
+  // Owner-approved live pause resumes at the fixed source rate.
+  assert.match(liveControls, /type: "pause"/);
+  assert.match(liveControls, /type: "play", speed: 1/);
+  assert.doesNotMatch(liveControls, /type: "seek"|type: "seek_relative"|speed-select/);
   assert.match(replayLibrary, /aria-label="Season"/);
   assert.match(replayLibrary, /aria-label="Race weekend"/);
   assert.match(replayLibrary, /aria-label="Weekend session"/);
   assert.match(replayLibrary, /preferredWeekendSession/);
   assert.match(replayLibrary, /removeAttribute\("open"\)/);
-  assert.match(sessionHook, /commandAvailable && socketRef\.current\?\.send/);
+  assert.match(sessionHook, /canCommand\(command\) && socketRef\.current\?\.send/);
   assert.match(sessionHook, /envelope\.analytics\?\.sessionKey === selectedSessionKey/);
   assert.match(sessionHook, /envelope\.analytics\.sequence === envelope\.seq/);
-  assert.match(sessionHook, /slipstreamApi\.state\(selectedSessionKey, viewingMode, resumeSequence\(\), delayRef\.current, resumeVersion\(\)\)/);
+  assert.match(sessionHook, /slipstreamApi\.state\(selectedSessionKey, viewingMode, resumeSequence\(\), delayRef\.current, resumeVersion\(\), pausedAtRef\.current\)/);
   assert.match(sessionHook, /envelope\.playbackReady && envelope\.metadata && envelope\.capabilities/);
   assert.match(sessionHook, /shouldPollAnalytics/);
   assert.match(sessionHook, /analytics\?\.context\.status/);
@@ -113,13 +137,14 @@ test("keeps versioned API and WebSocket transport in typed clients", async () =>
 });
 
 test("wires Strategy, Driver, Battle and navigation to canonical server contracts", async () => {
-  const [strategyView, snapshot, driverView, battleView, trackMap, shell] = await Promise.all([
+  const [strategyView, snapshot, driverView, battleView, trackMap, shell, battleComposition] = await Promise.all([
     readFile(new URL("../views/StrategyView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/analysis/SessionStrategySnapshot.tsx", import.meta.url), "utf8"),
     readFile(new URL("../views/DriverFocusView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../views/BattleView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/analysis/TrackMap.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/shell/AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/battle/BattleComposition.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(strategyView, /publishedStrategy\?\.baseline/);
@@ -137,10 +162,11 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(driverView, /sessionLayout === "qualifying"/);
   assert.match(driverView, /QUALIFYING LAP HISTORY/);
   assert.doesNotMatch(driverView, /CURSOR-SAFE LAP EVIDENCE|PHASE —/);
-  assert.match(battleView, /analytics\?\.battle\.histories/);
-  assert.doesNotMatch(battleView, /stateHistory/);
+  assert.match(battleView, /<BattleComposition state=\{state\} analytics=\{analytics\} pair=\{pair\}/);
+  assert.match(battleComposition, /analytics\?\.battle\.histories/);
+  assert.doesNotMatch(battleView + battleComposition, /stateHistory/);
   assert.match(battleView, /STRATEGY COMPARISON/);
-  assert.match(trackMap, /car-deemphasized/);
+  assert.match(trackMap, /car\.focus \? " is-focus" : focus\.size \? " is-dim" : ""/);
   assert.match(shell, /layout === "race" \|\| \(view !== "strategy" && view !== "battle"\)/);
   assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
 });
@@ -176,25 +202,38 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
+  const features = await televisionSources();
+  const tvSources = [tvMode, ...Object.values(features)];
+
   assert.doesNotMatch(tvMode, /drivers\.slice\(/);
   assert.match(tvMode, /state\.session\.display_status/);
   assert.doesNotMatch(tvMode, /statusTone\(state\.session\.track_status\)/);
-  assert.match(tvMode, /focusedDriverNumbers=\{\[left\.number, right\.number\]\}/);
-  assert.match(tvMode, /focusedDriverNumbers=\{\[driver\.number\]\}/);
+  // The approved TV battle is mapless; Following keeps its source-defined neighbours.
+  assert.match(tvMode, /<BattleComposition posture="tv" state=\{state\} analytics=\{analytics\} pair=/);
+  assert.doesNotMatch(features.battle, /TrackMap/);
+  assert.match(features.battle, /currentPairGap\(analytics, ahead, behind\)/);
+  assert.match(features.following, /model\?\.ahead\?\.driverNumber, driver\.number, model\?\.behind\?\.driverNumber/);
+  assert.match(features.following, /focusedDriverNumbers=\{focus\}/);
   assert.match(tvMode, /tv-status-chequered|return "chequered"/);
   assert.match(tvMode, /qualifyingStates/);
   assert.doesNotMatch(tvMode, /TVQualifyingCutline|TVQualifyingSectors|"cutline"|"sectors"|"runs"|"stints"|CLOCK UNKNOWN|PHASE UNKNOWN/);
-  assert.match(tvMode, /practice: \["tower"\]/);
+  assert.match(tvMode, /practice: \["spread", "tower"\]/);
   assert.match(tvMode, /hasRenderableCarPositions/);
-  assert.match(tvMode, /: drivers\[0\] \?\? null/);
+  assert.match(tvMode, /const selectedDriver = preferences\.selectedDriverNumber \? drivers\.find\([\s\S]*?\?\? null : null;/);
+  assert.match(tvMode, /item === "driver" \? Boolean\(selectedDriver\)/);
+  assert.match(tvMode, /visibleState === "spread" && <NonRaceTVFeature/);
+  assert.match(features.timed, /const best = qualifying \? q\?\.scopeBest \?\? null : driver\.best_lap/);
+  assert.match(features.timed, /q\?\.benchmarkDelta \?\? null/);
+  assert.match(features.result, /analytics\?\.story\?\.result/);
+  assert.match(features.result, /if \(!verdict \|\| verdict\.state === "none"\)/);
   assert.doesNotMatch(styles, /\.tv-mini-tower \.timing-race > :nth-child\(n\+6\)/);
   assert.match(styles, /\.tv-mini-tower \.timing-row\.timing-race > :nth-child\(n\+6\)/);
   assert.match(protocol, /perDriverState\?: Record<string, DryTyreRequirementState>/);
   assert.match(protocol, /status: "NOT_IMPLEMENTED"/);
   assert.match(protocol, /metrics: null/);
   assert.match(protocol, /publishedStrategy: PublishedStrategyIntelligence/);
-  assert.doesNotMatch(tvMode, /UNDERCUT/);
-  assert.doesNotMatch(tvMode, /STRATEGY · DISPOSITION/);
+  for (const source of tvSources) assert.doesNotMatch(source, /UNDERCUT/);
+  for (const source of tvSources) assert.doesNotMatch(source, /STRATEGY · DISPOSITION/);
   assert.match(publishedStrategy, /CompoundSequence/);
   assert.match(publishedStrategy, /driverPirelliStopWindowsText/);
   assert.match(publishedStrategy, /optionDeltaText/);
@@ -206,10 +245,10 @@ test("keeps Packet E TV and analytics contracts truthful", async () => {
   assert.doesNotMatch(styles, /\.strategy-stage strong/);
   assert.match(publishedStrategy, /drivers still need another dry compound/);
   assert.match(strategyView, /actualStrategyCompounds/);
-  for (const source of [publishedStrategy, battleCard, timingTower, strategyView, tvMode]) {
+  for (const source of [publishedStrategy, battleCard, timingTower, strategyView, ...tvSources]) {
     assert.doesNotMatch(source, /windows\[0\]/);
   }
-  for (const source of [publishedStrategy, timingTower, strategyView, tvMode]) {
+  for (const source of [publishedStrategy, timingTower, strategyView, ...tvSources]) {
     assert.doesNotMatch(source, /\braceStrategy\b|\.primaryStrategy\b|\.alternateStrategy\b|\.likelyNextCompound\b|\.pitWindow\b|\.undercutStrength\b|\.projectedRejoinPosition\b|\.freeStopMargin\b/);
   }
 });
@@ -239,7 +278,7 @@ test("uses server-authored status and preserves same-session live replay handoff
     assert.match(sessionHook, /saveIntent\(sessionKey, resolvedMode, false\)/);
 });
 
-test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", async () => {
+test("preserves canonical Race, Qualifying, Practice and TV facts under the approved presentation", async () => {
   const [timingTower, qualifyingView, practiceView, tvMode, lifecycle, trackMap, strategyView, sessionSnapshot, driverFocus, battleView] = await Promise.all([
     readFile(new URL("../components/timing/TimingTower.tsx", import.meta.url), "utf8"),
     readFile(new URL("../views/QualifyingView.tsx", import.meta.url), "utf8"),
@@ -252,6 +291,9 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
     readFile(new URL("../views/DriverFocusView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../views/BattleView.tsx", import.meta.url), "utf8"),
   ]);
+
+  const features = await televisionSources();
+  const tvSources = [tvMode, ...Object.values(features)];
 
   assert.match(timingTower, /standard: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "AGE", "LAST", "PIT"\]/);
   assert.match(timingTower, /timing: \["P", "DRIVER \/ TEAM", "GAP", "TYRE", "S1", "S2", "S3", "LAST", "BEST"\]/);
@@ -285,39 +327,54 @@ test("keeps frozen M3.5 Race, Qualifying, Practice and TV product vocabulary", a
   assert.match(driverFocus, /driver-status-badge/);
   assert.match(battleView, /driverLifecycle\(driver\)\.battleEligible/);
   assert.match(tvMode, /driverLifecycle\(driver\)\.battleEligible/);
-  assert.match(tvMode, /driver-status-badge terminal/);
+  assert.match(features.following, /const lifecycle = driverLifecycle\(driver\)/);
+  assert.match(features.following, /lifecycle\.label && <em>\{lifecycle\.label\}/);
+  assert.match(features.result, /driverLifecycle\(driver\)\.terminal && driver\.classification !== "FINISHED"/);
   assert.match(driverFocus, /segmentResults/);
   assert.match(driverFocus, /formatLapTime/);
-  assert.match(tvMode, /QUALIFYING FINAL/);
-  assert.match(tvMode, /qualifying\.final === true/);
+  // Final-phase flag is not a final classification under the approved settlement contract.
+  assert.match(tvMode, /LAPS FINISHING/);
+  assert.match(tvMode, /QUALIFYING · PROVISIONAL/);
+  assert.match(tvMode, /qualifying\.settlement/);
   assert.doesNotMatch(tvMode, /DRIVER · NOT SELECTED/);
-  assert.match(tvMode, /COMPLETED-LAP TREND/);
-  assert.match(tvMode, /pitLaneDuration/);
+  assert.match(features.battle, /completedLapGapTrend\(history\.slice\(-3\)\)/);
+  assert.match(features.battle, /completed-lap source history/);
+  assert.match(features.following, /pitLaneDuration/);
+  assert.match(features.pits, /pitLaneDuration/);
   assert.match(battleView, /preferences\.pinnedPair/);
   assert.match(battleView, /PINNED BATTLE UNAVAILABLE/);
 
-  for (const source of [timingTower, strategyView, sessionSnapshot, driverFocus, battleView, tvMode]) {
+  for (const source of [timingTower, strategyView, sessionSnapshot, driverFocus, battleView, ...tvSources]) {
     assert.doesNotMatch(source, /PIRELLI FIT|NOT SEQUENCE-COMPARABLE|NO TARGET-SESSION STRATEGY OPTIONS WERE PUBLISHED|PIRELLI CONTEXT NOT AVAILABLE|OBSERVED PATH|PUBLISHED ROUTE|WEEKEND NOMINATION|relation\.replaceAll/);
   }
 
   assert.match(qualifyingView, /title="SESSION"/);
-  assert.match(qualifyingView, /SEGMENT TIMING WAS NOT RECORDED FOR THIS REPLAY/);
-  assert.doesNotMatch(qualifyingView, /Cut Line|AT RISK|ACTIVITY/);
+  assert.match(qualifyingView, /<TimedSessionSummary intelligence=\{intelligence\}/);
+  assert.match(features.timed, /SEGMENT TIMING WAS NOT RECORDED FOR THIS REPLAY/);
+  // Approved navigation retains source-driven qualification status.
+  assert.match(qualifyingView, /session: "CUT LINE"/);
+  assert.match(qualifyingView, /control: "ACTIVITY"/);
+  assert.doesNotMatch(qualifyingView, /AT RISK/);
   assert.match(trackMap, /CAR POSITION NOT AVAILABLE FOR THIS REPLAY/);
   assert.match(trackMap, /POSITION · APPROX/);
   assert.doesNotMatch(trackMap, /UNKNOWN over|PHASE UNKNOWN/);
 
-  assert.match(practiceView, /\["timing", "track", "conditions", "control"\]/);
-  assert.doesNotMatch(practiceView, /ANALYTICS - NOT ENABLED|RUNS|PACE|STINTS/);
-  assert.match(tvMode, /qualifying: \["tower"\]/);
-  assert.match(tvMode, /practice: \["tower"\]/);
+  // Owner-approved 2026-10-04 redesign retains weather under Track and official control under Activity.
+  assert.match(practiceView, /\["timing", "runs", "track", "control"\]/);
+  assert.match(practiceView, /runs: "RUNS"/);
+  assert.match(practiceView, /control: "ACTIVITY"/);
+  assert.match(practiceView, /<Conditions weather=\{state.weather\}/);
+  assert.match(practiceView, /<RaceControl messages=\{state.race_control\}/);
+  assert.doesNotMatch(practiceView, /ANALYTICS - NOT ENABLED|PACE|STINTS/);
+  assert.match(tvMode, /qualifying: \["spread", "tower"\]/);
+  assert.match(tvMode, /practice: \["spread", "tower"\]/);
   assert.doesNotMatch(tvMode, /QUALIFYING CUT LINE|CLOCK UNKNOWN|PHASE UNKNOWN|ANALYTICS · UNKNOWN/);
 
   assert.match(strategyView, /raceRead/);
   assert.match(strategyView, /showPublished/);
   assert.match(strategyView, /baseline\?\.status === "PRESENT"/);
   assert.match(sessionSnapshot, /raceRead/);
-  for (const source of [strategyView, sessionSnapshot, tvMode]) {
+  for (const source of [strategyView, sessionSnapshot, ...tvSources]) {
     assert.doesNotMatch(source, /\braceStrategy\b|\.primaryStrategy\b|\.alternateStrategy\b|\.likelyNextCompound\b|\.pitWindow\b|\.undercutStrength\b|\.projectedRejoinPosition\b|\.freeStopMargin\b/);
   }
 });

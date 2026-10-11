@@ -55,11 +55,34 @@ def build_qualifying_snapshot(
         "FINISHED",
         "CANCELLED",
     }
+    # A segment flag does not settle laps already in progress. Keep `final`
+    # as the legacy final-segment flag indicator; presentation consumes the
+    # stronger, explicit source-completion verdict below.
+    explicitly_complete = any(
+        event.kind == "session" and (
+            event.payload.get("session_complete") is True
+            or str(event.payload.get("status", "")).upper() in {
+                "COMPLETE", "FINAL", "FINALIZED", "FINALISED", "ENDED", "CANCELLED"
+            }
+        )
+        for event in resource.events[:sequence]
+    )
+    settlement = "SOURCE_COMPLETE" if explicitly_complete else "SETTLING" if state.session.status == "FINISHED" else "RUNNING"
     ordered = sorted(state.drivers.values(), key=lambda item: item.position or 999)
     attempts_by_driver = {
         driver.number: _attempts(resource, driver.number, sequence, sprint=sprint)
         for driver in ordered
     }
+    _grade_attempt_history(attempts_by_driver)
+    scoped_attempts = {
+        number: [attempt for attempt in attempts if phase == "UNKNOWN" or attempt["phase"] == phase]
+        for number, attempts in attempts_by_driver.items()
+    }
+    personal_sectors = {number: _sector_bests(attempts) for number, attempts in scoped_attempts.items()}
+    field_sectors = [
+        min((best[index] for best in personal_sectors.values() if best[index] is not None), default=None)
+        for index in range(3)
+    ]
     scoped_best = {
         driver.number: _scope_best(driver, attempts_by_driver[driver.number], phase)
         for driver in ordered
@@ -92,11 +115,10 @@ def build_qualifying_snapshot(
                 else None
             ),
             "intervalToAhead": _interval_to_ahead(driver, positions, scoped_best),
-            "scopeLatestLap": _latest_lap([
-                attempt for attempt in attempts_by_driver[driver.number]
-                if phase == "UNKNOWN" or attempt["phase"] == phase
-            ]),
+            "scopeLatestLap": _graded_latest_lap(scoped_attempts[driver.number], personal_sectors[driver.number], field_sectors),
+            "scopeBestLap": _graded_best_lap(scoped_attempts[driver.number], best_seconds, personal_sectors[driver.number], field_sectors),
             "cutState": cut_state,
+            "cutLabel": "ELIMINATED" if cut_state == "ELIMINATED" else "ABOVE CUT" if cut_state == "ADVANCING" else "BELOW CUT" if cut_state == "BELOW_CUT" else "UNKNOWN",
             "qStatus": _q_status(driver),
             "segmentResults": segment_results,
             "attempts": attempts_by_driver[driver.number],
@@ -143,6 +165,9 @@ def build_qualifying_snapshot(
         "status": "AVAILABLE",
         "phase": phase,
         "final": final,
+        "settlement": settlement,
+        "resultStatus": "provisional" if final or explicitly_complete else "none",
+        "settlementReason": "Source confirms session completion; classification remains provisional." if explicitly_complete else "Flag shown; laps already in progress may still change the order." if settlement == "SETTLING" else "Current order; advancement is not yet a final result.",
         "phaseEvidence": (
             "normalized public SessionData"
             if phase_from_state
@@ -186,7 +211,7 @@ def _attempts(
         if item.driver_number == str(driver_number) and item.sequence <= sequence
     ]
     phase_boundaries = _phase_boundaries(resource.events, sequence, sprint=sprint)
-    return [
+    attempts = [
         {
             "attempt": index,
             "phase": (
@@ -208,6 +233,29 @@ def _attempts(
         }
         for index, item in enumerate(items, start=1)
     ]
+    # Older official recordings appended subscription repeats as fresh laps,
+    # and sometimes paired a changed time with an unchanged counter. Preserve
+    # the recording, but do not present those as multiple numbered laps.
+    result = []
+    seen = {}
+    numbered = set()
+    for evidence, attempt in zip(items, attempts):
+        source = resource.events[evidence.sequence - 1].source
+        if source in {"f1-signalr-public", "f1-static-public"}:
+            identity = (attempt["phase"], attempt["lap"], attempt["lapTime"])
+            if identity in seen:
+                # A later explicit validity verdict remains cursor-scoped.
+                if attempt["validity"] != "UNKNOWN":
+                    seen[identity]["validity"] = attempt["validity"]
+                continue
+            counter = identity[:2]
+            if counter in numbered:
+                attempt["lap"] = None
+                attempt["lapNumberStatus"] = "UNCONFIRMED"
+            numbered.add(counter)
+            seen[identity] = attempt
+        result.append(attempt)
+    return result
 
 
 def _attempt_classification(observation: Any) -> str:
@@ -243,6 +291,75 @@ def _latest_lap(attempts: list[dict[str, Any]]) -> dict[str, Any] | None:
         "sector3": item["sector3"],
         "classification": item["classification"],
     }
+
+
+def _sector_bests(attempts: list[dict[str, Any]]) -> list[float | None]:
+    # Pace quality is not lap validity: a lap finishing after the flag can
+    # carry unknown neutralization context and still set a qualifying time.
+    return [
+        min((attempt[key] for attempt in attempts
+             if attempt["classification"] in {"TIMED", "NON_REP"} and attempt["validity"] != "INVALID"
+             and isinstance(attempt.get(key), (int, float)) and attempt[key] > 0), default=None)
+        for key in ("sector1", "sector2", "sector3")
+    ]
+
+
+def _graded_latest_lap(
+    attempts: list[dict[str, Any]], personal: list[float | None], field: list[float | None],
+) -> dict[str, Any] | None:
+    latest = _latest_lap(attempts)
+    if latest is None:
+        return None
+    source = next(attempt for attempt in reversed(attempts) if isinstance(attempt.get("lapTime"), (int, float)))
+    return {**latest, **_sector_grades(source, personal, field)}
+
+
+def _sector_grades(
+    source: dict[str, Any], personal: list[float | None], field: list[float | None],
+) -> dict[str, str]:
+    grades = {}
+    for index, key in enumerate(("sector1", "sector2", "sector3")):
+        value = source[key]
+        grade = "UNKNOWN"
+        if (source["classification"] in {"TIMED", "NON_REP"} and source["validity"] != "INVALID"
+                and isinstance(value, (int, float)) and value > 0 and personal[index] is not None):
+            if field[index] is not None and round(value, 3) <= round(field[index], 3):
+                grade = "SESSION_BEST"
+            elif round(value, 3) <= round(personal[index], 3):
+                grade = "PERSONAL_BEST"
+            else:
+                grade = "SLOWER"
+        grades[f"{key}Status"] = grade
+    return grades
+
+
+def _graded_best_lap(
+    attempts: list[dict[str, Any]], seconds: float | None,
+    personal: list[float | None], field: list[float | None],
+) -> dict[str, Any] | None:
+    # Match the authoritative scoped result; never borrow sectors from a
+    # different lap when collection started after the driver's fastest lap.
+    if seconds is None:
+        return None
+    source = next((item for item in attempts
+                   if item["validity"] != "INVALID"
+                   and isinstance(item.get("lapTime"), (int, float))
+                   and round(item["lapTime"], 3) == round(seconds, 3)), None)
+    return _graded_latest_lap([source], personal, field) if source else None
+
+
+def _grade_attempt_history(attempts_by_driver: dict[str, list[dict[str, Any]]]) -> None:
+    # Each segment retains its own observed benchmarks at this inclusive
+    # cursor. Later segments cannot recolour earlier segment history.
+    for phase in (*QUALIFYING_PHASES, "UNKNOWN"):
+        grouped = {number: [item for item in attempts if item["phase"] == phase]
+                   for number, attempts in attempts_by_driver.items()}
+        personal = {number: _sector_bests(attempts) for number, attempts in grouped.items()}
+        field = [min((best[index] for best in personal.values() if best[index] is not None), default=None)
+                 for index in range(3)]
+        for number, attempts in grouped.items():
+            for attempt in attempts:
+                attempt.update(_sector_grades(attempt, personal[number], field))
 
 
 def cursor_qualifying_phase(

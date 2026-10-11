@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .events import NormalizedEvent, parse_timestamp
 from .lifecycle import active_participants as _active_participants
+from .pair_truth import pair_comparison
 from .state import RaceState
+from .story import StoryEvidence
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class CompletedGapEvidence:
     ahead_driver_number: str
     behind_driver_number: str
     gap_seconds: float
+    comparable: bool = True
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,7 @@ class SessionEvidence:
     lap_observations: tuple[LapEvidence, ...] = ()
     completed_gaps: tuple[CompletedGapEvidence, ...] = ()
     pit_events: tuple[PitEvent, ...] = ()
+    story: StoryEvidence = field(default_factory=StoryEvidence)
 
     @classmethod
     def from_events(
@@ -111,8 +115,10 @@ class SessionEvidence:
         completed_gaps: list[CompletedGapEvidence] = []
         pit_events: list[PitEvent] = []
         state = RaceState()
+        story = StoryEvidence()
         for sequence, event in enumerate(events, start=1):
             state = state.apply(event)
+            story = story.advance(event, state, sequence)
             if on_state is not None:
                 on_state(sequence, state)
             payload = event.payload.get("lap_observation")
@@ -181,9 +187,11 @@ class SessionEvidence:
                         ahead_driver_number=ahead.number,
                         behind_driver_number=behind.number,
                         gap_seconds=gap,
+                        comparable=pair_comparison(state, ahead, behind)["comparisonState"] == "COMPARABLE",
                     )
                 )
-        return state, cls(tuple(observations), tuple(completed_gaps), tuple(pit_events))
+            completed_gaps.extend(_nonadjacent_gap_samples(state, behind, sequence, event.occurred_at, observation.lap))
+        return state, cls(tuple(observations), tuple(completed_gaps), tuple(pit_events), story)
 
     def append(
         self,
@@ -198,6 +206,7 @@ class SessionEvidence:
         payload = event.payload.get("lap_observation")
         pit_payload = event.payload.get("pit_observation")
         driver_number = event.payload.get("number")
+        story = self.story.advance(event, state, sequence)
         pit_events = self.pit_events
         if (
             event.kind == "timing"
@@ -217,12 +226,11 @@ class SessionEvidence:
             or not isinstance(payload, dict)
             or driver_number is None
         ):
-            if pit_events == self.pit_events:
-                return self
             return SessionEvidence(
                 self.lap_observations,
                 self.completed_gaps,
                 pit_events,
+                story,
             )
         values = dict(payload)
         values["contamination_reasons"] = tuple(values.get("contamination_reasons", ()))
@@ -266,9 +274,11 @@ class SessionEvidence:
                         ahead_driver_number=ahead.number,
                         behind_driver_number=behind.number,
                         gap_seconds=gap,
+                        comparable=pair_comparison(state, ahead, behind)["comparisonState"] == "COMPARABLE",
                     ),
                 )
-        return SessionEvidence(self.lap_observations + (lap,), gaps, pit_events)
+            gaps += _nonadjacent_gap_samples(state, behind, sequence, event.occurred_at, observation.lap)
+        return SessionEvidence(self.lap_observations + (lap,), gaps, pit_events, story)
 
     def laps_for_driver(
         self,
@@ -479,6 +489,17 @@ def active_runners(state: RaceState) -> tuple[str, ...]:
     there is a single status vocabulary across the codebase (v2.1 §8).
     """
     return _active_participants(state)
+
+
+def _nonadjacent_gap_samples(state, behind, sequence, occurred_at, lap):
+    samples = []
+    for ahead in state.drivers.values():
+        if ahead.position is None or behind.position is None or ahead.position >= behind.position - 1:
+            continue
+        pair = pair_comparison(state, ahead, behind)
+        if pair["comparisonState"] == "COMPARABLE":
+            samples.append(CompletedGapEvidence(sequence, occurred_at, lap, ahead.number, behind.number, pair["gapSeconds"]))
+    return tuple(samples)
 
 
 def _numeric_interval(value: str | None) -> float | None:

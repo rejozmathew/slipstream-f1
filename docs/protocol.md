@@ -59,11 +59,13 @@ REST state responses and WebSocket snapshots use:
 
 `seq` is the number of normalized events applied to the snapshot. `sessionTime` is the viewer's replay playhead. `sourceTime` currently follows the same clock and is reserved for distinguishing source receipt time later.
 
+Replay WebSocket snapshots include `playback.navigationGeneration`, a per-controller counter incremented after each successful seek, relative seek, step, delay, or reset. Ordinary playback leaves it unchanged. Clients use this acknowledged generation to seed story presentation silently at the destination; incrementing a local generation only when sending a command is insufficient because a buffered pre-command snapshot may arrive first.
+
 `analytics` is optional and additive. Replay and live WebSocket snapshots include it when the analytics service is available. It is always reconstructed at the same inclusive `seq` and `sessionTime` as `data`; it is not part of canonical `RaceState`.
 
 The first replay WebSocket snapshot additionally carries `metadata`, `capabilities` and `playbackReady: true`. It represents the official start or requested `seq`, never a transient final state. Complete reconstruction and evidence preparation begin after this snapshot. Clients enable controls only after a valid state envelope and keep timing-initialization errors separate from successful catalog polling. Reconnects can pass `seq`; REST fallback uses `at=start` or the last confirmed `seq`. `GET /api/v1/state` without a cursor retains its legacy final-state behavior.
 
-Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, the connection-owned `delaySeconds`, and cursor-scoped `positionMode`. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`. A live socket whose selected session becomes replay-ready sends one final `mode: "replay", handoff: "REPLAY_READY"` snapshot from the refreshed replay resource, then closes normally. The client retains the selected session and reconnects in Replay mode.
+Live envelopes additionally carry `mode: "live"` and a `live` object containing transport `status`, authoritative product `phase`, `connected`, `stale`, `sequence`, `lastReceivedAt`, `error`, `replayReady`, `finalRecording`, and cursor-scoped `positionMode`. Viewer transport fields are effective `delaySeconds`, `requestedDelaySeconds`, `availableDelaySeconds`, `paused`, source `edgeTime`, `navigationGeneration`, and optional `notice`. `playback.playing` reflects the private viewer's pause state. Product phases are `PRE_EVENT`, `CONNECTING`, `LIVE`, `STALE`, `RECONNECTING`, `FINALIZING`, `COMPLETE`, `REPLAY_READY`, and `UNAVAILABLE`. A live socket whose selected session becomes replay-ready sends one final `mode: "replay", handoff: "REPLAY_READY"` snapshot from the refreshed replay resource, then closes normally. The client retains the selected session and reconnects in Replay mode.
 
 ## HTTP API
 
@@ -80,10 +82,11 @@ On startup, unfinished recent journals are validated for live recovery (inspecti
 | `GET /api/v1/capabilities` | Describe the selected source/session data capabilities |
 | `GET /api/v1/replay` | Return replay and live availability separately, event/time bounds, live source state, and position mode |
 | `GET /api/v1/driver-history` | Return one driver's normalized lap evidence on demand, outside high-frequency state snapshots |
+| `GET /api/v1/story` | Page recorded story at a required inclusive `seq`, with optional recording identity and older-page offset |
 | `GET /api/v1/analytics` | Return the versioned analytics sidecar at an optional inclusive `at` or `seq` cutoff and start non-blocking Weekend Context preparation |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
 | `GET /api/v1/jobs` | Return bounded in-process download job status |
-| `GET /api/v1/diagnostics` | Return bounded collector counters, replay cache and initialization status |
+| `GET /api/v1/diagnostics` | Return bounded collector counters, replay cache, initialization status and Pirelli refresh diagnostics |
 | `DELETE /api/v1/replay` | Remove one session's rebuildable replay/timing artifacts while retaining durable context |
 | `WS /api/v1/stream` | Create an independent replay controller or delayed-live cursor for one client |
 
@@ -98,6 +101,8 @@ Fast catalog discovery may leave recording completeness uninspected. A download 
 `GET /api/v1/driver-history?session_key=...&driver_number=...` returns source-neutral completed-lap observations for Driver Focus and future analytics. It is an on-demand viewer endpoint rather than part of `RaceState`; consumers filter the returned evidence against the current replay time or cursor. An unavailable recording returns an empty evidence list with `available: false`.
 
 The driver-history response also contains viewer-oriented `pitEvents`. A pit event keeps the observed pit lap, previous/new compound, stationary `stopDuration`, and complete `pitLaneDuration` independently. Missing values remain `null`; lane duration is never relabelled as stationary stop time.
+
+`GET /api/v1/story?session_key=...&seq=...` requires a nonnegative inclusive event-count cursor. `offset` defaults to 0; `limit` defaults to 80 and accepts 1–100. It returns `type: "story.snapshot"`, `recordingVersion`, `sequence`, `asOf`, `revision`, `events`, `total`, `hasMore`, `nextOffset`, and result state. Pages count backward from the most recent visible activity while each page remains chronological. An unavailable recording or mismatched `recording_version` returns HTTP 409. No omitted-cursor request can silently return future story. Compact analytics story and paginated history use the same ledger; see [story.md](story.md).
 
 ## Weekend context and analytics
 
@@ -120,9 +125,19 @@ The allowed sequence is discovered from the catalog: a normal meeting can contri
 
 Every `AnalyticsSnapshot` contains `qualifying`. Outside the Qualifying layout it is `NOT_APPLICABLE`; otherwise it is server-authored and contains `phase`, `phaseEvidence`, `sessionClock`, `sessionClockRunning`, current `benchmark`, `cutLine`, per-driver intelligence, and `modelVersion`.
 
+Additive `settlement` distinguishes `RUNNING`, `SETTLING` after a segment flag, and `SOURCE_COMPLETE` after explicit whole-session completion. `resultStatus` remains `provisional` when result evidence exists. The legacy `final` field identifies the final-segment flag and must not be treated as proof that every flying lap or later classification update has settled.
+
 Per-driver fields include `scopeBest`, `benchmarkDelta`, `intervalToAhead`, `scopeLatestLap`, `cutState`, `qStatus`, completed-lap history, `tyreUsage`, and a server-authored teammate comparison. Benchmark `scope` is `SEGMENT` when factual Q phase is known and `SESSION` when phase is unknown. A current advancement boundary exists only for an explicit season/field-size/segment rule profile selected from stable roster metadata; partial current timing rows never determine field size. `ELIMINATED` additionally requires explicit source/final-result evidence. Completed-lap history is available only by the inclusive cursor. Missing phase, clock, rule profile, validity, usage, or teammate evidence remains internal `UNKNOWN`/`null` and is omitted or rendered as `—` by product UI.
 
 `intervalToAhead` is a numeric best-lap difference in seconds to the immediately preceding classification position, using the same scope as `benchmarkDelta`. It is null for P1, missing/duplicate positions, or missing scoped best times on either driver; it never skips a position. `scopeLatestLap` supplies the latest completed lap and its sectors within that scope. Existing `latestLap` remains session-wide for lap history. Known segments never fall back to earlier-segment times or sectors.
+
+`scopeBestLap` supplies the observed completed lap matching `scopeBest`, with all three sectors from that same lap and the same cursor-scoped sector grades. Qualifying Timing renders this field, so slower cooldown laps cannot replace the displayed sectors. A new segment clears it until a matching completed lap is observed. If the authoritative best result has no matching lap observation, it remains null rather than borrowing another lap's sectors. Each `attempts` entry also carries sector grades compared only against observations from its own phase at the viewing cursor. Driver history groups these laps by phase and labels that comparison; later segments cannot change earlier-segment grades. Existing latest-lap fields retain their original meaning.
+
+`scopeLatestLap.sector1Status` / `sector2Status` / `sector3Status` grade those completed-lap values against observed non-pit completed laps in the same scope at the cursor: `SESSION_BEST` (purple, including ties), `PERSONAL_BEST` (green, including ties), `SLOWER` (yellow), or `UNKNOWN` (neutral). Explicitly invalid, in/out/pit laps, missing and nonpositive sectors do not set benchmarks or receive colours. Unknown lap validity is retained as observed evidence, not certified validity. Pace-quality contamination is not a validity verdict: laps finishing after the flag can still set sector benchmarks. These are observed comparisons, not provider fastest-sector flags; active-lap sector updates never recolour a different completed lap. The qualifying chequered rail names the known segment (`SQ1 ENDED`, for example); its canonical flag and unsettled-lap semantics remain unchanged.
+
+Confirmed eliminated timing rows use the reference 42% opacity; a provisional `BELOW_CUT` verdict never triggers that treatment. An active qualifying collector remains selected between segments, including when their flag arrives after the scheduled session end or the next phase is announced before its running status. A known qualifying phase with explicit `SCHEDULED` status remains eligible for retention and bounded journal recovery: the next segment has not started, but the session has not completed. Existing final-segment completion and drain semantics remain authoritative.
+
+Browser refresh resolves Follow Live through `liveSessionKey` before the historical catalog default. Automatically entering Live persists that intent. A saved Live session remains selected in Live mode during temporary catalog gaps; confirmed `replayReady` can open that same session in Replay. Explicit replay choices remain selected even when another session is live.
 
 ## Catalog semantics
 
@@ -144,20 +159,20 @@ File presence does not imply genuine completion. Replay metadata exposes additiv
 
 The browser labels an available replay with explicit `complete: false` as `PARTIAL RECORDING`. This means session completion is not recorded; it does not establish packet loss or invent missing timing. Null or absent completion metadata is not labelled partial. Playback retains its requested cursor and shows only facts recorded through that time, including empty intervals before the first driver update.
 
-For a catalog-only placeholder without a local replay, `endTime` is capped at the earlier of the scheduled end and current time. An available recording uses its factual recorded bounds, including incomplete recordings that overrun the schedule; clients must not create future seek targets.
+For a catalog-only placeholder without a local replay, `endTime` is capped at the earlier of the scheduled end and current time. An available recording uses its factual recorded bounds, including incomplete recordings that overrun the schedule; clients must not create future seek targets. Qualifying replay bounds include recorded post-flag lap results and changed classification through the last such fact; repeated terminal packets, unchanged results, and pit-only movement do not extend that sporting timeline. The canonical recording still retains the full event stream, and delayed live viewers consume that complete tail before handing off to the same recording and cursor.
 
 For historical races, `session.total_laps` is derived from recorded race-result metadata and is available from the session-start snapshot. Practice and qualifying sessions leave it `null` because they have no meaningful scheduled lap denominator.
 
 ## WebSocket commands
 
-Each WebSocket connection receives an initial snapshot and owns its own `ReplayController`.
+Each WebSocket connection receives an initial snapshot and owns its own `ReplayController` or private `LiveViewer`. The following table describes Replay commands.
 
 | Command | Fields | Behavior |
 | --- | --- | --- |
 | `snapshot` | none | Return the current snapshot without moving the cursor |
 | `play` | `speed` | Play at a speed greater than 0 and at most 120 |
 | `pause` | none | Stop automatic clock advancement |
-| `seek` | `at` or `seq` | Reconstruct through an inclusive timestamp or event-count cursor |
+| `seek` | `at` or `seq`; optional `playhead` with `seq` | Reconstruct through an inclusive timestamp or event-count cursor; a saved playhead must belong to that cursor's source-time interval |
 | `seek_relative` | `seconds` | Move by signed source-clock seconds, clamped to replay bounds |
 | `step` | none | Apply one normalized event |
 | `delay` | `seconds` | Seek to a non-negative number of seconds behind the newest event |
@@ -175,11 +190,11 @@ Invalid input produces a versioned error frame:
 
 Playback advances in clock batches and emits snapshots at the transport cadence rather than once per source event.
 
-With `mode=live`, only `snapshot`, `delay`, and `reset`/`live` are accepted. Delay is clamped to 0–300 seconds and selects an inclusive cursor from the shared live event history. `reset`/`live` returns that viewer to delay zero. Live has no pause, backward seek, step, or speed command, and one viewer's delay never mutates another viewer.
+With `mode=live`, `snapshot`, `pause`, `play` at 1×, `delay`, and `reset`/`live` are accepted. Delay must be finite and within 0–300 seconds; invalid values are rejected. `reset`/`live` resumes that viewer at zero delay. Pause holds the private source cursor and accrues effective delay as canonical source time advances. At the five-minute limit playback resumes with a notice and a new `navigationGeneration`. Resume retains the accrued delay at 1×. Requested delay can exceed currently retained history; `delaySeconds` reports the effective value separately. Live does not accept historical seek, relative seek, step, or variable speed, and one viewer's transport state never mutates another viewer.
 
-Live WebSocket and REST opening accept `delay_seconds` (0–300), including reconnects. A completed session's delayed viewer continues consuming its retained tail before receiving `handoff: "REPLAY_READY"`; its state, analytics and clock share that same cursor while the collector may acquire the next session. After the factual drain releases the old upstream, publication retries independently of new acquisition. Publication failure remains visibly `FINALIZING` with bounded-backoff retry; handoff requires successful publication as well as reaching the tail. Up to three recent publication contexts are retained; eviction cancels an old retry with an error log and retains its canonical journal for recovery. Process shutdown cancels retries without deleting journals.
+Live WebSocket and REST opening accept `delay_seconds` (0–300) and optional ISO `live_paused_at`, including reconnects. An active stale feed freezes the last source edge; recovery increments the navigation generation. A completed session's delayed viewer continues consuming its retained tail before receiving `handoff: "REPLAY_READY"`; its state, analytics and clock share that same cursor while the collector may acquire the next session. Only a retained completed tail drains by elapsed wall time. After the factual drain releases the old upstream, publication retries independently of new acquisition. Publication failure remains visibly `FINALIZING` with bounded-backoff retry; handoff requires successful publication as well as reaching the tail. Up to three recent publication contexts are retained; eviction cancels an old retry with an error log and retains its canonical journal for recovery. Process shutdown cancels retries without deleting journals.
 
-The Live UI offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry (0:00–5:00). Invalid syntax, seconds components above 59, and values beyond five minutes are rejected. GO LIVE returns to zero; the active label and selected preset follow the server-confirmed `live.delaySeconds`.
+The Live UI offers 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry (0:00–5:00). Invalid syntax, seconds components above 59, and values beyond five minutes are rejected. GO LIVE returns to zero; the active label follows confirmed effective `live.delaySeconds`, and a distinct requested value remains visible when available history is shorter.
 
 Practice, Qualifying, and Sprint Qualifying display source-backed remaining time. The shared server helper extrapolates normalized ExtrapolatedClock observations only while `session_clock_running` is true, to the same inclusive viewer cursor and exact playhead as drivers and analytics. Source UTC anchors are honored on subscription/reconnect. Missing source clocks remain null; no session duration is assumed. Qualifying analytics reuse this helper, including between events at the same sequence. Race and Sprint retain session LAP current / total.
 
@@ -216,6 +231,8 @@ Full accumulated lap history is deliberately excluded from `RaceState` and there
 
 An observation records lap number and start time, duration and sectors when supplied, compound, stint number, tyre age, `qualifying_phase`, `tyre_usage`, factual `lap_validity`, pit-in/pit-out evidence, and provenance-friendly quality fields. `quality` is `representative`, `contaminated`, or `unknown`. `contamination_reasons` names only observed conditions such as `pit_in`, `pit_out`, `neutralized_track`, `neutralization_end_unknown`, or `missing_duration`; it is not a strategy verdict.
 
+Official timing acquisition pairs explicit lap-time values with changed source lap counters, accepting split packets within five source-clock seconds. It never increments or synthesizes lap numbers. Pit transitions, phase changes, cleared times and expiry discard unmatched pairs; current timing remains visible even when a completed-lap association is unavailable. Subscription repeats and fastest-flag-only patches do not create completed laps. Reconnect/recovery seeds already-observed lap identities from canonical history. Legacy qualifying recordings remain unchanged on disk: their history presentation collapses repeated phase/lap/time observations and marks conflicting durations attached to an already-used number with `lap: null, lapNumberStatus: "UNCONFIRMED"`, retaining the recorded time and sectors. These repairs are evaluated only through the viewer's inclusive cursor.
+
 Pit observations may additionally carry `pit_occurred_at`, `previous_compound`, `new_compound`, `stop_duration`, and `pit_lane_duration`. These remain optional and source-capability dependent.
 
 Official `PitLaneTimeCollection.Duration` is admitted as `pit_lane_duration` only when it is positive and no greater than 300 seconds. Values outside that bounded transit domain remain unavailable. This field never populates `stop_duration`, which is reserved for separately defensible stationary/pit-box evidence.
@@ -223,6 +240,8 @@ Official `PitLaneTimeCollection.Duration` is admitted as `pit_lane_duration` onl
 Whole-track contamination is derived from timestamped intervals opened only by genuine track-scoped yellow/red or explicit SC/VSC deployment evidence and closed by a whole-track clear/green transition. Sector- and driver-scoped flags do not neutralize the whole lap. An unclosed interval remains unknown where overlap cannot be proven. Future analytics may consume this evidence, but calculated pace or strategy does not become part of canonical `RaceState`.
 
 ## Circuit, position, and conditions
+
+Official mini-sector progress is emitted on newly completed segments; recolouring an already completed segment (including purple to green) and repeated lap counters carry no new position evidence. The adapter compares consecutive provider snapshots for this distinction. Desktop and TV interpolate only between received positions using the viewer clock and recent per-car update cadence; label packing does not hide active car markers. New endpoints preserve displayed velocity and ease toward received progress, with one persistent animation loop across ordinary snapshots; navigation, pause, and reduced motion still snap immediately.
 
 `RaceState.circuit.path` is an ordered array of `[x, y]` points. `rotation` is the source display rotation and `source` preserves geometry provenance.
 
@@ -257,7 +276,7 @@ Recordings are private operational inputs. Their formats may need migrations ind
 
 `drivers[number].strategy.projectionGate` and top-level `projectionGate` contain hard-validity, plausibility, stability, and `publishAllowed`. Future strategy values are absent/`UNKNOWN` unless all gates pass. `finishAssessment` is the positive evidence record behind `TO_FINISH`; the absence of a pit window never implies a run to the flag. `paceTrend` is raw clean-stint pace slope, not isolated tyre degradation; `degradation` remains a compatibility alias.
 
-`battle.histories` contains only completed-lap interval samples. `battle.stabilizedRecommended` and `heldRecommendation` are functions of source history at the cursor and are request-order independent. A pair must remain eligible within the meaningful-gap threshold and have source history spanning the configured hold time.
+`battle.histories` contains completed-lap samples for known same-lap pairs. `battle.pairs` provides backend-authored current gaps for arbitrary classified pairs, with `gapSeconds`, `gapBasis`, `comparisonState` (`COMPARABLE` or `NOT_COMPARABLE`), and an explicit unavailable `reason`. Adjacent pairs use the observed interval; nonadjacent pairs require numeric leader gaps and known equal laps. Browser clients must not subtract leader-gap strings themselves. `battle.stabilizedRecommended` and `heldRecommendation` are functions of source history at the cursor and are request-order independent. Recommendations require a RUNNING/GREEN Race or Sprint at race lap 3 or later, both drivers on track on known equal laps, the meaningful-gap threshold, and history spanning the configured hold time.
 
 `sportingRules.dryTyreRequirement.perDriverState` is a map keyed by driver number, not a scalar. Values are `UNSATISFIED`, `SATISFIED`, `NOT_APPLICABLE`, or `UNKNOWN`; only `UNSATISFIED` can drive an actionable warning, and `UNKNOWN` must not invent one. `historical` and `officialPreRace` are separately attributed, target-session-owned optional artifacts; absence is explicit and neither is silently blended into `WeekendContext`. `backtest.status` is `NOT_IMPLEMENTED` and `backtest.metrics` is `null` until a deterministic archived-session evaluator exists.
 
@@ -278,7 +297,7 @@ Every analytics snapshot contains `publishedStrategy`, even when no admissible P
 
 Driver relations are `MATCHING_ONE`, `MATCHING_MULTIPLE`, `DIVERGED`, `NOT_COMPARABLE`, `TERMINAL`, or `UNKNOWN`. Every compatible option/window is represented. Window states are `BEFORE`, `ACTIVE`, `PASSED`, `COMPLETED`, or `UNKNOWN`; an observed compound transition deterministically marks the corresponding window `COMPLETED`. Final state keeps the baseline but emits no live/future windows. `ANY_ORDER` remains published context but is not prefix-compared or rendered as a directional transition.
 
-`actualStrategy.compounds` is a stop-preserving sequence derived from cursor-scoped normalized pit events; repeated compounds are significant. `stopLaps` contains the corresponding factual stop laps, `completedStops` mirrors canonical state, `observedStops` counts available normalized events, and `evidenceComplete` is false when those facts cannot be reconciled without invention. Each model-admissible comparable Pirelli reference carries stop comparisons with factual and published laps plus `INSIDE`, `OUTSIDE`, `NOT_OCCURRED`, or `NO_PUBLISHED_LAP`. A `REFERENCE_ONLY` entry deliberately carries no timing comparison or verdict. The authored assessment is one of `STILL_APPLICABLE`, `ALIGNED`, `SAME_COMPOUNDS_DIFFERENT_TIMING`, `SAME_COMPOUNDS_TIMING_UNKNOWN`, `EXTRA_SAME_COMPOUND_STOP`, `NO_MATCH`, `NOT_COMPARABLE`, `REFERENCE_ONLY`, or `UNKNOWN`.
+`actualStrategy.compounds` is a stop-preserving sequence derived from cursor-scoped normalized completed pit events; repeated compounds are significant. `stopLaps` contains the corresponding factual stop laps; `completedStops` and `observedStops` count completed normalized events. The canonical pit counter is used only to reconcile `evidenceComplete`, because it may increment before pit exit. Missing new compounds remain null rather than being filled from current tyres. Each model-admissible comparable Pirelli reference carries stop comparisons with factual and published laps plus `INSIDE`, `OUTSIDE`, `NOT_OCCURRED`, or `NO_PUBLISHED_LAP`. A `REFERENCE_ONLY` entry deliberately carries no timing comparison or verdict. The authored assessment is one of `STILL_APPLICABLE`, `ALIGNED`, `SAME_COMPOUNDS_DIFFERENT_TIMING`, `SAME_COMPOUNDS_TIMING_UNKNOWN`, `EXTRA_SAME_COMPOUND_STOP`, `NO_MATCH`, `NOT_COMPARABLE`, `REFERENCE_ONLY`, or `UNKNOWN`.
 
 A display-only official historical baseline can be rendered with provenance, but `modelAdmissible: false` forces model-comparable options to an empty set. It therefore cannot produce a matching/diverged model relation or future window state. Strict admission remains cutoff-safe and version-proven.
 

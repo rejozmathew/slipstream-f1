@@ -360,8 +360,14 @@ class ReplayLibrary:
                         identity.update(event.payload)
                 if (
                     str(identity.get("key")) != descriptor.key
-                    or identity.get("status")
-                    not in {"RUNNING", "SUSPENDED", "FINISHED"}
+                    or not (
+                        identity.get("status") in {"RUNNING", "SUSPENDED", "FINISHED"}
+                        or (
+                            descriptor.layout_family == "qualifying"
+                            and identity.get("qualifying_phase") in {"Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"}
+                            and identity.get("status") == "SCHEDULED"
+                        )
+                    )
                     or session_completion(
                         ordered, session_kind=descriptor.session_kind
                     ).complete

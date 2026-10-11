@@ -98,11 +98,13 @@ Starting tyres come from first-stint evidence and include drivers who later beco
 
 ## Battle
 
-Only adjacent, battle-eligible drivers with a numeric interval-to-ahead no greater than 12.0 seconds enter scoring. A 40–60 second pair is not a meaningful recommended battle. Lapped gaps are non-comparable.
+Only adjacent, on-track drivers on the same known lap enter recommendation scoring, during known GREEN/RUNNING Race or Sprint from session lap 3. Their numeric interval-to-ahead must be no greater than 12.0 seconds. A 40–60 second pair is not a meaningful recommended battle. Yellow, VSC, Safety Car, red, unknown control, pit activity, and unknown or unequal laps cannot produce a recommendation. The one-second sustained battle event in [Story](../story.md) is a separate presentation threshold, not a change to this 12-second score policy.
 
 The score retains declared contributions for current gap, relative Pace Trend, representative pace, tyre-age offset, position significance, and supported pit-window overlap. Gap history is sampled only when the behind driver completes a lap; transport snapshots do not become chart history.
 
-The server publishes a stabilized recommendation only after the same ordered pair has completed-lap source history spanning at least 20 source seconds and remains within the meaningful-gap limit. Histories are capped at 40 samples. The held pair and `since` time are pure functions of source evidence at or before the cursor, so direct access, backward seeks, and different request orders produce the same result.
+The server publishes a stabilized recommendation only after the same ordered pair has comparable completed-lap source history spanning at least 20 source seconds and remains within the meaningful-gap limit. Current candidate histories are capped at 40 samples. The held pair and `since` time are pure functions of source evidence at or before the cursor, so direct access, backward seeks, and different request orders produce the same result.
+
+`battle.pairs` also supplies current comparisons for arbitrary classified pairs. Adjacent pairs use `interval_to_ahead`; non-adjacent pairs use the difference between two numeric leader gaps, with P1 as the zero reference. Both cars must be running on track on the same known lap with unambiguous order. Missing, lapped, negative, or contradictory gaps return `NOT_COMPARABLE`, a null value and a reason. This factual comparison does not itself make the pair a recommended battle. Non-candidate pairs receive at most six recent comparable completed-lap samples to bound snapshot size; transport snapshots never create history. React does not subtract leader gaps or substitute another pair's interval.
 
 ## Pit economics boundary
 

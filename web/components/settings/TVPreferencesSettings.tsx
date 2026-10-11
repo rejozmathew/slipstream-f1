@@ -2,11 +2,11 @@ import type { Driver } from "../../domain/protocol";
 import type { TVPreferences, TVStatePreference } from "../../hooks/useProductPreferences";
 
 const tvStates: Array<{ id: TVStatePreference; label: string }> = [
-  { id: "tower", label: "Timing Tower" },
   { id: "track", label: "Track" },
   { id: "strategy", label: "Strategy" },
   { id: "battle", label: "Battle" },
   { id: "driver", label: "Driver" },
+  { id: "result", label: "Result · after the flag" },
 ];
 
 export function TVPreferencesSettings({ value, onChange, drivers }: { value: TVPreferences; onChange: (value: TVPreferences) => void; drivers: Driver[] }) {

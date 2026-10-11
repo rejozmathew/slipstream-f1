@@ -1,0 +1,91 @@
+/* Slipstream redesign — design tokens.
+ * Base palette and type are carried over unchanged from the approved Claude Design
+ * artifact ("Slipstream F1 Redesign" foundations). New tokens are marked NEW. */
+
+@font-face { font-family: 'Saira'; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url('fonts/saira-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Saira'; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url('fonts/saira-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 100 800; font-display: swap;
+  src: url('fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 100 800; font-display: swap;
+  src: url('fonts/jetbrains-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
+:root {
+  color-scheme: dark;
+  /* Surface & text (approved) */
+  --ground: #06080a;
+  --surface-1: #0b0f14;
+  --surface-2: #111720;
+  --surface-3: #161d27;
+  --border: #1a212b;
+  --border-strong: #2a3441;
+  --text-1: #e9eef4;
+  --text-2: #93a0ae;
+  --text-3: #7a8594;            /* raised from #5b6674 for contrast: ≥4.5:1 on every surface (review) */
+  --accent: #ff3d24;            /* navigation, interaction, LIVE */
+
+  /* Timing semantics (approved) — only used where the source supports them */
+  --time-session-best: #b14cff; /* purple */
+  --time-personal-best: #2fd97f;/* green  */
+
+  /* Flags (approved) */
+  --flag-green: #1fd97a;
+  --flag-yellow: #ffcf2e;
+  --flag-red: #ff3b30;
+
+  /* NEW — cause colours for the story layer */
+  --pit: #4d8dff;               /* pit lane, in pit, pit-driven reorders */
+  --gain: #2fd97f;              /* ▲ positions gained */
+  --loss: #ff5a4e;              /* ▼ positions lost, drop zone */
+  --amber: #ffb020;             /* stewards, penalties, deleted laps, classification */
+  --out: #5b6674;               /* stopped / retired */
+  --battle: #ff3d24;            /* within 1.0 s — uses the accent */
+  --replay: #9fb0c3;            /* replay is a mode, not an alarm: neutral */
+
+  /* NEW — calm green rail for long green-flag periods (OLED friendly) */
+  --rail-green-bg: #0a2a1b;
+  --rail-green-edge: #1fd97a;
+
+  /* Compounds */
+  --c-soft: #ff3b30;
+  --c-medium: #ffcf2e;
+  --c-hard: #e9eef4;
+  --c-inter: #2fd97f;
+  --c-wet: #4d8dff;
+
+  --sans: 'Saira', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  /* NEW — motion */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-move: cubic-bezier(.45, .05, .25, 1);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --t-tick: 160ms;   /* value changes in place */
+  --t-move: 560ms;   /* one-place reorder (desktop) */
+  --t-hold: 2600ms;  /* how long a cause highlight holds */
+  --motion-scale: 1; /* TV sets 1.35, phone .85 */
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: var(--ground); color: var(--text-1); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.lbl { font: 700 10px/1 var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--text-3); }
+
+/* Reduced motion — one policy (SS.motion sets .reduced-motion from the system setting or the
+ * viewer's explicit choice). Information stays; travel, pulses, blinks and marching stripes stop.
+ * Cause is still shown with static outlines and colour. */
+.reduced-motion { --t-move: 1ms; --motion-scale: 0; }
+.reduced-motion *, .reduced-motion *::before, .reduced-motion *::after {
+  animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important; transition-delay: 0ms !important; scroll-behavior: auto !important;
+}
+
+/* Desktop display size (density). 0.8 is the default: denser, less scrolling. Production scales the
+ * type and spacing tokens; the prototype uses CSS zoom on the page so every surface scales together. */
+:root { --ui-scale: .8; }

@@ -1,5 +1,7 @@
 # Race Intelligence and Strategy Analytics
 
+> Historical model reference: this document preserves the V1 derivation contract. The current implementation and subsequent refinements are indexed in [Analytics](../analytics.md), including the [V2.1 reference](race-intelligence-v2.1.md). Use those current documents for pair truth, lifecycle eligibility, qualifying settlement, and partial tyre-history behavior. Activity uses the separate [Story model](../story.md).
+
 This document specifies the production derivations currently emitted by `analytics.snapshot` model `race-intelligence-v1`. It describes what Slipstream calculates, which evidence is allowed, when a value becomes `UNKNOWN`, and important limitations.
 
 The implementation is in `src/slipstream/analytics.py`. Strategy, Driver, Battle, Timing Tower, and TV are renderers of this one backend model; they must not independently recreate these calculations in React.

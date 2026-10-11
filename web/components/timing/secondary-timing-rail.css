@@ -1,0 +1,14 @@
+.secondary-layout { display:grid; grid-template-columns:240px minmax(0,1fr); min-height:100%; gap:10px; }
+.secondary-view-content { min-width:0; }
+.secondary-timing-rail { background:#0b0f14; border-right:1px solid var(--line); }
+.secondary-timing-rail h2 { margin:0; padding:12px 10px; border-bottom:1px solid var(--line); font:700 9px/1 var(--sans); letter-spacing:.18em; }
+.secondary-timing-rail .secondary-rail-row { display:grid; grid-template-columns:24px minmax(45px,1fr) 76px 46px; align-items:center; gap:0; width:100%; min-height:22px; padding:0 10px; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--ink); text-align:left; font:500 12px/1 var(--mono); }
+.secondary-timing-rail .secondary-rail-header { font:700 8px/1 var(--sans); letter-spacing:.18em; color:var(--quiet); }
+.secondary-rail-driver { display:flex; align-items:center; gap:8px; font:800 12px/1 var(--sans); letter-spacing:.08em; }
+.secondary-rail-driver i { width:2px; height:12px; background:var(--tower-team); }
+.secondary-rail-row > :nth-child(3) { text-align:right; padding-right:10px; }
+.secondary-rail-row .secondary-rail-status { color:var(--muted); font:700 9px/1 var(--sans); }
+.secondary-rail-tyre { display:flex; align-items:center; gap:4px; }
+.secondary-rail-tyre small { font:400 9px/1 var(--mono); color:var(--muted); }
+.secondary-rail-tyre .compound-badge i { width:12px; height:12px; font-size:7px; }
+@media(max-width:900px) { .secondary-layout { display:block; }.secondary-timing-rail { display:none; } }

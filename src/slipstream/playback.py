@@ -44,6 +44,9 @@ class ReplayController:
         self.cursor = 0
         self.playhead: str | None = None
         self.is_playing = False
+        # Transport-owned navigation epoch; increments only after a successful
+        # viewer command, never during ordinary playback or reconstruction.
+        self.navigation_generation = 0
         self.start_time = start_time or (
             self.events[0].occurred_at if self.events else None
         )

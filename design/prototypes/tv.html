@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slipstream TV Mode · prototype</title>
+<link rel="icon" type="image/png" href="shared/brand/tile-64.png">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/brand.css">
+<link rel="stylesheet" href="shared/components.css">
+<link rel="stylesheet" href="shared/analysis.css">
+<link rel="stylesheet" href="tv.css">
+</head>
+<body class="tvbody">
+  <div class="tv-viewport" id="viewport">
+    <div class="tv-canvas" id="canvas">
+      <div id="rail"></div>
+      <div class="tv-main" id="tvmain">
+        <section class="tv-tower" id="tower" aria-label="Timing tower"></section>
+        <section class="tv-stage" id="stage" aria-label="Feature">
+          <header class="stage-head">
+            <div class="stage-title"><b id="stageTitle"></b><span id="stageWhy"></span></div>
+            <div class="stage-mods" id="stageMods" role="group" aria-label="Feature"></div>
+          </header>
+          <div class="stage-body" id="stageBody"></div>
+          <div id="takeover"></div>
+          <div class="tv-stale" id="stale" hidden></div>
+        </section>
+      </div>
+      <div class="tv-ticker" id="ticker"></div>
+      <div class="tv-prov" id="prov"></div>
+      <div class="tv-widetag" aria-hidden="true"><b>TIMING VIEW</b>T OR AUTO TO RETURN</div>
+
+      <!-- Product controls: appear on any key, pointer move or remote OK; hide after a few seconds. -->
+      <div class="tv-bar" id="tvbar" role="toolbar" aria-label="TV controls" hidden>
+        <button class="tb-b" type="button" data-a="exit" title="Leave TV mode at this moment">‹ EXIT TV</button>
+        <div class="tb-grp" id="tbMods" role="group" aria-label="Feature"></div>
+        <label class="tb-sel"><span>FOLLOW</span><select id="tbFollow" aria-label="Follow a driver"></select></label>
+        <button class="tb-b tb-sync" type="button" data-a="sync" id="tbSync" aria-haspopup="dialog"></button>
+        <button class="tb-b tb-play" type="button" data-a="play" id="tbPlay"></button>
+        <a class="tb-b" href="states.html#settings" title="Settings">SETTINGS</a>
+        <span class="tb-keys" title="Remote: D-pad moves focus, OK selects, Back closes, ▶❚❚ plays or pauses, ⏪/⏩ move in time (live: the delay). Keyboard: Space play/pause · ←/→ time or delay · D sync · T timing · 1–9 feature · A auto · Esc close">D-PAD · OK · BACK</span>
+      </div>
+      <div class="tv-sync" id="syncPanel" role="dialog" aria-modal="false" aria-label="Sync and delay" hidden></div>
+      <div class="tv-sessions" id="sessions" role="dialog" aria-label="Sessions" hidden>
+        <div class="tvs-card"><span class="brand-mark" style="--bm-h:52px"><img src="shared/brand/mark-96.png" alt=""></span><b>Sessions</b><div class="tvs-list" id="sessionsList"></div><span class="tvs-hint">OK OPENS · BACK RETURNS</span></div>
+      </div>
+    </div>
+    <div class="tv-guard" id="guard" hidden>
+      <div class="tg-card"><span class="brand-mark" style="--bm-h:40px"><img src="shared/brand/mark-96.png" alt=""></span><b>TV mode is made for big screens</b><span>This window is phone-sized. The phone layout shows the same session at the same moment.</span>
+        <div class="tg-acts"><a class="tg-b tg-main" id="guardPhone" href="phone.html">OPEN THE PHONE VIEW</a><a class="tg-b" id="guardWeb" href="web.html">DESKTOP</a><button class="tg-b" type="button" id="guardAnyway">SHOW TV ANYWAY</button></div></div>
+    </div>
+  </div>
+
+  <aside class="review" id="review" aria-label="Prototype review controls">
+    <div class="rv-row">
+      <b class="rv-title">TV MODE PROTOTYPE</b>
+      <div class="rv-seg" id="rvSession">
+        <button data-s="hungaroring-2026-race">Race · Hungaroring</button>
+        <button data-s="kl-2026-qualifying">Qualifying · KL</button>
+        <button data-s="kl-2026-practice-2">Practice 2 · KL</button>
+      </div>
+      <button class="rv-x" id="rvHide" title="Hide review controls (H)">Hide ▾</button>
+    </div>
+    <div class="rv-row">
+      <button class="rv-b rv-play" id="rvPlay">▶ Play</button>
+      <button class="rv-b" data-skip="-30">−30s</button>
+      <button class="rv-b" data-skip="30">+30s</button>
+      <label class="rv-l">Speed <select id="rvSpeed"><option>0.5</option><option>1</option><option>2</option><option>5</option><option selected>10</option><option>30</option><option>60</option><option>120</option></select>×</label>
+      <div class="rv-moments" id="rvMoments"></div>
+    </div>
+    <div class="rv-row rv-opts">
+      <label><input type="checkbox" id="optLive"> Live chrome (simulated)</label>
+      <label><input type="checkbox" id="optBold"> Bold green rail</label>
+      <label><input type="checkbox" id="optReduced"> Reduced motion</label>
+      <label><input type="checkbox" id="optTakeovers" checked> Takeovers</label>
+      <label class="rv-l">Feature <select id="optModule"><option value="auto">Director (auto)</option></select></label>
+      <label class="rv-l" id="mapOptWrap">Map <select id="optMap"><option value="outline">Outline + positions</option><option value="line">No outline (track line)</option><option value="none">No positions (time only)</option></select></label>
+      <label class="rv-l">Follow <select id="optFollow"><option value="">—</option></select></label>
+      <label class="rv-l">Battle <select id="optBattle"><option value="recommended">Recommended</option><option value="leader">Leader</option></select></label>
+      <label class="rv-l">Safe area <select id="optSafe"><option value="0">Off</option><option value="2.5">2.5%</option><option value="5">5%</option></select></label>
+      <label class="rv-l">Text <select id="optText"><option value="1">Standard</option><option value="1.12">Large</option></select></label>
+      <button class="rv-b" id="optStale" hidden>Simulate feed drop</button>
+    </div>
+    <p class="rv-note">Real recorded data. This drawer is review-only — the product controls are the TV toolbar (move the pointer or press any key). Extra review keys: H hide drawer · R reduced motion · B bold rail · L live chrome.</p>
+  </aside>
+  <button class="rv-show" id="rvShow" hidden>Review controls ▴</button>
+
+  <script src="data/hungaroring-2026-race.js"></script>
+  <script src="data/kl-2026-qualifying.js"></script>
+  <script src="data/kl-2026-practice-2.js"></script>
+  <script src="data/server-context.js"></script>
+  <script src="shared/engine.js"></script>
+  <script src="shared/contract.js"></script>
+  <script src="shared/vm.js"></script>
+  <script src="shared/tower.js"></script>
+  <script src="shared/rail.js"></script>
+  <script src="shared/track.js"></script>
+  <script src="shared/story.js"></script>
+  <script src="shared/modules.js"></script>
+  <script src="shared/analysis.js"></script>
+  <script src="shared/player.js"></script>
+  <script src="tv.js"></script>
+</body>
+</html>

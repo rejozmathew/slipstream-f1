@@ -23,6 +23,7 @@ from .lifecycle import (
     is_stopped,
     terminal_state,
 )
+from .pair_truth import pair_comparison, recommendation_phase_available
 from .pirelli.store import PirelliAvailability
 from .published_strategy import build_published_strategy
 from .qualifying import build_qualifying_snapshot
@@ -120,6 +121,10 @@ class AnalyticsService:
             result["qualifying"]["sessionClock"] = cursor_session_clock(
                 resource.events, state, sequence, as_of
             )
+        # Story availability is checked at both the exact sequence and clock.
+        # Attach after the legacy cache: late live inserts can change evidence
+        # without changing its sequence or the current timing values.
+        result["story"] = resource.evidence.story.snapshot(sequence, as_of)
         return result
 
 
@@ -190,10 +195,11 @@ def build_analytics_snapshot(
         }
     battle = _decorate_battle_history(
         battle_recommendation(
-            ordered, driver_models, layout_family=resource.descriptor.layout_family
+            ordered, driver_models, layout_family=resource.descriptor.layout_family, state=state
         ),
         resource,
         sequence,
+        state,
     )
     race_strategy = _race_strategy(
         driver_models, evidence_by_driver, context_payload, pit_loss, state, stage
@@ -282,6 +288,7 @@ def build_analytics_snapshot(
         "layoutFamily": resource.descriptor.layout_family,
         "sequence": sequence,
         "asOf": as_of,
+        "story": resource.evidence.story.snapshot(sequence, as_of),
         "stage": stage,
         **distributions,
         # v2.1 §11: strategy validity is a first-class state, not an implicit
@@ -466,6 +473,7 @@ def battle_recommendation(
     ordered: list[DriverState],
     driver_models: dict[str, dict[str, Any]],
     layout_family: str | None = None,
+    *, state: RaceState | None = None,
 ) -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
     for index in range(1, len(ordered)):
@@ -475,6 +483,11 @@ def battle_recommendation(
         # never Battle candidates. Both cars in a pair must be eligible —
         # a retired car is not "closing" on its predecessor, it is out.
         if not (is_battle_eligible(ahead) and is_battle_eligible(behind)):
+            continue
+        if state is not None and (
+            not recommendation_phase_available(state)
+            or pair_comparison(state, ahead, behind)["comparisonState"] != "COMPARABLE"
+        ):
             continue
         gap = _numeric_gap(behind.interval_to_ahead)
         if gap is None or gap > MEANINGFUL_BATTLE_GAP_SECONDS:
@@ -591,17 +604,35 @@ def _decorate_battle_history(
     battle: dict[str, Any],
     resource: ReplayResource,
     sequence: int,
+    state: RaceState,
 ) -> dict[str, Any]:
     """Publish completed-lap gap history and deterministic source-time hold state."""
 
+    ordered = sorted((driver for driver in state.drivers.values() if driver.position is not None), key=lambda driver: driver.position)
+    battle["pairs"] = {
+        f"{ahead.number}:{behind.number}": pair_comparison(state, ahead, behind)
+        for index, ahead in enumerate(ordered) for behind in ordered[index + 1:]
+    } if state.session.layout_family == "race" else {}
     histories: dict[str, list[dict[str, Any]]] = {}
+    for item in resource.evidence.completed_gaps:
+        if item.sequence > sequence or not item.comparable:
+            continue
+        key = f"{item.ahead_driver_number}:{item.behind_driver_number}"
+        histories.setdefault(key, []).append({
+            "sequence": item.sequence, "occurredAt": item.occurred_at,
+            "lap": item.lap, "gapSeconds": item.gap_seconds,
+        })
+        # Pinned comparisons have a compact recent trend; current scored
+        # candidates retain the existing longer 40-sample history below.
+        histories[key] = histories[key][-6:]
     stable: list[tuple[dict[str, Any], int]] = []
     for candidate in battle["candidates"]:
         ahead = candidate["aheadDriverNumber"]
         behind = candidate["behindDriverNumber"]
         samples = resource.evidence.completed_gap_history(
             ahead, behind, event_limit=sequence
-        )[-BATTLE_HISTORY_MAX_SAMPLES:]
+        )
+        samples = tuple(item for item in samples if item.comparable)[-BATTLE_HISTORY_MAX_SAMPLES:]
         key = f"{ahead}:{behind}"
         histories[key] = [
             {
@@ -815,7 +846,7 @@ def _driver_strategy(
         if degradation_value is not None
         else unknown("clean current-stint Pace Trend is unavailable")
     )
-    stop_count = _likely_stop_count(driver, ordered, state)
+    stop_count = _likely_stop_count(driver, ordered, state, pit_events)
     dry_state = (
         _dry_tyre_state(driver, rules, evidence_by_driver.get(driver.number, ()))
         if rules is not None
@@ -1215,11 +1246,12 @@ def _race_strategy(
 
 
 def _likely_stop_count(
-    driver: DriverState, ordered: list[DriverState], state: RaceState
+    driver: DriverState, ordered: list[DriverState], state: RaceState,
+    pit_events: tuple[PitEvent, ...],
 ) -> dict[str, Any]:
     if state.session.status.upper() in {"FINISHED", "ENDED", "COMPLETE"}:
         return metric(
-            driver.pit_count,
+            sum(event.driver_number == driver.number for event in pit_events),
             status="OBSERVED",
             evidence=["completed-session normalized pit events"],
             unit="stops",
@@ -1584,7 +1616,9 @@ def _driver_read(
         facts.append(
             f"Current stint: {driver.compound} at {driver.tyre_age} laps of tyre age."
         )
-    facts.append(f"Observed completed pit stops: {driver.pit_count}.")
+    # The canonical counter may increment on pit entry or arrive as a late-join
+    # baseline. The published history list contains completed cursor evidence.
+    facts.append(f"Observed completed pit stops: {len(model.get('pitEvents') or ())}.")
     trend = model.get("pace", {}).get("paceTrend", {})
     value = trend.get("value")
     if isinstance(value, (int, float)):
@@ -2050,6 +2084,17 @@ def _dry_tyre_state(
     obligation = str(rules.dry_compound_obligation or "").upper()
     if obligation in {"NONE", "NOT_APPLICABLE", "N/A", ""}:
         return "NOT_APPLICABLE"
+    if obligation == "UNKNOWN":
+        return "UNKNOWN"
+
+    wet_compounds = {"INTERMEDIATE", "WET"}
+    observed_compounds = {str(driver.compound or "").upper()}
+    for observation in evidence:
+        observed_compounds.add(str(observation.compound or "").upper())
+        if observation.pit_out:
+            observed_compounds.add(str(observation.new_compound or "").upper())
+    if observed_compounds & wet_compounds:
+        return "NOT_APPLICABLE"
 
     compounds_used = set()
     if driver.compound and str(driver.compound).upper() in _DRY_COMPOUNDS:
@@ -2069,6 +2114,13 @@ def _dry_tyre_state(
         return "SATISFIED"
 
     if not evidence and not driver.compound:
+        return "UNKNOWN"
+    # A recording beginning mid-race cannot establish that the one observed
+    # compound is the only compound used. Positive evidence may satisfy the
+    # requirement, but absence of the earlier stints cannot prove a deficit.
+    if driver.lap is not None and driver.lap > 1 and (
+        not evidence or min(observation.lap for observation in evidence) > 1
+    ):
         return "UNKNOWN"
     return "UNSATISFIED"
 

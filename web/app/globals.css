@@ -851,6 +851,10 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .live-now-action span { color: var(--green); font: 750 var(--type-meta)/1 var(--mono); letter-spacing: .12em; }
 .live-now-action button { height: 26px; padding: 0 9px; border-style: solid; border-width: 1px; font: 750 var(--type-meta)/1 var(--mono); letter-spacing: .08em; }
 .live-source-state { position: absolute; z-index: 8; top: 10px; left: 50%; width: min(520px, calc(100% - 32px)); transform: translateX(-50%); padding: 10px 14px; border: 1px solid var(--line); background: rgba(12, 17, 23, .96); box-shadow: 0 12px 30px rgba(0,0,0,.34); text-align: center; }
+.timing-source-state { flex: 0 0 auto; display: grid; gap: 10px; align-content: center; min-height: 136px; margin: 0; padding: 24px 18px; border-bottom: 1px solid var(--line); background: var(--surface); text-align: center; overflow-wrap: anywhere; }
+.timing-source-state strong { color: var(--amber); font: 750 12px/1.4 var(--mono); letter-spacing: .1em; }
+.timing-source-state p { max-width: 48ch; margin: 0 auto; color: var(--muted); font-size: var(--type-secondary); line-height: 1.6; }
+.phone-timing .timing-source-state { min-height: 144px; padding: 24px 16px; }
 .live-source-state strong { color: var(--amber); font: 750 10px/1 var(--mono); letter-spacing: .1em; }
 .live-source-state p { margin: 6px 0 0; color: var(--muted); font-size: var(--type-secondary); }
 .workspace:has(> .replay-recording-notice) { display: flex; flex-direction: column; gap: 8px; }

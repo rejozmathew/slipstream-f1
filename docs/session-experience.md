@@ -22,9 +22,9 @@ Pre-event UI shows the official start when known and a countdown derived from se
 
 ## Viewer delay
 
-The server owns one upstream connection per application instance. The Live protocol accepts an independent 0–300-second delay per viewer; the browser exposes 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry such as 2:17. The input starts at `0:00`; the active label and input follow the server-confirmed delay. An unsubmitted edit does not change the viewer cursor. Both `RaceState` and `AnalyticsSnapshot` are built from the same delayed cursor. Returning to LIVE resets only that viewer to zero.
+The server owns one upstream connection per application instance. The Live protocol accepts an independent 0–300-second delay per viewer; the browser exposes 5s, 10s, 30s, 1m, 2m, 3m, and 5m presets plus exact M:SS entry such as 2:17. The input starts at `0:00`; the active label follows confirmed effective delay, and a distinct requested delay remains visible when history is shorter. An unsubmitted edit does not change the viewer cursor. Both `RaceState` and `AnalyticsSnapshot` are built from the same delayed cursor. Returning to LIVE resets only that viewer to zero.
 
-Live viewing has no pause, seek, relative-seek, or speed command. Those controls belong only to replay.
+Live pause holds the viewer's source cursor while ongoing source progress accrues delay. At five minutes playback resumes with an explicit notice; ordinary resume keeps the accrued delay and runs at 1×. Stale source time freezes until recovery. Seek, relative-seek, step, and variable playback speed belong only to Replay. Desktop, phone, and TV share the same transport state and command guard.
 
 ## Recording and immediate replay
 
@@ -46,6 +46,8 @@ The backend owns Qualifying truth. It publishes the current phase and clock, tyr
 
 A lap-history entry requires observed completed-lap evidence; elapsed wall time or a changing position alone does not invent a lap. Eliminations are session- and policy-aware and use stable roster metadata rather than the current row count. Unknown phase or clock is omitted in the product instead of rendered as a large UNKNOWN label.
 
+A segment flag is a settling boundary: laps already in progress may still change the order. The UI uses backend `settlement` to distinguish running, laps finishing, and explicit session completion; a completed source session still has a provisional result unless stronger final classification evidence exists.
+
 Qualifying has Standard and Timing tower views on desktop and mobile, with a device preference separate from Race that survives navigation and refresh. Standard shows position, driver, Q1/Q2/Q3 (or SQ1/SQ2/SQ3) results, GAP, INT, compound, tyre age, and factual driver status. GAP and INT use the same active-segment comparisons in both modes. Timing shows the active-segment best, latest completed lap sectors within that segment when supported, GAP to the segment fastest, INT to the driver immediately above using the same segment, compound, and status. Unknown phase uses the existing session-wide scope labelled BEST. Both modes retain final Q STATUS and factual elimination labels. Missing values show a dash; changing segments clears prior-segment comparisons and sectors.
 
 ## Driver activity and terminal state
@@ -66,6 +68,8 @@ Marker eligibility is lifecycle-aware. A current running car can be placed only 
 
 A factual pit event remains visible even when duration detail is absent. Pit History can show ordinal, lap, previous/new compound, complete `pitLaneDuration`, and stationary `stopDuration` independently.
 
+Actual strategy counts completed normalized pit events, preserving repeated same-compound stops. A canonical pit counter may increment at entry and is used as a consistency check rather than proof of completion. Unknown new compounds remain unknown instead of being filled from later/current tyres.
+
 `PitLaneTimeCollection.Duration` is complete pit-lane transit, not stationary pit-box time or Net Pit Loss. It is admitted only when `0 < duration <= 300 seconds`; out-of-domain suspension-spanning values remain unavailable. If a duration type is absent for the whole current history, its column is omitted. If the type exists for some events, individual missing rows render `—`.
 
 ## Missing-data presentation
@@ -82,8 +86,16 @@ Practice Driver Focus retains compound/age, stint laps, timing, pace evidence, f
 
 ## Session pane sizing
 
-Regular desktop Race, Qualifying and Practice share a draggable timing/context divider. Drag the visible grip, use Left/Right (Shift for larger steps), Home/End for the usable limits, or double-click to reset to 66% timing. Race retains its existing presets; Qualifying and Practice save independent device widths. Viewport changes constrain the rendered panes without overwriting saved widths.
+Regular desktop Race, Qualifying and Practice share a draggable timing/context divider. Drag the visible grip, use Left/Right (Shift for larger steps), or Home/End for the usable limits. Race double-click resets to 50% timing and offers Balanced 50%, Tower Wide 62%, and Analysis Wide 40% presets. Qualifying and Practice save independent device widths and begin at 56% for new preferences; their divider retains its 66% double-click reset. Viewport changes constrain the rendered panes without overwriting saved widths.
 
-Race Standard and Strategy columns adapt to the timing pane rather than forcing a horizontal scrollbar. At narrow widths, driver identity and complete tyre sequences wrap; no column is removed. Timing also fits the 1280 x 605 review viewport at Analysis Wide, but retains local horizontal scrolling when the divider leaves too little space for legible sectors and lap times. Phone tyre badges retain their circular dimensions.
+Timing columns adapt to their pane width with explicit priorities. Narrow panes hide secondary columns, show which columns are hidden, and expose all supported details on row expansion. Driver identity and tyre sequences wrap where needed; phone tyre badges retain their circular dimensions. Brief, Map, and Story presets alter Race analysis emphasis without changing timing truth.
 
 Practice and Qualifying context panels keep their full content height and scroll within the right pane on short screens. Their session-specific panels and tower modes remain unchanged; neither gains Race strategy. The Practice map keeps its required 220px minimum drawing area and visible provenance footer.
+
+## Activity, phone, and TV
+
+Activity is a shared deterministic story ledger, with separate occurrence and evidence-availability timestamps. Desktop, phone, and TV read identical cursor-safe events and result states. A later confirmation or correction replaces a provisional item only once its evidence is available. Opening, seeking, reconnecting, changing delay, or returning from a replay moment seeds known history quietly. Continuous forward viewing may highlight a newly available event; a navigation jump does not. See [story.md](story.md).
+
+Replay This Moment saves the viewer's exact cursor, playhead, speed, and play/pause state. Return restores those values, including after a presentation change. Phone tabs are Race Timing/Track/Strategy/Activity, Qualifying Timing/Cutline/Track/Activity, and Practice Timing/Runs/Track/Activity.
+
+Display scale defaults to 80%, with 75/80/90/100% device settings and a reduced-motion preference. TV has its own viewport-based scale, text-size and safe-area settings, persistent timing rail, remote-friendly feature selection, Follow and Activity panels, and mode-aware Playback/Sync controls. Race expanded Timing is manual; automatic feature rotation excludes it. Result appears only after result evidence and remains provisional without explicit finality. Qualifying TV retains Tower and capability-gated Track; Practice TV remains Tower-only.

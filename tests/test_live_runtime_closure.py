@@ -407,6 +407,101 @@ def test_schedule_window_does_not_fabricate_running_sporting_state(
     assert resource.final_state.session.status == "UNKNOWN"
 
 
+@pytest.mark.parametrize("phase", ["Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"])
+def test_delayed_qualifying_keeps_live_until_source_completion_after_schedule_end(tmp_path, monkeypatch, phase):
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    name = "Sprint Qualifying" if phase.startswith("S") else "Qualifying"
+    session = {**_session("100", name, "2026-08-23T13:00:00Z", "2026-08-23T14:00:00Z"),
+               "session_type": "Qualifying"}
+    (tmp_path / "catalog.json").write_text(json.dumps(_catalog([session])), encoding="utf-8")
+    recorder = NormalizedLiveRecorder(tmp_path, "100")
+    previous_phase = phase[:-1] + "2" if phase.endswith("3") else phase
+    recorder.append((NormalizedEvent("session", "2026-08-23T14:05:00Z", "fixture", {
+        "key": "100", "name": name, "session_type": "Qualifying",
+        "session_kind": "sprint_qualifying" if phase.startswith("S") else "qualifying",
+        "layout_family": "qualifying", "qualifying_phase": previous_phase, "status": "FINISHED",
+    }),))
+    if phase.endswith("3"):
+        # SessionData announces Q3 before SessionStatus announces its start;
+        # the current state still carries Q2's flag, not a Q3 completion.
+        recorder.append((NormalizedEvent("session", "2026-08-23T14:05:30Z", "fixture", {
+            "qualifying_phase": phase,
+        }),))
+
+    async def idle_rows():
+        await asyncio.Event().wait()
+        yield {}  # pragma: no cover
+
+    def now():
+        return datetime(2026, 8, 23, 14, 6, tzinfo=UTC)
+    live = PublicLiveSession(row_source=idle_rows, normalized_recording_dir=tmp_path, now=now)
+    with TestClient(create_app(
+        tmp_path, live_session=live, now=now, prepare_weekend_context=lambda **_: {},
+    )) as client:
+        for _ in range(100):
+            if live.target_session_key == "100":
+                break
+            time.sleep(.005)
+        assert live.target_session_key == "100"
+        assert not live._completion_observed
+        assert client.get("/api/v1/catalog").json()["liveSessionKey"] == "100"
+        response = client.get("/api/v1/state?session_key=100&mode=live")
+        assert response.status_code == 200
+        assert response.json()["data"]["session"]["qualifying_phase"] == phase
+
+
+@pytest.mark.parametrize("phase", ["Q3", "SQ3"])
+def test_scheduled_next_qualifying_segment_survives_restart_after_catalog_end(
+    tmp_path, monkeypatch, phase,
+):
+    monkeypatch.setenv("SLIPSTREAM_PIRELLI_REFRESH", "0")
+    name = "Sprint Qualifying" if phase.startswith("S") else "Qualifying"
+    session = {**_session("100", name, "2026-08-23T13:00:00Z", "2026-08-23T14:00:00Z"),
+               "session_type": "Qualifying"}
+    (tmp_path / "catalog.json").write_text(json.dumps(_catalog([session])), encoding="utf-8")
+    recorder = NormalizedLiveRecorder(tmp_path, "100")
+    recorder.append((
+        NormalizedEvent("session", "2026-08-23T14:05:00Z", "fixture", {
+            "key": "100", "name": name, "session_type": "Qualifying",
+            "session_kind": "sprint_qualifying" if phase.startswith("S") else "qualifying",
+            "layout_family": "qualifying", "qualifying_phase": phase[:-1] + "2",
+            "status": "FINISHED",
+        }),
+        NormalizedEvent("session", "2026-08-23T14:05:30Z", "fixture", {
+            "qualifying_phase": phase,
+        }),
+        # Actual Singapore transition: the next phase is announced, then its
+        # NotStarted status arrives before Started. This is not session closure.
+        NormalizedEvent("session", "2026-08-23T14:05:32Z", "fixture", {
+            "status": "SCHEDULED", "qualifying_phase": phase,
+        }),
+    ))
+
+    async def idle_rows():
+        await asyncio.Event().wait()
+        yield {}  # pragma: no cover
+
+    def now():
+        return datetime(2026, 8, 23, 14, 6, tzinfo=UTC)
+
+    assert ReplayLibrary(tmp_path, now=now).recoverable_live_key() == "100"
+    live = PublicLiveSession(row_source=idle_rows, normalized_recording_dir=tmp_path, now=now)
+    with TestClient(create_app(
+        tmp_path, live_session=live, now=now, prepare_weekend_context=lambda **_: {},
+    )) as client:
+        for _ in range(100):
+            if live.target_session_key == "100":
+                break
+            time.sleep(.005)
+        assert live.target_session_key == "100"
+        assert not live._completion_observed
+        # recovery_key has been consumed; current source state must retain Live.
+        assert client.get("/api/v1/catalog").json()["liveSessionKey"] == "100"
+        response = client.get("/api/v1/state?session_key=100&mode=live")
+        assert response.status_code == 200
+        assert response.json()["data"]["session"]["status"] == "SCHEDULED"
+
+
 def test_recovered_live_state_is_reconnecting_not_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

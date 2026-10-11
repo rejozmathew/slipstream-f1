@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slipstream States &amp; Flows · prototype</title>
+<link rel="icon" type="image/png" href="shared/brand/tile-64.png">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/brand.css">
+<link rel="stylesheet" href="shared/components.css">
+<link rel="stylesheet" href="states.css">
+</head>
+<body class="stbody">
+  <aside class="st-nav">
+    <a class="st-brand" href="../index.html"><span class="brand-mark" style="--bm-h:24px" role="img" aria-label="Slipstream"><img src="shared/brand/mark-96.png" alt="" draggable="false"></span><span><b>STATES &amp; FLOWS</b><small>SLIPSTREAM REDESIGN</small></span></a>
+    <nav>
+      <a href="#library">Library &amp; downloads</a>
+      <a href="#opening">Opening a session</a>
+      <a href="#live">Live lifecycle</a>
+      <a href="#modes">Live vs replay</a>
+      <a href="#missing">Missing data</a>
+      <a href="#results">Results</a>
+      <a href="#settings">Settings</a>
+      <a href="#errors">Empty &amp; errors</a>
+      <a href="#brand">Brand &amp; loading</a>
+    </nav>
+    <p class="st-navnote">Rails, towers, maps and result cards on this page are the real prototype components rendered from your recordings. Library states are illustrative; session names and dates come from your catalog.</p>
+  </aside>
+  <main class="st-main">
+
+    <!-- ============================================================ LIBRARY -->
+    <section id="library" class="st-sec">
+      <header class="st-h"><span>01</span><h2>Library &amp; downloads</h2><p>Pick a weekend, then a session. Every session says what it is <em>before</em> you open it: live, replay ready, downloading, upcoming — and what its data can show (circuit outline or not).</p></header>
+      <div class="lib">
+        <div class="lib-side">
+          <label class="lib-season"><span>SEASON</span><b>2026 ▾</b></label>
+          <ol class="lib-weeks">
+            <li class="is-on"><b>Bahrain Grand Prix</b><span>Kuala Lumpur · 2–4 Oct</span><em class="pill pill--week">THIS WEEKEND</em></li>
+            <li><b>Azerbaijan Grand Prix</b><span>Baku · 24–26 Sep</span></li>
+            <li><b>Spanish Grand Prix</b><span>Madrid · 11–13 Sep</span></li>
+            <li><b>Italian Grand Prix</b><span>Monza · 4–6 Sep</span></li>
+            <li><b>Dutch Grand Prix</b><span>Zandvoort · 21–23 Aug</span><em class="pill">SPRINT</em></li>
+            <li><b>Hungarian Grand Prix</b><span>Budapest · 24–26 Jul</span></li>
+            <li class="is-next"><b>Singapore Grand Prix</b><span>Marina Bay · 9–11 Oct</span><em class="pill">NEXT</em></li>
+          </ol>
+        </div>
+        <div class="lib-main">
+          <header class="lib-head">
+            <div><b>Bahrain Grand Prix</b><span>Kuala Lumpur · times in track local time (GMT+8)</span></div>
+            <div class="lib-caps"><span class="cap cap--no" title="No circuit geometry for this venue">NO CIRCUIT OUTLINE · TRACK LINE INSTEAD</span><span class="cap">POSITIONS · TIMING-DERIVED</span></div>
+          </header>
+          <ol class="lib-list">
+            <li><div class="ls-when"><b>FRI</b><span>12:30</span></div><div class="ls-name"><b>Practice 1</b><span>Not on this server yet</span></div><div class="ls-state"><span class="st-pill">NOT DOWNLOADED</span></div><div class="ls-act"><button class="btn btn--primary">DOWNLOAD REPLAY</button></div></li>
+            <li><div class="ls-when"><b>FRI</b><span>16:00</span></div><div class="ls-name"><b>Practice 2</b><span>Recorded live · 34 min of 60</span></div><div class="ls-state"><span class="st-pill st-pill--ready">REPLAY READY</span></div><div class="ls-act"><a class="btn" href="web.html?s=kl-2026-practice-2">WATCH</a></div></li>
+            <li class="is-busy"><div class="ls-when"><b>SAT</b><span>12:30</span></div><div class="ls-name"><b>Practice 3</b><span>Download in progress — you can keep browsing</span></div><div class="ls-state"><ol class="steps"><li class="is-done">QUEUED</li><li class="is-now">DOWNLOADING</li><li>FINALIZING</li><li>READY</li></ol></div><div class="ls-act"><span class="kerb kerb--sm" aria-hidden="true"></span><span class="dim">working · no percentage from the server</span></div></li>
+            <li><div class="ls-when"><b>SAT</b><span>16:00</span></div><div class="ls-name"><b>Qualifying</b><span>Recorded live · from the end of Q1</span></div><div class="ls-state"><span class="st-pill st-pill--ready">REPLAY READY</span></div><div class="ls-act"><a class="btn" href="web.html?s=kl-2026-qualifying">WATCH</a></div></li>
+            <li class="is-next"><div class="ls-when"><b>SUN</b><span>15:00</span></div><div class="ls-name"><b>Race</b><span>Live timing opens when the public feed starts</span></div><div class="ls-state"><span class="st-pill st-pill--soon">STARTS IN <b class="mono" id="cd">—</b></span></div><div class="ls-act"><button class="btn" disabled>GO LIVE</button></div></li>
+          </ol>
+          <div class="lib-variants">
+            <span class="lbl">OTHER ROW STATES</span>
+            <div class="lv"><span class="st-pill st-pill--live"><i></i>LIVE NOW</span><button class="btn btn--live">GO LIVE</button><em>while a session is running · a replay viewer also gets a quiet “Live now” link in the rail</em></div>
+            <div class="lv"><span class="st-pill st-pill--fin">FINALIZING</span><em>session ended · official classification still settling · replay opens when it is ready</em></div>
+            <div class="lv"><span class="st-pill st-pill--fail">DOWNLOAD FAILED</span><button class="btn">RETRY</button><em>the server’s own error text is shown underneath, not a generic message</em></div>
+            <div class="lv"><span class="st-pill">NOT YET AVAILABLE</span><em>public archive has not published it · no download button</em></div>
+            <div class="lv"><span class="st-pill">DOWNLOADS OFF</span><em>server setting · replays already on the server still open</em></div>
+          </div>
+        </div>
+      </div>
+      <p class="st-why"><b>Why:</b> today the library is a three-select popover and the status of a session only appears after choosing it. A list per weekend shows every state at once, and download progress is a stepper because the server reports stages (QUEUED → DOWNLOADING → FINALIZING), not a percentage — a fake progress bar would be invented data.</p>
+    </section>
+
+    <!-- ============================================================ OPENING -->
+    <section id="opening" class="st-sec">
+      <header class="st-h"><span>02</span><h2>Opening a session</h2><p>Loading looks like loading — never like an error. A cold open shows the brand with the truthful phase underneath; once the session is known the rail takes over and the tower shows its shape while the timing arrives. Reconnects never bring the logo back: the last good screen stays, with an amber rail.</p></header>
+      <div class="open-pair">
+        <div class="frame frame--cold"><div class="cold-open" id="coldOpen"></div><p class="frame-cap"><b>1 · Cold open</b> First load only. The highlight runs through the SS while something is actually loading; the line underneath names the real step. Reduced motion: a still mark.</p></div>
+      </div>
+      <div class="frame">
+        <div class="mini-rail" id="railOpen"></div>
+        <div class="open-body">
+          <div class="skel-tower" id="skel"></div>
+          <div class="open-msg"><span class="lbl">OPENING REPLAY</span><b>Hungarian Grand Prix · Race</b><ol class="steps"><li class="is-done">SESSION FOUND</li><li class="is-now">LOADING TIMING</li><li>READY</li></ol><span class="dim">The order appears as soon as the first timing snapshot lands. Playback controls unlock after it.</span></div>
+        </div>
+      </div>
+      <p class="st-why"><b>Replaces:</b> “TIMING DATA NOT AVAILABLE” and “OPENING SESSION — Waiting for timing and playback controls”, which read as failures while the replay is simply loading.</p>
+    </section>
+
+    <!-- ============================================================ LIVE -->
+    <section id="live" class="st-sec">
+      <header class="st-h"><span>03</span><h2>Live lifecycle</h2><p>Every server phase has one rail state and one sentence. Amber means “the screen may be behind”, never “the race is neutralised”.</p></header>
+      <div class="live-grid" id="liveGrid"></div>
+    </section>
+
+    <!-- ============================================================ MODES -->
+    <section id="modes" class="st-sec">
+      <header class="st-h"><span>04</span><h2>Live vs replay</h2><p>Live is red and solid. Replay is grey and outlined, with the progress line under the rail. Controls follow the same rule: live has delay only; replay has the full transport.</p></header>
+      <div class="modes" id="modes"></div>
+      <div class="rules">
+        <div><b>A seek is not news.</b><span>Seeking, skipping, changing delay, reconnecting or reloading move the cursor without motion: rows snap, no passes are announced, no moment cards appear, the ticker does not animate.</span></div>
+        <div><b>Live never pretends to rewind.</b><span>The story list in live mode is reading only. Clicking a moment explains that rewind is a replay feature, rather than silently doing nothing.</span></div>
+        <div><b>Delay is per viewer.</b><span>0–300 s to match a TV broadcast. Changing it is a jump, so it never animates the order.</span></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ MISSING -->
+    <section id="missing" class="st-sec">
+      <header class="st-h"><span>05</span><h2>Missing data, said plainly</h2><p>Each capability has one honest fallback. Values that are missing on one row show “—”. A capability that is missing for the whole session removes its element and says why once.</p></header>
+      <div class="miss-grid">
+        <figure><div class="miss-box" id="missOutline"></div><figcaption><b>Outline + approximate positions</b><span>Hungaroring. Markers are interpolated between the 22 timing points per lap and labelled “approximate”. Cars at the same point become one marker with a count.</span></figcaption></figure>
+        <figure><div class="miss-box" id="missLine"></div><figcaption><b>No circuit outline</b><span>Kuala Lumpur. Instead of an empty “shape unavailable” panel, the lap is straightened into a line with its 20 timing points.</span></figcaption></figure>
+        <figure><div class="miss-box miss-none"><div class="mt-note"><b>Car positions are not available for this replay.</b><span>Order and gaps come straight from timing — shown as race order in time.</span></div><div id="missRibbon"></div></div><figcaption><b>No positions at all</b><span>The race ribbon (gap to leader in seconds) is always available in a race because it only needs timing.</span></figcaption></figure>
+        <figure><div class="miss-box miss-rows" id="missRows"></div><figcaption><b>Row-level gaps</b><span>A missing interval or lap time is “—” in its cell. Unknown weather is omitted from the rail rather than shown as “UNKNOWN”. Sector colours are not invented: the feed has no sector grading.</span></figcaption></figure>
+      </div>
+    </section>
+
+    <!-- ============================================================ RESULTS -->
+    <section id="results" class="st-sec">
+      <header class="st-h"><span>06</span><h2>Results</h2><p>After the flag the story is the result: classification, places gained since the start, fastest lap, penalties and who did not finish. Classification changes after the flag animate as classification, not as passes.</p></header>
+      <div class="res-grid">
+        <div class="frame frame--res"><div class="mini-rail" id="railRes"></div><div class="res-body" id="resRace"></div></div>
+        <div class="frame frame--res"><div class="mini-rail" id="railQ"></div><div class="res-body res-q" id="resQuali"></div></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ SETTINGS -->
+    <section id="settings" class="st-sec">
+      <header class="st-h"><span>07</span><h2>Settings</h2><p>Fewer, clearer switches. Motion is a first-class setting because the motion carries meaning.</p></header>
+      <div class="set">
+        <nav class="set-nav"><a class="is-on">Display</a><a>Motion</a><a>TV mode</a><a>Live</a><a>Layouts</a></nav>
+        <div class="set-body">
+          <div class="set-group"><span class="lbl">DISPLAY</span>
+            <div class="set-row"><div><b>Background</b><span>Black suits OLED TVs and phones; graphite is softer on desktop monitors.</span></div><div class="seg"><button class="is-on">BLACK</button><button>GRAPHITE</button></div></div>
+            <div class="set-row"><div><b>Display size</b><span>How much fits on screen. 80% is the default: denser, less scrolling. Larger sizes suit big monitors at a distance. Applies to the desktop pages.</span></div><div class="seg" data-pref="density"><button data-v="0.75">75%</button><button data-v="0.8">80%</button><button data-v="0.9">90%</button><button data-v="1">100%</button></div></div>
+            <div class="set-row"><div><b>Accent</b><span>Navigation, interaction and the LIVE badge. Red-orange matches the Slipstream mark. Flag and timing colours never change.</span></div><div class="seg"><button class="is-on">RED</button><button>CYAN</button><button>WHITE</button></div></div>
+            <div class="set-row"><div><b>Driver names in the tower</b><span>Code + team is the default on TV and phone (team identity without opening anything); code + surname suits viewers who know the grid by name. TIMING view and driver pages always show all three.</span></div><div class="seg"><button class="is-on">CODE + TEAM</button><button>CODE + NAME</button><button>CODE ONLY</button></div></div>
+            <div class="set-row"><div><b>Approximate car positions</b><span>Positions are estimated from timing points. Turn off to show order and gaps only.</span></div><div class="tgl is-on"><i></i></div></div>
+          </div>
+          <div class="set-group"><span class="lbl">MOTION</span>
+            <div class="set-row"><div><b>Motion</b><span>Full: rows travel, flags wipe and blink. Reduced: rows snap, changes are outlined and labelled instead, the brand mark is still. Follows your system setting by default, and on every surface (TV, desktop, phone).</span></div><div class="seg" data-pref="motion"><button data-v="system">SYSTEM</button><button data-v="full">FULL</button><button data-v="reduced">REDUCED</button></div></div>
+            <div class="set-row"><div><b>Timeline moments</b><span>Replay of a finished session: show markers and the moments list only for what you have already watched, or the whole session (spoilers). Live and delayed live never show what has not happened at your delay.</span></div><div class="seg" data-pref="spoilers"><button data-v="safe">WATCHED ONLY</button><button data-v="all">WHOLE SESSION</button></div></div>
+            <div class="set-row"><div><b>Moment cards</b><span>Lead changes, flags, eliminations, pole, the winner. Never over the timing tower.</span></div><div class="tgl is-on"><i></i></div></div>
+          </div>
+          <div class="set-group"><span class="lbl">TV MODE</span>
+            <div class="set-row"><div><b>Green-flag rail</b><span>Calm keeps long green periods dark with a green edge. Bold fills the rail green.</span></div><div class="seg"><button class="is-on">CALM</button><button>BOLD</button></div></div>
+            <div class="set-row"><div><b>Feature panel</b><span>Director picks the feature and follows the action. Pin one to keep it.</span></div><div class="seg"><button class="is-on">DIRECTOR</button><button>TRACK</button><button>BATTLE</button><button>PIT LANE</button></div></div>
+            <div class="set-row"><div><b>Ticker</b><span>The last four highlights along the bottom.</span></div><div class="tgl is-on"><i></i></div></div>
+            <div class="set-row"><div><b>Rotation interval</b><span>How long the director holds a feature before moving on when nothing new happens. Events can still cut in.</span></div><div class="seg"><button>20 s</button><button class="is-on">30 s</button><button>45 s</button><button>60 s</button></div></div>
+            <div class="set-row"><div><b>Following</b><span>The driver the Following feature shows. Also set from the tower (desktop) or a driver page (phone).</span></div><div class="seg"><button class="is-on">NONE</button><button>CHOOSE…</button></div></div>
+            <div class="set-row"><div><b>Pinned pair</b><span>Used when TV battle is set to Pinned.</span></div><div class="seg"><button class="is-on">NOT SET</button><button>CHOOSE…</button></div></div>
+            <div class="set-row"><div><b>Feature size</b><span>Share of the screen for the feature next to the tower. The tower never shrinks below readable size.</span></div><div class="seg"><button>COMPACT</button><button class="is-on">STANDARD</button><button>LARGE</button></div></div>
+            <div class="set-row"><div><b>TV text size</b><span>For bigger rooms. Scales the whole TV layout; the tower keeps all 22 rows.</span></div><div class="seg"><button class="is-on">STANDARD</button><button>LARGE</button></div></div>
+            <div class="set-row"><div><b>Safe area</b><span>For TVs that crop the picture edges (overscan) and for the TV app. Moves everything in from the edges; backgrounds still fill the screen.</span></div><div class="seg"><button class="is-on">OFF</button><button>2.5%</button><button>5%</button></div></div>
+            <div class="set-row"><div><b>Remote control</b><span>Controls hidden: ←/→ move in time (live: the delay), OK brings up the toolbar. Controls shown: the D-pad moves between them, OK selects, Back closes. Play/pause and ⏪/⏩ media keys work any time. Same rules as the on-screen buttons.</span></div><div class="dim set-note">BUILT IN</div></div>
+          </div>
+          <div class="set-group"><span class="lbl">LAYOUTS</span>
+            <div class="set-row"><div><b>Race session layout</b><span>Split between tower and panels, panel order and which panels show (track, story, strategy, conditions, race control). Same editor as today.</span></div><div class="seg"><button class="is-on">BALANCED</button><button>TOWER WIDE</button><button>ANALYSIS WIDE</button><button>EDIT…</button></div></div>
+            <div class="set-row"><div><b>TV features in rotation</b><span>Which features the director may show: track, battle, strategy, following, result.</span></div><div class="seg"><button class="is-on">ALL</button><button>EDIT…</button></div></div>
+            <div class="set-row"><div><b>TV battle</b><span>Recommended follows completed-lap history; Leader always shows P1 vs P2; Pinned keeps a pair you choose.</span></div><div class="seg"><button class="is-on">RECOMMENDED</button><button>LEADER</button><button>PINNED</button></div></div>
+          </div>
+          <div class="set-group"><span class="lbl">LIVE</span>
+            <div class="set-row"><div><b>Default delay</b><span>Match your TV broadcast. Applies when you go live; you can change it any time.</span></div><div class="seg"><button class="is-on">0 s</button><button>5 s</button><button>10 s</button><button>30 s</button><button>1 min</button></div></div>
+            <div class="set-row"><div><b>Pausing in live</b><span>Pause holds the timing while the session carries on, so your delay grows — like pausing your TV. Resume keeps the new delay; GO LIVE returns to 0. Limit 5:00. No seeking or speed in live.</span></div><div class="dim set-note">ALWAYS ON</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ ERRORS -->
+    <section id="errors" class="st-sec">
+      <header class="st-h"><span>08</span><h2>Empty &amp; errors</h2><p>Say what happened, what still works, and that nothing was made up.</p></header>
+      <div class="err-grid">
+        <div class="err"><span class="lbl">SERVER UNREACHABLE</span><b>Slipstream can’t reach its server.</b><p>Your replays are safe on the server. Retrying every 10 s.</p><span class="dim">No sample race has been substituted.</span></div>
+        <div class="err"><span class="lbl">LIVE TIMING UNAVAILABLE</span><b>The public timing feed isn’t sending data.</b><p>This happens between sessions and occasionally during them. We’ll connect as soon as it returns.</p><span class="dim">Replays still open from the library.</span></div>
+        <div class="err"><span class="lbl">NO SESSIONS YET</span><b>Nothing downloaded for this season.</b><p>Pick a weekend in the library and download a replay, or go live when a session starts.</p><span class="dim">Downloads use the public timing archive.</span></div>
+        <div class="err"><span class="lbl">NOT A RACE, QUALIFYING OR PRACTICE</span><b>This session type has no layout yet.</b><p>Testing days and unusual formats open as a plain timing table.</p><span class="dim">Order and lap times only.</span></div>
+      </div>
+    </section>
+    <!-- ============================================================ BRAND -->
+    <section id="brand" class="st-sec">
+      <header class="st-h"><span>09</span><h2>Brand &amp; loading</h2><p>One swappable mark, derived from the provisional Slipstream icon (the SS as two racing lines through an Eau Rouge-style S, with kerbs). It identifies the app; it never competes with race status and is never a connection indicator.</p></header>
+      <div class="brand-grid">
+        <figure class="bg-tile"><img src="shared/brand/tile-192.png" alt="Slipstream app icon (provisional)"><figcaption><b>App icon</b><span>Tile for favicons, home screens and the TV app. Source: the provisional icon as supplied.</span></figcaption></figure>
+        <figure class="bg-sizes"><div class="bg-row"><span class="brand-mark" style="--bm-h:40px"><img src="shared/brand/mark-96.png" alt=""></span><em>TV · 40</em></div><div class="bg-row"><span class="brand-mark" style="--bm-h:26px"><img src="shared/brand/mark-96.png" alt=""></span><em>Desktop header · 26</em></div><div class="bg-row"><span class="brand-mark" style="--bm-h:20px"><img src="shared/brand/mark-96.png" alt=""></span><em>Phone top bar · 20</em></div><figcaption><b>Mark</b><span>The strokes without the tile, on transparent, so it sits on any surface. Below 20 px the kerbs disappear but the SS still reads.</span></figcaption></figure>
+        <figure class="bg-kerb"><div class="bg-kerbs"><span class="kerb"></span><span class="kerb kerb--sm"></span><span class="kerb" style="animation:none"></span></div><figcaption><b>Kerb — “working on it”</b><span>Indeterminate: downloads, connecting, opening. It moves but never fills, because the server reports stages, not percentages. Static under reduced motion.</span></figcaption></figure>
+      </div>
+      <table class="brand-rules">
+        <tr><th>Where the mark moves</th><td>Cold open only: one highlight sweeping through the SS, repeating while loading, gone the moment the first frame renders.</td></tr>
+        <tr><th>Where it never moves</th><td>Header, TV rail, phone top bar; reconnects, stale feed, tab changes, driver changes, TV feature changes. Brand motion is quieter than any race event.</td></tr>
+        <tr><th>Colour</th><td>The mark's red-orange matches the approved accent (#ff3d24), so it needs no new UI colours. The glow and gradient stay inside the mark.</td></tr>
+        <tr><th>Swapping the final icon</th><td>Replace <code>shared/brand/mark-*.png</code>, <code>tile-*.png</code> and the mask in <code>brand.css</code>. Production: one <code>BrandMark</code> component with size and a static fallback.</td></tr>
+      </table>
+    </section>
+  </main>
+
+  <script src="data/hungaroring-2026-race.js"></script>
+  <script src="data/kl-2026-qualifying.js"></script>
+  <script src="data/kl-2026-practice-2.js"></script>
+  <script src="shared/engine.js"></script>
+  <script src="shared/contract.js"></script>
+  <script src="shared/vm.js"></script>
+  <script src="shared/tower.js"></script>
+  <script src="shared/rail.js"></script>
+  <script src="shared/track.js"></script>
+  <script src="shared/story.js"></script>
+  <script src="shared/modules.js"></script>
+  <script src="shared/player.js"></script>
+  <script src="states.js"></script>
+</body>
+</html>
