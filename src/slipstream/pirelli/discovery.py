@@ -230,6 +230,18 @@ def _explicit_race_strategy(text: str) -> bool:
     for sentence in re.split(r"(?<=[.!?])\s+", text):
         if any(marker in sentence for marker in historical_markers):
             continue
+        # Qualifying reports can introduce the next day's Grand Prix first,
+        # then call it "tomorrow's race" when discussing the starting tyre.
+        # That prospective guidance outranks an earlier Sprint/pole recap.
+        if (
+            re.search(r"\btomorrow['’]s\s+(?:[a-z]+\s+){0,4}grand prix\b", text)
+            and re.search(
+                r"\b(?:start|opening)[^.]{0,60}\btomorrow['’]s race\b", sentence
+            )
+            and re.search(r"\b(?:c[1-6]|soft|medium|hard)\b", sentence)
+            and re.search(r"\b(?:option|choice|prefer\w*)\b", sentence)
+        ):
+            return True
         if any(
             phrase in sentence
             for phrase in (

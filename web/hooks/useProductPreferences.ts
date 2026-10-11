@@ -21,7 +21,7 @@ export type BattlePreferences = {
   pinnedPair: [string, string];
 };
 
-export type TVStatePreference = "tower" | "track" | "strategy" | "battle" | "driver" | "result";
+export type TVStatePreference = "spread" | "tower" | "track" | "strategy" | "battle" | "driver" | "result";
 export type TVPreferences = {
   includedRaceStates: TVStatePreference[];
   selectedDriverNumber: string | null;

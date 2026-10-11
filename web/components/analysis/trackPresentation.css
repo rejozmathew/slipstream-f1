@@ -1,0 +1,106 @@
+/* Circuit and timing-axis presentation from the approved desktop, phone and TV studies. */
+.track-presentation { --track-border:#293340; --track-muted:#768394; --track-text:#e9eef4; }
+.track-presentation .track-map { position:relative; flex:1; min-height:0; overflow:hidden; background:var(--surface,#0b0f14); }
+.track-presentation .track-map > svg { display:block; position:absolute; inset:0; width:100%; height:100%; }
+.track-presentation .circuit-shadow { fill:none; stroke:#232c38; stroke-width:26; stroke-linejoin:round; stroke-linecap:round; }
+.track-presentation .circuit-line { fill:none; stroke:#343f4d; stroke-width:16; stroke-linejoin:round; stroke-linecap:round; }
+.track-presentation .circuit-centerline { fill:none; stroke:#0b0f14; stroke-width:2; stroke-dasharray:2 10; opacity:.6; }
+.track-presentation .circuit-start-finish { stroke:#e9eef4; stroke-width:5; }
+.track-presentation .car-marker { transition:opacity .15s ease; filter:none; }
+.track-presentation .car-marker.is-dim { opacity:.45; }
+.track-presentation .car-marker circle { vector-effect:none; filter:none; }
+.track-presentation .car-marker .track-car-dot { fill:var(--team); stroke:#06080a; stroke-width:2.5; }
+.track-presentation .car-marker.is-leader .track-car-dot { stroke:#fff; stroke-width:3; }
+.track-presentation .car-marker.is-focus .track-car-dot { stroke:#fff; stroke-width:3.5; }
+.track-presentation .car-marker .track-car-label { font-family:var(--sans); font-weight:700; letter-spacing:.04em; fill:#e9eef4; paint-order:stroke; stroke:#06080a; stroke-width:4px; stroke-linejoin:round; }
+.track-presentation .car-marker.is-focus .track-car-label { fill:#fff; }
+.track-presentation .track-car-anchor { stroke:var(--team); stroke-width:1.2; opacity:.45; }
+.track-group-note { padding:0 14px 6px; color:var(--quiet); font:10px/1.4 var(--mono); }
+.track-presentation .track-car-count circle { fill:#e9eef4; stroke:#06080a; stroke-width:2; }
+.track-presentation .track-car-count text { font-family:var(--mono); font-weight:800; fill:#0b0f14; }
+.track-presentation .track-map-boxes { position:absolute; right:10px; top:10px; display:flex; flex-direction:column; gap:8px; align-items:flex-end; max-width:calc(100% - 20px); }
+.track-presentation .track-map-box { position:static; display:flex; gap:8px; align-items:center; padding:6px 8px; max-width:none; border:0; background:#0b0f14e6; box-shadow:inset 0 0 0 1px var(--track-border); font:700 10px/1 var(--sans); letter-spacing:.14em; }
+.track-presentation .track-map-box b { color:var(--track-muted); flex:none; }
+.track-presentation .track-map-box > span { display:flex; gap:8px; flex-wrap:wrap; max-width:320px; }
+.track-presentation .map-pit-list b { color:#4d8dff; }
+.track-presentation .track-map-box em { font-style:normal; color:var(--track-text); padding-left:6px; border-left:3px solid var(--team,var(--track-muted)); }
+.track-presentation .track-map-footer { display:flex; flex:none; flex-wrap:wrap; justify-content:space-between; gap:6px 12px; min-height:0; padding:8px 12px; font:600 10px/1 var(--sans); letter-spacing:.16em; color:var(--track-muted); border-top:1px solid var(--line,#232c38); }
+.track-presentation .map-note { max-width:calc(100% - 24px); white-space:normal; text-align:center; line-height:1.3; }
+.track-presentation.map--tv .track-map-box { font-size:calc(15 * var(--tv-unit,1px)); padding:calc(10 * var(--tv-unit,1px)) calc(14 * var(--tv-unit,1px)); }
+.track-presentation.map--tv .track-map-footer { font-size:calc(12 * var(--tv-unit,1px)); padding:calc(12 * var(--tv-unit,1px)) calc(18 * var(--tv-unit,1px)); }
+.track-presentation > .race-order-ribbon { flex:none; padding:10px 12px 12px; border-top:1px solid var(--line,#232c38); }
+.app-shell .analysis-module:has(> .track-presentation) { height:auto; min-height:0; }
+.app-shell .analysis-module > .track-presentation { height:auto; min-height:0; }
+.app-shell .analysis-module > .track-presentation .track-map { flex:none; height:264px; }
+.app-shell .analysis-module[data-size="compact"] > .track-presentation .track-map { height:164px; }
+.app-shell .analysis-module[data-size="large"] > .track-presentation .track-map { height:414px; }
+.app-shell .mobile-map-stack > .track-presentation { height:auto; min-height:0; flex:none; }
+.app-shell .mobile-map-stack > .track-presentation .track-map { flex:none; height:250px; }
+.track-presentation.map--phone .track-map-footer { flex-direction:column; gap:4px; }
+@media (orientation:landscape) and (max-height:600px) {
+ .app-shell .mobile-map-stack > .track-presentation .track-map { height:170px; }
+}
+
+/* Dots use pixel-size markers and packed label lanes on every posture. */
+.track-axis-dot { position:absolute; left:0; bottom:0; width:0; height:0; --dot:12px; --lane-h:17px; --lift:6px; --lane:0; --shift:0px; transition:left 1s linear; }
+.track-axis-dot > i { position:absolute; left:calc(var(--dot) / -2); top:calc(var(--dot) / -2); width:var(--dot); height:var(--dot); border-radius:50%; background:var(--team); box-shadow:0 0 0 2px #06080a; }
+.track-axis-dot > s { position:absolute; left:-1px; bottom:calc(var(--dot) / 2); width:2px; height:calc(var(--lift) + var(--lane) * var(--lane-h)); background:color-mix(in srgb,var(--team) 60%,transparent); transition:height .35s cubic-bezier(.16,1,.3,1); }
+.track-axis-dot > b { position:absolute; left:0; bottom:calc(var(--dot) / 2 + var(--lift) + var(--lane) * var(--lane-h)); transform:translateX(calc(-50% + var(--shift))); display:inline-flex; align-items:center; gap:.3em; padding:2px 4px; font:700 11px/1 var(--sans); letter-spacing:.04em; white-space:nowrap; background:#0b0f14e0; transition:bottom .35s cubic-bezier(.16,1,.3,1); }
+.track-axis-dot > b em { font:800 .78em/1 var(--mono); font-style:normal; padding:.18em .38em; border-radius:1em; background:#e9eef4; color:#0b0f14; }
+.track-axis-dot.no-lbl > b,.track-axis-dot.no-lbl > s { display:none; }
+.track-axis-dot.is-lead > i { box-shadow:0 0 0 2px #06080a,0 0 0 3.5px #fff; }
+.track-axis-dot.is-focus { z-index:2; }
+.track-axis-dot.is-focus > b { color:#fff; box-shadow:inset 0 -2px 0 var(--team),0 0 0 1px #293340; }
+.track-axis-dot.is-focus > i { box-shadow:0 0 0 2px #06080a,0 0 0 4px #fff; }
+.track-axis-dot.is-pit > i { background:#06080a; box-shadow:0 0 0 2px #4d8dff; }
+.track-axis-dot.is-pit > b { color:#a9c6ff; }
+.track-axis-dot.d1--tv { --dot:calc(18 * var(--tv-unit,1px)); --lane-h:calc(27 * var(--tv-unit,1px)); --lift:calc(9 * var(--tv-unit,1px)); }
+.track-axis-dot.d1--tv > b { font-size:calc(17 * var(--tv-unit,1px)); padding:3px 5px; }
+.track-axis-dot.d1--phone { --dot:10px; --lane-h:15px; --lift:5px; }
+.track-axis-dot.d1--phone > b { font-size:10px; padding:1px 3px; }
+[data-track-motion="snap"] .track-axis-dot,[data-track-motion="snap"] .track-axis-dot > s,[data-track-motion="snap"] .track-axis-dot > b,[data-track-motion="snap"] .rb-links i { transition:none; }
+.app-shell[data-reduced-motion="true"] .track-axis-dot,.app-shell[data-reduced-motion="true"] .track-axis-dot > s,.app-shell[data-reduced-motion="true"] .track-axis-dot > b,.app-shell[data-reduced-motion="true"] .rb-links i { transition:none; }
+
+/* Unknown circuit outline: preserve received lap progress on a straight axis. */
+.track-presentation .track-map.has-track-line { min-height:150px; }
+.track-line { display:flex; flex-direction:column; gap:10px; padding:14px 12px; }
+.track-line .tline-head { display:flex; align-items:baseline; gap:12px; }
+.track-line .tline-head b { font:700 10px/1 var(--sans); letter-spacing:.2em; color:var(--muted,#a2adbb); }
+.track-line .tline-head span { font:500 10px/1 var(--sans); color:#768394; letter-spacing:.06em; }
+.track-line .tline-axis { display:flex; justify-content:space-between; font:600 10px/1 var(--sans); letter-spacing:.16em; color:#768394; margin:0 4px; }
+.track-line .tline-track { position:relative; height:96px; margin:0 14px; }
+.track-line .tline-rail { position:absolute; left:0; right:0; bottom:4px; height:12px; background:#2a3441; border-radius:6px; box-shadow:inset 0 0 0 1px #343f4d; }
+.track-line .tline-rail::before,.track-line .tline-rail::after { content:""; position:absolute; top:-8px; bottom:-8px; width:3px; background:#e9eef4; }
+.track-line .tline-rail::before { left:0; }.track-line .tline-rail::after { right:0; }
+.track-line .tline-ticks { position:absolute; left:0; right:0; bottom:4px; height:12px; pointer-events:none; }
+.track-line .tline-ticks i { position:absolute; top:3px; bottom:3px; width:1px; background:#0b0f14aa; }
+.track-line .tline-cars { position:absolute; left:0; right:0; top:0; bottom:10px; }
+.track-line .track-axis-dot { transition:none; }
+.track-line.tline--tv .tline-track { height:calc(168 * var(--tv-unit,1px)); margin:0 22px; }
+.track-line.tline--tv .tline-head b,.track-line.tline--tv .tline-head span { font-size:calc(14 * var(--tv-unit,1px)); }
+.track-line.tline--tv .tline-axis { font-size:calc(13 * var(--tv-unit,1px)); }
+
+.race-order-ribbon { display:flex; flex-direction:column; gap:8px; min-width:0; --ribbon-muted:#768394; --ribbon-border:#293340; }
+.race-order-ribbon .rb-head { display:flex; align-items:baseline; gap:12px; }
+.race-order-ribbon .rb-head b { font:700 10px/1 var(--sans); letter-spacing:.2em; color:var(--muted,#a2adbb); }
+.race-order-ribbon .rb-head span { font:500 10px/1 var(--sans); color:var(--ribbon-muted); letter-spacing:.06em; }
+.race-order-ribbon .rb-plot { position:relative; height:92px; margin:0 22px 0 14px; }
+.race-order-ribbon .rb-axis { position:absolute; left:0; right:0; bottom:0; height:18px; border-top:1px solid var(--ribbon-border); }
+.race-order-ribbon .rb-axis span { position:absolute; top:0; height:6px; border-left:1px solid var(--ribbon-border); }
+.race-order-ribbon .rb-axis em { position:absolute; top:9px; transform:translateX(-50%); font-style:normal; font-size:10px; color:var(--ribbon-muted); white-space:nowrap; }
+.race-order-ribbon .rb-axis span:first-child em { transform:none; }
+.race-order-ribbon .rb-cars { position:absolute; left:0; right:0; top:0; bottom:18px; }
+.race-order-ribbon .rb-links { position:absolute; left:0; right:0; bottom:16px; height:4px; pointer-events:none; }
+.race-order-ribbon .rb-links i { position:absolute; top:0; height:4px; background:#ffb347; border-radius:2px; transition:left 1s linear,width 1s linear; }
+.race-order-ribbon .rb-lapped { margin-left:auto; display:flex; gap:8px; align-items:baseline; }
+.race-order-ribbon .rb-lapped b { font:700 10px/1 var(--sans); letter-spacing:.16em; color:var(--ribbon-muted); }
+.race-order-ribbon .rb-lapped > span { display:flex; gap:8px; flex-wrap:wrap; }
+.race-order-ribbon .rb-lapped em { font:700 10px/1 var(--sans); font-style:normal; color:var(--muted,#a2adbb); border-left:3px solid var(--team); padding-left:4px; letter-spacing:.04em; }
+.race-order-ribbon .rb-empty { position:absolute; left:0; right:0; top:28%; text-align:center; font:500 12px/1.3 var(--sans); color:var(--ribbon-muted); }
+.race-order-ribbon.ribbon--tv .rb-plot { height:calc(160 * var(--tv-unit,1px)); margin:0 calc(34 * var(--tv-unit,1px)) 0 calc(22 * var(--tv-unit,1px)); }
+.race-order-ribbon.ribbon--tv .rb-axis em,.race-order-ribbon.ribbon--tv .rb-head b,.race-order-ribbon.ribbon--tv .rb-head span { font-size:calc(14 * var(--tv-unit,1px)); }
+.race-order-ribbon.ribbon--tv .rb-lapped b { font-size:calc(13 * var(--tv-unit,1px)); }.race-order-ribbon.ribbon--tv .rb-lapped em { font-size:calc(15 * var(--tv-unit,1px)); }
+.race-order-ribbon.ribbon--tv .rb-empty { font-size:calc(18 * var(--tv-unit,1px)); }
+.race-order-ribbon.ribbon--phone .rb-plot { height:82px; margin:0 14px 0 10px; }
+.race-order-ribbon.ribbon--phone .rb-head > span:not(.rb-lapped) { display:none; }
+.track-line.tline--phone .tline-head > span { display:none; }

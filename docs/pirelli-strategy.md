@@ -13,6 +13,10 @@ This document is the normative description of Slipstream's published-strategy si
 
 OCR, image parsing, VLM/LLM extraction, and manual product transcription are deliberately absent. A missing machine-readable tyre bank is ordinary absence and never blocks Strategy.
 
+The coordinator checks due work every 30 minutes. Its scheduled triggers are one hour after each session, six hours before the Race, 75 minutes before the Race, and two hours after the Race; a failed attempt retries after 30 minutes. A successful fetch may contain only a compound nomination. The `pirelli` object returned by `GET /api/v1/diagnostics` exposes whether the loop is enabled/running, its last/next check, and each meeting's attempt, success, trigger, error, normalized-release count and skipped-release count.
+
+A Sprint/Qualifying recap can still contain prospective Grand Prix guidance. Explicit next-day Grand Prix identity and starting-tyre advice take precedence over the recap's session words. A preferred opening compound followed immediately by explicit second-stint alternatives and a one-stop description can form ordered options, while absent windows and rankings remain unspecified. A comparison describing the slower two-stop plan is not assigned to those one-stop options.
+
 ## Bundled seed and historical catch-up
 
 `slipstream.pirelli.seed.v1` is a deterministic gzip-compressed distribution artifact containing validated normalized releases plus the minimal artifact provenance required by existing admission. It contains no raw HTML, PDF, image, article body, evidence excerpt, or text offsets. The current normalizer is `slipstream-pirelli-v5-adapted.6`. Older immutable derivations remain on disk; consumers deterministically select the newer normalizer. The maintenance commands are:

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import { Conditions } from "../components/analysis/Conditions";
 import { PirelliBaseline, RaceNow } from "../components/analysis/PublishedStrategy";
+import { StrategyPitBoard, StrategyStintChart } from "../components/analysis/StrategyPitBoard";
 import { CompoundBadge, CompoundSequence } from "../components/shared/CompoundBadge";
 import { Panel } from "../components/shared/Panel";
 import { driverLifecycle, lifecycleClassName } from "../domain/lifecycle";
@@ -21,15 +22,15 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
   const final = analytics?.raceRead?.raceLifecycle === "FINAL";
   const baseline = analytics?.publishedStrategy?.baseline;
   const showPublished = baseline?.status === "PRESENT";
-  return <div className="strategy-view pirelli-strategy-view">
+  return <div className="strategy-view pirelli-strategy-view reference-strategy-view">
     <header className="experience-heading strategy-experience-heading"><div><span>RACE INTELLIGENCE</span><h1>Strategy</h1><p>Pirelli’s published pre-race tyre strategy, contextualized by factual current-race evidence.</p></div><div className="strategy-validity-state"><strong>{final ? "FINAL · RETROSPECTIVE" : baseline?.status === "PRESENT" ? "PIRELLI STRATEGY · PUBLISHED" : "RACE FACTS"}</strong></div></header>
 
     <section className={`strategy-foundation${showPublished ? "" : " strategy-foundation-no-pirelli"}`} aria-label="Published strategy and current race context">
-      {!showPublished && <div className="strategy-current-column"><RaceNow analytics={analytics} /><Conditions weather={state.weather} session={state.session} /></div>}
       <PirelliBaseline baseline={baseline} fieldFacts={analytics?.publishedStrategy?.fieldFacts} compact={!showPublished} />
-      {showPublished && <div className="strategy-current-column"><RaceNow analytics={analytics} /><Conditions weather={state.weather} session={state.session} /></div>}
+      <div className="strategy-current-column"><RaceNow analytics={analytics} /><Conditions weather={state.weather} session={state.session} /></div>
     </section>
 
+    <StrategyStintChart state={state} analytics={analytics} onSelectDriver={onSelectDriver} />
     <Panel eyebrow="CURRENT RACE" title="Driver landscape" className="driver-strategy-panel">
       <div className="driver-strategy-scroll"><table className="driver-strategy-table"><thead><tr><th>P</th><th>DRIVER</th><th>TYRE</th><th>AGE</th><th>PIT VISITS</th><th>ACTUAL TYRE STRATEGY</th><th>DRY RULE</th>{showPublished && <><th>PIRELLI TYRE STRATEGY</th><th>PUBLISHED STOP WINDOW</th></>}</tr></thead><tbody>{drivers.map((driver) => {
         const lifecycle = driverLifecycle(driver);
@@ -37,5 +38,6 @@ export function StrategyView({ state, analytics, onSelectDriver }: StrategyViewP
         return <tr key={driver.number} onClick={() => onSelectDriver(driver.number)} className={`clickable ${lifecycleClassName(driver)}`}><td>{driver.position ?? "—"}</td><td><strong>{driver.code ?? driver.number}</strong>{lifecycle.label && <small>{lifecycle.label}</small>}</td><td><CompoundBadge compound={driver.compound} compact /></td><td>{driver.tyre_age ?? "—"}</td><td>{driver.pit_count}</td><td><CompoundSequence compounds={actualStrategyCompounds(published)} /></td><td>{dryTyreRequirementText(published) ?? "—"}</td>{showPublished && <><td>{pirelliStrategies(baseline, published)}</td><td>{driverPirelliStopWindowsText(baseline, published, final)}</td></>}</tr>;
       })}</tbody></table></div>
     </Panel>
+    <Panel eyebrow="FROM TIMING" title="Pit board" className="strategy-pit-panel"><StrategyPitBoard state={state} analytics={analytics} onSelectDriver={onSelectDriver} /></Panel>
   </div>;
 }

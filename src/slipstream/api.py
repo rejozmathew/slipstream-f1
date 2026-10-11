@@ -404,6 +404,16 @@ def create_app(
             and (
                 live.view(target).phase in {"FINALIZING", "COMPLETE"}
                 or live.state.session.status in {"RUNNING", "SUSPENDED"}
+                # Qualifying segment flags can arrive after a delayed session's
+                # scheduled end. A new phase may also arrive before its
+                # RUNNING status, leaving the prior segment's FINISHED state.
+                # The provider can explicitly mark that next phase NotStarted
+                # (SCHEDULED); it still belongs to this unfinished session.
+                or (
+                    live.state.session.layout_family == "qualifying"
+                    and live.state.session.qualifying_phase in {"Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"}
+                    and live.state.session.status in {"FINISHED", "SCHEDULED"}
+                )
             )
         ):
             return existing
@@ -677,6 +687,16 @@ def create_app(
             "live": live.diagnostics,
             "replay": library_ref[0].diagnostics,
             "initialization": dict(initialization),
+            "pirelli": {
+                "enabled": pirelli_coordinator is not None,
+                "taskRunning": pirelli_refresh_task[0] is not None
+                and not pirelli_refresh_task[0].done(),
+                "lastCheckAt": pirelli_coordinator.last_check_at if pirelli_coordinator else None,
+                "nextCheckAt": pirelli_coordinator.next_check_at if pirelli_coordinator else None,
+                "meetings": {
+                    key: asdict(value) for key, value in pirelli_coordinator.states.items()
+                } if pirelli_coordinator else {},
+            },
         }
 
     download_jobs: dict[str, dict[str, Any]] = {}
@@ -1620,10 +1640,29 @@ def _settled_terminal_time(selected: ReplayResource) -> str | None:
     if first_terminal is None:
         return first_terminal
     if selected.descriptor.session_kind in {"qualifying", "sprint_qualifying"}:
-        # Qualifying emits a FINISHED boundary for each phase and may repeat
-        # terminal packets after Q3. The replay ends at the first terminal
-        # boundary after the final phase actually starts.
-        return first_terminal
+        # The final flag closes the clock, not laps already in flight. Keep
+        # their results and classification changes reachable by normal seek
+        # and playback, without extending for repeated packets or pit motion.
+        end = first_terminal
+        terminal_at = parse_timestamp(first_terminal)
+        results: dict[str, dict[str, Any]] = {}
+        fields = {
+            "lap_observation", "last_lap", "best_lap", "position",
+            "classification", "qualifying_results", "qualifying_eliminated",
+        }
+        for event in selected.events:
+            if event.kind not in {"driver", "timing"}:
+                continue
+            number = event.payload.get("number")
+            if number is None:
+                continue
+            previous = results.setdefault(str(number), {})
+            updates = {key: value for key, value in event.payload.items() if key in fields}
+            changed = any(previous.get(key) != value for key, value in updates.items())
+            previous.update(updates)
+            if changed and parse_timestamp(event.occurred_at) > terminal_at:
+                end = event.occurred_at
+        return end
     if selected.descriptor.session_kind != "race":
         return first_terminal
 

@@ -503,10 +503,14 @@ export type QualifyingAttempt = {
   attempt: number;
   phase: QualifyingPhase;
   lap: number | null;
+  lapNumberStatus?: "UNCONFIRMED";
   lapTime: number | null;
   sector1: number | null;
   sector2: number | null;
   sector3: number | null;
+  sector1Status?: SectorStatus;
+  sector2Status?: SectorStatus;
+  sector3Status?: SectorStatus;
   compound: string | null;
   tyreAge: number | null;
   tyreUsage: "NEW" | "USED" | "UNKNOWN";
@@ -515,12 +519,17 @@ export type QualifyingAttempt = {
   occurredAt: string;
 };
 
+export type SectorStatus = "SESSION_BEST" | "PERSONAL_BEST" | "SLOWER" | "UNKNOWN";
+
 export type QualifyingLap = {
   lap: number | null;
   lapTime: number;
   sector1: number | null;
   sector2: number | null;
   sector3: number | null;
+  sector1Status?: SectorStatus;
+  sector2Status?: SectorStatus;
+  sector3Status?: SectorStatus;
   classification: QualifyingAttempt["classification"];
 };
 
@@ -531,6 +540,7 @@ export type QualifyingDriverIntelligence = {
   benchmarkDelta: number | null;
   intervalToAhead?: number | null;
   scopeLatestLap?: QualifyingLap | null;
+  scopeBestLap?: QualifyingLap | null;
   cutState: "ADVANCING" | "BELOW_CUT" | "ELIMINATED" | "UNKNOWN";
   cutLabel?: "ABOVE CUT" | "BELOW CUT" | "ELIMINATED" | "UNKNOWN";
   qStatus: string | null;

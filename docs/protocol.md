@@ -86,7 +86,7 @@ On startup, unfinished recent journals are validated for live recovery (inspecti
 | `GET /api/v1/analytics` | Return the versioned analytics sidecar at an optional inclusive `at` or `seq` cutoff and start non-blocking Weekend Context preparation |
 | `POST /api/v1/download` | Download one finished catalog session into the recording directory |
 | `GET /api/v1/jobs` | Return bounded in-process download job status |
-| `GET /api/v1/diagnostics` | Return bounded collector counters, replay cache and initialization status |
+| `GET /api/v1/diagnostics` | Return bounded collector counters, replay cache, initialization status and Pirelli refresh diagnostics |
 | `DELETE /api/v1/replay` | Remove one session's rebuildable replay/timing artifacts while retaining durable context |
 | `WS /api/v1/stream` | Create an independent replay controller or delayed-live cursor for one client |
 
@@ -131,6 +131,14 @@ Per-driver fields include `scopeBest`, `benchmarkDelta`, `intervalToAhead`, `sco
 
 `intervalToAhead` is a numeric best-lap difference in seconds to the immediately preceding classification position, using the same scope as `benchmarkDelta`. It is null for P1, missing/duplicate positions, or missing scoped best times on either driver; it never skips a position. `scopeLatestLap` supplies the latest completed lap and its sectors within that scope. Existing `latestLap` remains session-wide for lap history. Known segments never fall back to earlier-segment times or sectors.
 
+`scopeBestLap` supplies the observed completed lap matching `scopeBest`, with all three sectors from that same lap and the same cursor-scoped sector grades. Qualifying Timing renders this field, so slower cooldown laps cannot replace the displayed sectors. A new segment clears it until a matching completed lap is observed. If the authoritative best result has no matching lap observation, it remains null rather than borrowing another lap's sectors. Each `attempts` entry also carries sector grades compared only against observations from its own phase at the viewing cursor. Driver history groups these laps by phase and labels that comparison; later segments cannot change earlier-segment grades. Existing latest-lap fields retain their original meaning.
+
+`scopeLatestLap.sector1Status` / `sector2Status` / `sector3Status` grade those completed-lap values against observed non-pit completed laps in the same scope at the cursor: `SESSION_BEST` (purple, including ties), `PERSONAL_BEST` (green, including ties), `SLOWER` (yellow), or `UNKNOWN` (neutral). Explicitly invalid, in/out/pit laps, missing and nonpositive sectors do not set benchmarks or receive colours. Unknown lap validity is retained as observed evidence, not certified validity. Pace-quality contamination is not a validity verdict: laps finishing after the flag can still set sector benchmarks. These are observed comparisons, not provider fastest-sector flags; active-lap sector updates never recolour a different completed lap. The qualifying chequered rail names the known segment (`SQ1 ENDED`, for example); its canonical flag and unsettled-lap semantics remain unchanged.
+
+Confirmed eliminated timing rows use the reference 42% opacity; a provisional `BELOW_CUT` verdict never triggers that treatment. An active qualifying collector remains selected between segments, including when their flag arrives after the scheduled session end or the next phase is announced before its running status. A known qualifying phase with explicit `SCHEDULED` status remains eligible for retention and bounded journal recovery: the next segment has not started, but the session has not completed. Existing final-segment completion and drain semantics remain authoritative.
+
+Browser refresh resolves Follow Live through `liveSessionKey` before the historical catalog default. Automatically entering Live persists that intent. A saved Live session remains selected in Live mode during temporary catalog gaps; confirmed `replayReady` can open that same session in Replay. Explicit replay choices remain selected even when another session is live.
+
 ## Catalog semantics
 
 Catalog session fields have specific meanings:
@@ -151,7 +159,7 @@ File presence does not imply genuine completion. Replay metadata exposes additiv
 
 The browser labels an available replay with explicit `complete: false` as `PARTIAL RECORDING`. This means session completion is not recorded; it does not establish packet loss or invent missing timing. Null or absent completion metadata is not labelled partial. Playback retains its requested cursor and shows only facts recorded through that time, including empty intervals before the first driver update.
 
-For a catalog-only placeholder without a local replay, `endTime` is capped at the earlier of the scheduled end and current time. An available recording uses its factual recorded bounds, including incomplete recordings that overrun the schedule; clients must not create future seek targets.
+For a catalog-only placeholder without a local replay, `endTime` is capped at the earlier of the scheduled end and current time. An available recording uses its factual recorded bounds, including incomplete recordings that overrun the schedule; clients must not create future seek targets. Qualifying replay bounds include recorded post-flag lap results and changed classification through the last such fact; repeated terminal packets, unchanged results, and pit-only movement do not extend that sporting timeline. The canonical recording still retains the full event stream, and delayed live viewers consume that complete tail before handing off to the same recording and cursor.
 
 For historical races, `session.total_laps` is derived from recorded race-result metadata and is available from the session-start snapshot. Practice and qualifying sessions leave it `null` because they have no meaningful scheduled lap denominator.
 
@@ -223,6 +231,8 @@ Full accumulated lap history is deliberately excluded from `RaceState` and there
 
 An observation records lap number and start time, duration and sectors when supplied, compound, stint number, tyre age, `qualifying_phase`, `tyre_usage`, factual `lap_validity`, pit-in/pit-out evidence, and provenance-friendly quality fields. `quality` is `representative`, `contaminated`, or `unknown`. `contamination_reasons` names only observed conditions such as `pit_in`, `pit_out`, `neutralized_track`, `neutralization_end_unknown`, or `missing_duration`; it is not a strategy verdict.
 
+Official timing acquisition pairs explicit lap-time values with changed source lap counters, accepting split packets within five source-clock seconds. It never increments or synthesizes lap numbers. Pit transitions, phase changes, cleared times and expiry discard unmatched pairs; current timing remains visible even when a completed-lap association is unavailable. Subscription repeats and fastest-flag-only patches do not create completed laps. Reconnect/recovery seeds already-observed lap identities from canonical history. Legacy qualifying recordings remain unchanged on disk: their history presentation collapses repeated phase/lap/time observations and marks conflicting durations attached to an already-used number with `lap: null, lapNumberStatus: "UNCONFIRMED"`, retaining the recorded time and sectors. These repairs are evaluated only through the viewer's inclusive cursor.
+
 Pit observations may additionally carry `pit_occurred_at`, `previous_compound`, `new_compound`, `stop_duration`, and `pit_lane_duration`. These remain optional and source-capability dependent.
 
 Official `PitLaneTimeCollection.Duration` is admitted as `pit_lane_duration` only when it is positive and no greater than 300 seconds. Values outside that bounded transit domain remain unavailable. This field never populates `stop_duration`, which is reserved for separately defensible stationary/pit-box evidence.
@@ -230,6 +240,8 @@ Official `PitLaneTimeCollection.Duration` is admitted as `pit_lane_duration` onl
 Whole-track contamination is derived from timestamped intervals opened only by genuine track-scoped yellow/red or explicit SC/VSC deployment evidence and closed by a whole-track clear/green transition. Sector- and driver-scoped flags do not neutralize the whole lap. An unclosed interval remains unknown where overlap cannot be proven. Future analytics may consume this evidence, but calculated pace or strategy does not become part of canonical `RaceState`.
 
 ## Circuit, position, and conditions
+
+Official mini-sector progress is emitted on newly completed segments; recolouring an already completed segment (including purple to green) and repeated lap counters carry no new position evidence. The adapter compares consecutive provider snapshots for this distinction. Desktop and TV interpolate only between received positions using the viewer clock and recent per-car update cadence; label packing does not hide active car markers. New endpoints preserve displayed velocity and ease toward received progress, with one persistent animation loop across ordinary snapshots; navigation, pause, and reduced motion still snap immediately.
 
 `RaceState.circuit.path` is an ordered array of `[x, y]` points. `rotation` is the source display rotation and `source` preserves geometry provenance.
 

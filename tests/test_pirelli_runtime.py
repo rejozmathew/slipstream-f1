@@ -167,8 +167,12 @@ def test_runtime_discovery_reacquires_feed_for_later_strategy_release(tmp_path) 
 
     client = SequencedClient()
     service = PirelliIngestionService(PirelliArchive(tmp_path), client)
-    first = asyncio.run(service.discovery_entries(now=datetime(2026, 7, 24, tzinfo=UTC)))
-    second = asyncio.run(service.discovery_entries(now=datetime(2026, 7, 25, tzinfo=UTC)))
+    first = asyncio.run(
+        service.discovery_entries(now=datetime(2026, 7, 24, tzinfo=UTC))
+    )
+    second = asyncio.run(
+        service.discovery_entries(now=datetime(2026, 7, 25, tzinfo=UTC))
+    )
 
     assert client.calls == 2
     assert len(first) == 1
@@ -358,17 +362,66 @@ def test_miami_qualifying_article_admits_explicit_grand_prix_guidance(tmp_path):
         [{"startLap": 32, "endLap": 38}],
     )
     assert any(
-        option["compounds"] == ["SOFT", "HARD"]
-        and option["pitWindows"] == [None]
+        option["compounds"] == ["SOFT", "HARD"] and option["pitWindows"] == [None]
         for option in published["baseline"]["options"]
     )
-    categories = {
-        fact["category"] for fact in published["baseline"]["contextFacts"]
-    }
+    categories = {fact["category"] for fact in published["baseline"]["contextFacts"]}
     assert {"STRATEGY_OUTLOOK", "DEGRADATION", "WEATHER"} <= categories
     assert any(
         "around 10 seconds" in fact["statement"]
         for fact in published["baseline"]["contextFacts"]
+    )
+
+
+def test_qualifying_recap_preserves_next_day_opening_and_second_stint_choices(tmp_path):
+    availability, published = _run_race_article_pipeline(
+        tmp_path,
+        meeting_key="singapore-2026",
+        meeting_name="Singapore Grand Prix",
+        title="Sprint success and pole in Singapore",
+        published_at=datetime(2026, 10, 10, 16, tzinfo=UTC),
+        race_start=datetime(2026, 10, 11, 12, tzinfo=UTC),
+        current_lap=4,
+        article=(
+            "The Sprint winner took pole for tomorrow’s Singapore Grand Prix. "
+            "The C5 is an interesting option for the start of tomorrow’s race. "
+            "The grip offered by the Soft in the opening phase should make it the "
+            "preferred choice for the field. For the second part of the race, the "
+            "Medium and Hard offer similar performance. A two-stop strategy is "
+            "around ten seconds slower than the available one-stop alternatives."
+        ),
+    )
+    assert availability.status == "PRESENT"
+    options = published["baseline"]["options"]
+    assert [item["compounds"] for item in options] == [
+        ["SOFT", "MEDIUM"],
+        ["SOFT", "HARD"],
+    ]
+    for option in options:
+        assert option["pitWindows"] == [None]
+        assert option["rank"] == "UNRANKED"
+        assert option["publishedDeltaSeconds"] is None
+
+
+def test_prospective_opening_choice_needs_grand_prix_identity_not_sprint_scope():
+    from slipstream.pirelli.discovery import ReleasePurpose, classify_release_purpose
+
+    opening = "The C5 is an option for the start of tomorrow’s race."
+    assert classify_release_purpose("Sprint strategy", opening) == ReleasePurpose.SPRINT
+    assert (
+        classify_release_purpose(
+            "Sprint pole",
+            opening,
+        )
+        != ReleasePurpose.RACE_STRATEGY
+    )
+    assert (
+        classify_release_purpose(
+            "Qualifying report",
+            "Tomorrow’s Grand Prix may be dry. Last year’s C5 "
+            "was an option for the start of tomorrow’s race.",
+        )
+        != ReleasePurpose.RACE_STRATEGY
     )
 
 
@@ -402,8 +455,7 @@ def test_hungary_qualifying_day_article_admits_grand_prix_strategy_before_suppor
         [{"startLap": 26, "endLap": 32}],
     )
     assert any(
-        window["state"] == "ACTIVE"
-        for window in published["drivers"]["1"]["windows"]
+        window["state"] == "ACTIVE" for window in published["drivers"]["1"]["windows"]
     )
 
 
@@ -502,32 +554,100 @@ def test_discovery_ingestion_keeps_race_sprint_and_weekend_facts_isolated(tmp_pa
     payloads = {
         PIRELLI_F1_RSS_URL: _Payload(
             _feed(
-                ("Race strategies for 2026 Hungarian Grand Prix", race_url, "Fri, 24 Jul 2026 09:00:00 GMT", category),
-                ("Sprint strategy for 2026 Hungarian Grand Prix", sprint_url, "Fri, 24 Jul 2026 09:10:00 GMT", category),
-                ("Friday practice at 2026 Hungarian Grand Prix", practice_url, "Fri, 24 Jul 2026 09:20:00 GMT", category),
-                ("Compound choices for 2026 Hungarian Grand Prix", nomination_url, "Fri, 24 Jul 2026 09:30:00 GMT", category),
+                (
+                    "Race strategies for 2026 Hungarian Grand Prix",
+                    race_url,
+                    "Fri, 24 Jul 2026 09:00:00 GMT",
+                    category,
+                ),
+                (
+                    "Sprint strategy for 2026 Hungarian Grand Prix",
+                    sprint_url,
+                    "Fri, 24 Jul 2026 09:10:00 GMT",
+                    category,
+                ),
+                (
+                    "Friday practice at 2026 Hungarian Grand Prix",
+                    practice_url,
+                    "Fri, 24 Jul 2026 09:20:00 GMT",
+                    category,
+                ),
+                (
+                    "Compound choices for 2026 Hungarian Grand Prix",
+                    nomination_url,
+                    "Fri, 24 Jul 2026 09:30:00 GMT",
+                    category,
+                ),
             ),
             SourceType.RSS,
             media_type="application/rss+xml",
         ),
-        race_url: _Payload(_page("The fastest race strategy is Medium-Hard."), SourceType.NEWSROOM_HTML, datetime(2026, 7, 24, 9, tzinfo=UTC), datetime(2026, 7, 24, 9, tzinfo=UTC)),
-        sprint_url: _Payload(_page("The fastest sprint strategy is Soft-Medium."), SourceType.NEWSROOM_HTML, datetime(2026, 7, 24, 9, 10, tzinfo=UTC), datetime(2026, 7, 24, 9, 10, tzinfo=UTC)),
-        practice_url: _Payload(_page("The fastest strategy in practice was Soft-Hard."), SourceType.NEWSROOM_HTML, datetime(2026, 7, 24, 9, 20, tzinfo=UTC), datetime(2026, 7, 24, 9, 20, tzinfo=UTC)),
-        nomination_url: _Payload(_page("Hungary will use C3, C4 and C5."), SourceType.NEWSROOM_HTML, datetime(2026, 7, 24, 9, 30, tzinfo=UTC), datetime(2026, 7, 24, 9, 30, tzinfo=UTC)),
+        race_url: _Payload(
+            _page("The fastest race strategy is Medium-Hard."),
+            SourceType.NEWSROOM_HTML,
+            datetime(2026, 7, 24, 9, tzinfo=UTC),
+            datetime(2026, 7, 24, 9, tzinfo=UTC),
+        ),
+        sprint_url: _Payload(
+            _page("The fastest sprint strategy is Soft-Medium."),
+            SourceType.NEWSROOM_HTML,
+            datetime(2026, 7, 24, 9, 10, tzinfo=UTC),
+            datetime(2026, 7, 24, 9, 10, tzinfo=UTC),
+        ),
+        practice_url: _Payload(
+            _page("The fastest strategy in practice was Soft-Hard."),
+            SourceType.NEWSROOM_HTML,
+            datetime(2026, 7, 24, 9, 20, tzinfo=UTC),
+            datetime(2026, 7, 24, 9, 20, tzinfo=UTC),
+        ),
+        nomination_url: _Payload(
+            _page("Hungary will use C3, C4 and C5."),
+            SourceType.NEWSROOM_HTML,
+            datetime(2026, 7, 24, 9, 30, tzinfo=UTC),
+            datetime(2026, 7, 24, 9, 30, tzinfo=UTC),
+        ),
     }
     archive = PirelliArchive(tmp_path)
     service = PirelliIngestionService(archive, _FakeClient(payloads))
-    asyncio.run(service.refresh(PirelliIngestionTarget(_meeting(), "race-30", SessionScope.RACE), now=datetime(2026, 7, 24, 10, tzinfo=UTC)))
-    asyncio.run(service.refresh(PirelliIngestionTarget(_meeting(), "sprint-30", SessionScope.SPRINT), now=datetime(2026, 7, 24, 10, tzinfo=UTC)))
+    asyncio.run(
+        service.refresh(
+            PirelliIngestionTarget(_meeting(), "race-30", SessionScope.RACE),
+            now=datetime(2026, 7, 24, 10, tzinfo=UTC),
+        )
+    )
+    asyncio.run(
+        service.refresh(
+            PirelliIngestionTarget(_meeting(), "sprint-30", SessionScope.SPRINT),
+            now=datetime(2026, 7, 24, 10, tzinfo=UTC),
+        )
+    )
     store = PirelliEvidenceStore(tmp_path)
-    race = store.load(meeting_key="30", target_session_key="race-30", evidence_cutoff=datetime(2026, 7, 26, 13, tzinfo=UTC), session_scope=SessionScope.RACE)
-    sprint = store.load(meeting_key="30", target_session_key="sprint-30", evidence_cutoff=datetime(2026, 7, 25, 10, tzinfo=UTC), session_scope=SessionScope.SPRINT)
+    race = store.load(
+        meeting_key="30",
+        target_session_key="race-30",
+        evidence_cutoff=datetime(2026, 7, 26, 13, tzinfo=UTC),
+        session_scope=SessionScope.RACE,
+    )
+    sprint = store.load(
+        meeting_key="30",
+        target_session_key="sprint-30",
+        evidence_cutoff=datetime(2026, 7, 25, 10, tzinfo=UTC),
+        session_scope=SessionScope.SPRINT,
+    )
 
-    assert [item.sequence for item in race.snapshot.latest_strategy_release.strategies] == ["M-H"]
-    assert [item.sequence for item in sprint.snapshot.latest_strategy_release.strategies] == ["S-M"]
+    assert [
+        item.sequence for item in race.snapshot.latest_strategy_release.strategies
+    ] == ["M-H"]
+    assert [
+        item.sequence for item in sprint.snapshot.latest_strategy_release.strategies
+    ] == ["S-M"]
     assert race.snapshot.compound_selections[-1].hard == "C3"
     assert sprint.snapshot.compound_selections[-1].soft == "C5"
-    assert all(item.sequence != "S-H" for release in race.snapshot.strategy_releases for item in release.strategies)
+    assert all(
+        item.sequence != "S-H"
+        for release in race.snapshot.strategy_releases
+        for item in release.strategies
+    )
 
 
 def test_post_cutoff_pdf_fact_does_not_borrow_parent_html_version_proof(tmp_path):
@@ -750,7 +870,9 @@ def test_admitted_pirelli_fixture_exercises_published_strategy_state_matrix(tmp_
     assert multiple["baseline"]["tyreBank"]["status"] == "ABSENT"
     assert multiple["baseline"]["options"][2]["order"] == "ANY_ORDER"
     assert multiple["drivers"]["1"]["relation"] == "MATCHING_MULTIPLE"
-    assert {window["state"] for window in multiple["drivers"]["1"]["windows"]} == {"ACTIVE"}
+    assert {window["state"] for window in multiple["drivers"]["1"]["windows"]} == {
+        "ACTIVE"
+    }
     assert completed["drivers"]["1"]["relation"] == "MATCHING_ONE"
     assert completed["drivers"]["1"]["windows"][0]["state"] == "COMPLETED"
     assert diverged["drivers"]["1"]["relation"] == "DIVERGED"

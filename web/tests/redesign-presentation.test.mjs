@@ -22,8 +22,10 @@ const { EMPTY_RACE_STATE } = await server.ssrLoadModule("/domain/protocol.ts");
 const { DEFAULT_TV_PREFERENCES, useProductPreferences } = await server.ssrLoadModule("/hooks/useProductPreferences.ts");
 const { isStandaloneTVRoute } = await server.ssrLoadModule("/domain/tvRoute.ts");
 const { TVSessionPicker } = await server.ssrLoadModule("/views/TVSessionPicker.tsx");
-const { freshRowCues, rowMotionTiming } = await server.ssrLoadModule("/domain/towerMotion.ts");
+const { freshRowCues, rowMotionTiming, translationY } = await server.ssrLoadModule("/domain/towerMotion.ts");
 const { useTowerMotion } = await server.ssrLoadModule("/hooks/useTowerMotion.ts");
+const { TowerRowEffects } = await server.ssrLoadModule("/components/timing/TowerRowEffects.tsx");
+const { TimingTower } = await server.ssrLoadModule("/components/timing/TimingTower.tsx");
 const { RailTransition } = await server.ssrLoadModule("/components/shared/RailTransition.tsx");
 const render = (component, props) => renderToStaticMarkup(createElement(component, props));
 const driver = { number: "1", code: "ONE", name: "Driver One", team: "Team One", position: 1, lap: 8, compound: "MEDIUM", tyre_age: 6, stint_laps: 6, pit_count: 1, gap_to_leader: null, interval_to_ahead: null, last_lap: "1:23.400", best_lap: "1:22.900", source_condition: "RUNNING", status: "RUNNING", activity: "ON_TRACK", classification: null, availability: {}, track_position: null, x: null, y: null };
@@ -61,7 +63,7 @@ test("phone timing preserves every driver and source status without deriving mis
 test("phone Qualifying respects active scoped best and never substitutes an earlier best lap", () => {
   const html = render(PhoneTimingTower, { drivers: [driver], variant: "qualifying", analytics: { qualifying: { drivers: { "1": { scopeBest: null, benchmarkDelta: null } } } }, replayAvailable: true });
   assert.doesNotMatch(html, /1:22.900|1:23.400/);
-  assert.match(html, /phone-primary-value">—</);
+  assert.equal(JSDOM.fragment(html).querySelector(".phone-primary-value").textContent, "—");
 });
 
 test("TV remote commands share capability guards and close the topmost layer", async () => {
@@ -71,13 +73,13 @@ test("TV remote commands share capability guards and close the topmost layer", a
   const key = async (value, target = window) => act(() => target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true })));
   try {
     await act(() => root.render(createElement(TVModeView, props)));
-    await act(() => document.querySelector('[aria-label="Hide TV controls"]').click());
+    assert.equal(document.querySelector('.tv-toolbar'), null, "controls start hidden as in the TV reference");
     await key("ArrowLeft");
     assert.deepEqual(commands.at(-1), { type: "delay", seconds: 35 });
     await key("MediaPlayPause");
     assert.deepEqual(commands.at(-1), { type: "pause" });
-    await act(() => [...document.querySelectorAll(".tv-toolbar button")].find((button) => button.textContent === "LIVE DELAY").click());
-    const input = document.querySelector('[aria-label="Exact delay"]');
+    await act(() => document.querySelector(".tv-toolbar-sync").click());
+    const input = document.querySelector('[aria-label="Custom live delay M:SS"]');
     const count = commands.length;
     await key("ArrowRight", input);
     assert.equal(commands.length, count, "editing a control cannot nudge the viewer");
@@ -94,11 +96,11 @@ test("TV remote commands share capability guards and close the topmost layer", a
   } finally { await act(() => root.unmount()); }
 });
 
-test("non-race TV does not advertise Race strategy, battle or new unapproved stages", () => {
+test("non-race TV exposes the authored cut-line or spread and timing views without Race strategy", () => {
   for (const layout of ["practice", "qualifying"]) {
     const html = render(TVModeView, { state: { ...EMPTY_RACE_STATE, drivers: { "1": driver } }, analytics: null, recommendedBattle: null, sessionLayout: layout, sessionKind: layout, replayAvailable: true, positionMode: "unavailable", viewingMode: "replay", sectorTimingAvailable: false, preferences: DEFAULT_TV_PREFERENCES, onPreferencesChange() {}, onExit() {} });
     const doc = new JSDOM(html).window.document;
-    assert.deepEqual([...doc.querySelectorAll(".tv-feature-heading button")].map((button) => button.textContent), ["TIMING"]);
+    assert.deepEqual([...doc.querySelectorAll(".tv-feature-heading button")].map((button) => button.textContent), [layout === "qualifying" ? "1CUT LINE" : "1SPREAD", "TTIMING", "AAUTO"]);
   }
 });
 
@@ -150,15 +152,15 @@ test("motion cause colour requires fresh available server evidence and never tur
   assert.equal(freshRowCues(story, 100, "GREEN", 1).get("2").cause, "passed");
   const best = motionStory(106, [motionEvent("LAP_IMPROVEMENT", 106, { driverNumbers: ["1"], data: { sessionBest: true } })]);
   assert.equal(freshRowCues(best, 105, "GREEN", 1).get("1").label, "SESSION BEST");
-  assert.equal(rowMotionTiming("pass", 1, "tv", 5).duration, 520 * 1.35 * .6);
+  assert.ok(Math.abs(rowMotionTiming("pass", 1, "tv", 5).duration - 520 * 1.35 * .6) < 1e-9);
 });
 
 // Test-only fixture harness; the production hook owns its TypeScript input contract.
 // eslint-disable-next-line react/prop-types
-function MotionHarness({ story, generation = 0, reduced = false, speed = 1 }) {
+function MotionHarness({ story, generation = 0, reduced = false, speed = 1, order = ["1", "2"], playing = true }) {
   const table = useRef(null);
-  useTowerMotion(table, story, story);
-  return createElement("div", { className: "app-shell", "data-navigation-generation": generation, "data-reduced-motion": reduced, "data-playback-speed": speed, "data-viewer-playing": true, "data-track-status": "GREEN", "data-session-key": "race" }, createElement("div", { ref: table }, ["1", "2"].map((number) => createElement("button", { key: number, "data-driver-number": number }, createElement("span", { className: "driver-cell" }, createElement("em", null, "Team"))))));
+  useTowerMotion(table, order, story);
+  return createElement("div", { className: "app-shell", "data-navigation-generation": generation, "data-reduced-motion": reduced, "data-playback-speed": speed, "data-viewer-playing": playing, "data-track-status": "GREEN", "data-session-key": "race" }, createElement("div", { ref: table, "data-motion-variant": "race" }, order.map((number) => createElement("button", { key: number, "data-driver-number": number }, createElement("strong", null, number), createElement("span", { className: "driver-cell" }, createElement("em", null, "Team")), createElement("span", { className: "tower-time" }, "1:23.000"), createElement(TowerRowEffects)))));
 }
 
 test("row cues are silent on initial history and navigation, static in reduced motion, and absent at30x", async () => {
@@ -181,7 +183,8 @@ test("row cues are silent on initial history and navigation, static in reduced m
     const count = animations.length;
     await act(() => root.render(createElement(MotionHarness, { story: motionStory(107, [motionEvent("LAP_IMPROVEMENT", 107, { data: { sessionBest: true } })]), reduced: true })));
     assert.equal(row().dataset.motionCause, "best");
-    assert.equal(row().querySelector("em").dataset.motionLabel, "SESSION BEST");
+    assert.equal(row().querySelector("em").textContent, "Team", "cause decoration does not replace driver identity");
+    assert.equal(row().querySelector(".tower-time").dataset.motionFlash, "best");
     assert.equal(animations.length, count, "reduced motion retains static cause without animation");
     await act(() => root.render(createElement(MotionHarness, { story: motionStory(108, [motionEvent("PASS", 108)]), generation: 1, reduced: true })));
     assert.equal(row().dataset.motionCause, undefined, "navigation clears old labels without replaying alerts");
@@ -193,6 +196,11 @@ test("rail transition generations cancel old status effects without altering the
   try {
     await act(() => root.render(createElement(RailTransition, { status: "GREEN" })));
     assert.equal(document.querySelector(".rail-transition").dataset.transition, "none");
+    for (const [status, transition] of [["YELLOW", "escalate"], ["VSC", "escalate"], ["VSC_ENDING", "fade"], ["SAFETY_CAR", "escalate"], ["RED_FLAG", "escalate"], ["GREEN", "fade"], ["CHEQUERED", "escalate"]]) {
+      await act(() => root.render(createElement(RailTransition, { status })));
+      assert.equal(document.querySelector(".rail-transition").dataset.status, status);
+      assert.equal(document.querySelector(".rail-transition").dataset.transition, transition, status);
+    }
     await act(() => root.render(createElement(RailTransition, { status: "RED_FLAG" })));
     const red = document.querySelector(".rail-transition");
     assert.equal(red.dataset.transition, "escalate");
@@ -204,7 +212,7 @@ test("rail transition generations cancel old status effects without altering the
 
 test("empty phone timing values render an unknown dash", () => {
   const html = render(PhoneTimingTower, { drivers: [{ ...driver, position: 2, interval_to_ahead: "" }], variant: "race", intervalsAvailable: true, replayAvailable: true });
-  assert.match(html, /phone-primary-value">—</);
+  assert.equal(JSDOM.fragment(html).querySelector(".phone-primary-value").textContent, "—");
 });
 
 test("desktop and TV share one persisted pinned pair without changing the followed driver", async () => {
@@ -251,6 +259,7 @@ test("TV remote separates field navigation from editing and keeps an open panel'
   const key = async (value, target) => act(() => target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true })));
   try {
     await act(() => root.render(createElement(TVModeView, props)));
+    await key("ArrowUp", window);
     const settings = [...document.querySelectorAll(".tv-toolbar button")].find((button) => button.textContent === "SETTINGS");
     settings.focus();
     await act(() => settings.click());
@@ -289,4 +298,84 @@ test("phone qualifying rows retain the team alongside the source activity badge"
   const doc = new JSDOM(html).window.document;
   assert.equal(doc.querySelector(".phone-identity small").textContent, "Team One");
   assert.equal(doc.querySelector(".phone-state-badge").textContent, "IN PIT");
+});
+
+
+test("tower matrix parsing preserves 2D and 3D in-flight translation without NaN", () => {
+  assert.equal(translationY("matrix(1, 0, 0, 1, 0, -16.5)"), -16.5);
+  assert.equal(translationY("matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 22.25, 0, 1)"), 22.25);
+  assert.equal(translationY("none"), 0);
+  assert.equal(translationY("matrix(1, 0, 0, 1, 0, invalid)"), 0);
+});
+
+test("timing updates preserve each active move and retarget from its visible position", async () => {
+  const root = createRoot(document.getElementById("root"));
+  const proto = dom.window.HTMLElement.prototype;
+  const originalBounds = proto.getBoundingClientRect; const originalAnimate = proto.animate;
+  const originalTop = Object.getOwnPropertyDescriptor(proto, "offsetTop");
+  const originalHeight = Object.getOwnPropertyDescriptor(proto, "offsetHeight");
+  const originalComputed = window.getComputedStyle;
+  const transforms = new Map(); const animations = [];
+  proto.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 128 });
+  Object.defineProperty(proto, "offsetTop", { configurable: true, get() { return this.dataset.driverNumber ? [...this.parentElement.children].indexOf(this) * 32 : 0; } });
+  Object.defineProperty(proto, "offsetHeight", { configurable: true, get() { return 32; } });
+  window.getComputedStyle = (element) => ({ transform: transforms.get(element.dataset.driverNumber) ?? "none" });
+  proto.animate = function (frames, options) {
+    const animation = { target: this, frames, options, playState: "running", cancel() { this.playState = "idle"; } };
+    animations.push(animation); return animation;
+  };
+  const travel = (number) => animations.filter((animation) => animation.target.dataset.driverNumber === number && animation.frames[0].transform);
+  try {
+    await act(() => root.render(createElement(MotionHarness, { order: ["1", "2", "3", "4"], story: motionStory(100, []) })));
+    await act(() => root.render(createElement(MotionHarness, { order: ["2", "1", "3", "4"], story: motionStory(101, []) })));
+    assert.equal(travel("1")[0].frames[0].transform, "translateY(-32px)");
+    assert.equal(travel("2")[0].frames[0].transform, "translateY(32px)");
+    assert.equal(travel("1")[0].options.duration, 700, "unconfirmed order changes use the reference neutral profile");
+    const first = travel("1")[0]; const other = travel("2")[0];
+    await act(() => root.render(createElement(MotionHarness, { order: ["2", "1", "3", "4"], story: motionStory(102, []) })));
+    assert.equal(travel("1").length, 1, "ordinary timing packets do not restart travel");
+    await act(() => root.render(createElement(MotionHarness, { order: ["2", "1", "4", "3"], story: motionStory(103, []) })));
+    assert.equal(first.playState, "running", "another driver's reorder must not cancel this move");
+    assert.equal(other.playState, "running");
+    transforms.set("1", "matrix(1, 0, 0, 1, 0, -16)");
+    await act(() => root.render(createElement(MotionHarness, { order: ["2", "4", "1", "3"], story: motionStory(104, []) })));
+    assert.equal(first.playState, "idle");
+    assert.equal(travel("1").at(-1).frames[0].transform, "translateY(-48px)", "rebase includes the previous visual remainder");
+    assert.equal(other.playState, "running", "retargeting one driver leaves unrelated travel intact");
+    const moves = animations.filter((animation) => animation.frames[0].transform);
+    await act(() => root.render(createElement(MotionHarness, { order: ["1", "2", "3", "4"], story: motionStory(110, []), generation: 1 })));
+    assert.ok(moves.every((animation) => animation.playState === "idle"));
+    assert.equal(animations.filter((animation) => animation.frames[0].transform).length, moves.length, "a jump snaps instead of replaying overtakes");
+  } finally {
+    await act(() => root.unmount()); proto.getBoundingClientRect = originalBounds; proto.animate = originalAnimate; window.getComputedStyle = originalComputed;
+    Object.defineProperty(proto, "offsetTop", originalTop); Object.defineProperty(proto, "offsetHeight", originalHeight);
+  }
+});
+
+test("late confirmed passes add reference emphasis without replaying the earlier row change", async () => {
+  const root = createRoot(document.getElementById("root"));
+  const proto = dom.window.HTMLElement.prototype;
+  const originalBounds = proto.getBoundingClientRect; const originalAnimate = proto.animate;
+  const animations = [];
+  proto.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 100 });
+  proto.animate = function (frames, options) { const animation = { target: this, frames, options, playState: "running", cancel() { this.playState = "idle"; } }; animations.push(animation); return animation; };
+  try {
+    await act(() => root.render(createElement(MotionHarness, { story: motionStory(100, []), order: ["2", "1"] })));
+    await act(() => root.render(createElement(MotionHarness, { story: undefined, order: ["2", "1"] })));
+    await act(() => root.render(createElement(MotionHarness, { story: motionStory(105, [motionEvent("PASS", 105)]), order: ["2", "1"] })));
+    const row = document.querySelector('[data-driver-number="1"]');
+    assert.equal(row.querySelector(".tower-motion-delta").textContent, "▲1");
+    assert.equal(row.querySelector(".driver-cell em").textContent, "Team");
+    assert.ok(animations.some((animation) => animation.target.className === "tower-motion-wash" && animation.options.duration === 2600));
+    assert.ok(animations.some((animation) => animation.target.tagName === "STRONG" && animation.frames[0].transform === "scale(1.6)"));
+    assert.equal(animations.filter((animation) => animation.target.dataset.driverNumber && animation.frames[0].transform).length, 0, "late cause emphasis must not replay a historical reorder");
+  } finally { await act(() => root.unmount()); proto.getBoundingClientRect = originalBounds; proto.animate = originalAnimate; }
+});
+
+test("compact TV tower keeps the reference INT/GAP order and tyre age within TYRE", () => {
+  const fragment = JSDOM.fragment(render(TimingTower, { drivers: [{ ...driver, tyre_age: 11 }], variant: "race", tvScale: 1, compact: true, desktopRaceColumns: true, intervalsAvailable: true, replayAvailable: true }));
+  assert.deepEqual([...fragment.querySelectorAll(".timing-header > span")].map((cell) => cell.textContent), ["P", "DRIVER / TEAM", "INT", "GAP", "TYRE", "PIT"]);
+  assert.equal(fragment.querySelector(".tv-tower-tyre small").textContent, "11L");
+  assert.equal(fragment.querySelectorAll(".tower-motion-effects[aria-hidden=true]").length, 1);
+  assert.match(fragment.querySelector(".timing-table").getAttribute("style"), /98\.6px/);
 });

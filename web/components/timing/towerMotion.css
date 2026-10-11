@@ -1,0 +1,62 @@
+/* Presentation of the approved shared/tower.js effects. Facts stay in React;
+   the hook owns only these decorative layers and each driver's visual travel. */
+.app-shell :is(.timing-row,.phone-timing-row) {
+  position:relative; isolation:isolate; will-change:transform;
+  --tower-motion-pad:8px; --tower-motion-numeric:var(--type-primary,14px);
+  --tower-session-best:#b14cff; --tower-personal-best:#2fd97f;
+  --tower-loss:#ff5a4e; --tower-amber:#ffb020;
+}
+.app-shell :is(.timing-row,.phone-timing-row)[data-motion-moving=true] { background:#0b0f14; }
+.app-shell :is(.timing-row,.phone-timing-row)[data-motion-cause] { box-shadow:none; }
+.app-shell :is(.timing-row,.phone-timing-row)[data-motion-cause=pass],
+.app-shell :is(.timing-row,.phone-timing-row)[data-motion-cause=improve],
+.app-shell :is(.timing-row,.phone-timing-row)[data-motion-cause=best] {
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--tower-team) 60%,transparent),0 10px 30px #000a;
+}
+.app-shell :is(.timing-row,.phone-timing-row)[data-motion-cause=class] { box-shadow:inset 0 0 0 1px var(--tower-amber); }
+.app-shell :is(.timing-row,.phone-timing-row):is([data-motion-cause=passed],[data-motion-cause=pushed]) > :not(.tower-motion-effects) { opacity:.78; }
+.app-shell :is(.timing-row,.phone-timing-row).qualifying-eliminated > :not(.tower-motion-effects) { opacity:.42; }
+.app-shell :is(.timing-row,.phone-timing-row) > .tower-motion-effects {
+  display:block; position:absolute; inset:0; width:100%; height:100%; padding:0; min-width:0;
+  pointer-events:none; overflow:visible; white-space:normal;
+}
+.tower-motion-wash { position:absolute; inset:0; z-index:2; opacity:0; pointer-events:none; mix-blend-mode:screen; }
+.tower-motion-delta {
+  position:absolute; z-index:3; left:calc(var(--tower-motion-pad) + 2.2em); top:50%; transform:translateY(-50%);
+  font:700 max(9px,calc(var(--tower-motion-numeric) - 3px))/1 var(--mono); opacity:0; pointer-events:none; transition:opacity .3s;
+}
+.tower-motion-delta.is-up { opacity:1; color:#2fd97f; }
+.tower-motion-delta.is-down { opacity:1; color:#ff5a4e; }
+.tower-motion-chips { position:absolute; z-index:3; right:var(--tower-motion-pad); top:50%; transform:translateY(-50%); display:flex; gap:6px; pointer-events:none; }
+.tower-motion-chip {
+  font:700 10px/1 var(--sans); letter-spacing:.12em; padding:4px 6px; border-radius:2px; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:6px; animation:tower-chip-in .3s cubic-bezier(.16,1,.3,1);
+}
+.tower-motion-chip.is-leaving { opacity:0; transition:opacity .3s; }
+@keyframes tower-chip-in { from { opacity:0; transform:translateX(8px); } }
+.tower-motion-chip.chip-fresh { background:#0e1a2e; color:#a9c6ff; box-shadow:inset 0 0 0 1px #4d8dff66; }
+.tower-motion-chip:is(.chip-pen,.chip-amber) { background:#ffb020; color:#121212; }
+.tower-motion-chip.chip-out { background:#2a3441; color:#e9eef4; }
+.tower-motion-chip.chip-drop { background:#ff5a4e; color:#fff; }
+.tower-motion-chip.chip-safe { background:#2fd97f; color:#06120c; }
+.tower-chip-compound { width:14px; height:14px; border:1px solid currentColor; border-radius:50%; display:inline-grid; place-items:center; font:700 9px/1 var(--mono); }
+.tower-chip-compound[data-compound=SOFT] { color:#ff3b30; }
+.tower-chip-compound[data-compound=MEDIUM] { color:#ffcf2e; }
+.tower-chip-compound[data-compound=HARD] { color:#e9eef4; }
+.tower-chip-compound[data-compound=INTERMEDIATE] { color:#2fd97f; }
+.tower-chip-compound[data-compound=WET] { color:#4d8dff; }
+.app-shell [data-motion-flash=deleted] { position:relative; color:#ffb020; }
+.app-shell [data-motion-flash=deleted]::after { content:""; position:absolute; left:2px; right:2px; top:50%; height:2px; background:#ffb020; transform-origin:0 50%; animation:tower-strike .5s cubic-bezier(.16,1,.3,1) forwards; }
+@keyframes tower-strike { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+.app-shell [data-motion-variant=race] [data-motion-state=IN_PIT] { background:linear-gradient(90deg,#4d8dff26,#4d8dff08 60%,#0b0f14); }
+.app-shell [data-motion-variant=race] [data-motion-state=IN_PIT] :is(.driver-cell > b,.timing-row > strong,.phone-position) { color:#a9c6ff; }
+.app-shell [data-motion-variant=race] [data-motion-state=IN_PIT] .driver-cell > i { background:repeating-linear-gradient(180deg,#4d8dff 0 4px,transparent 4px 7px) !important; }
+.app-shell .tv-redesign :is(.timing-row,.phone-timing-row) { --tower-motion-pad:calc(16 * var(--tv-unit,1px)); --tower-motion-numeric:max(12px,calc(22 * var(--tv-unit,1px))); }
+.app-shell[data-reduced-motion=true] :is(.timing-row,.phone-timing-row)[data-motion-cause] { outline:1px solid #7a8594; outline-offset:-1px; }
+.app-shell[data-reduced-motion=true] :is(.timing-row,.phone-timing-row)[data-motion-cause=pass] { outline-color:var(--tower-team); }
+.app-shell[data-reduced-motion=true] :is(.timing-row,.phone-timing-row)[data-motion-cause=best] { outline-color:var(--tower-session-best); }
+.app-shell[data-reduced-motion=true] :is(.timing-row,.phone-timing-row)[data-motion-cause=improve] { outline-color:var(--tower-personal-best); }
+.app-shell[data-reduced-motion=true] .tower-motion-chip,.app-shell[data-reduced-motion=true] [data-motion-flash]::after { animation:none; }
+.app-shell[data-reduced-motion=true] [data-motion-flash=best] { color:#b14cff; }
+.app-shell[data-reduced-motion=true] [data-motion-flash=improve] { color:#2fd97f; }
+.app-shell[data-reduced-motion=true] .tower-motion-delta { transition:none; }

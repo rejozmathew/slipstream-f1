@@ -103,7 +103,7 @@ test("Race Timing adds a source interval alongside the leader gap without changi
   assert.deepEqual(rows.map((row) => row.children[3].textContent), ["—", "+0.123", "—", "—", "+1 LAP", "+1.234"]);
   assert.equal(rows[3].children[2].textContent, "DNF");
   assert.equal(rows[5].children[2].textContent, "FINISHED");
-  assert.ok(rows.every((row) => row.children.length === 10));
+  assert.ok(rows.every((row) => row.querySelectorAll(":scope > :not(.tower-motion-effects)").length === 10));
   root.window.close();
   assert.doesNotMatch(render(TimingTower, { ...props, intervalsAvailable: false }), />INT<|\+0\.123/);
   for (const mode of ["standard", "strategy"]) assert.doesNotMatch(render(TimingTower, { ...props, mode }), />INT<|\+0\.123/);
@@ -209,7 +209,7 @@ test("Practice GAP compares P1 while INT preserves the adjacent best-lap differe
     const rows = [...root.window.document.querySelectorAll("button[role=row]")];
     assert.deepEqual(rows.map(row => row.children[6].textContent), ["—", "+0.113", "+0.149", "—"]);
     assert.deepEqual(rows.map(row => row.children[7].textContent), ["—", "+0.113", "+0.036", "—"]);
-    assert.ok(rows.every(row => row.children.length === 11));
+    assert.ok(rows.every(row => row.querySelectorAll(":scope > :not(.tower-motion-effects)").length === 11));
     assert.match(html, /title="Best-lap gap to the leader \(P1\)\."/);
     assert.match(html, />INT</);
     assert.doesNotMatch(html, /BENCHMARK|\+0\.685/);
@@ -256,7 +256,7 @@ const qualifyingAnalytics = (phase = "Q2", final = false) => ({
     drivers: { "1": { scopeBest: "1:21.444", benchmarkDelta: 0.456, intervalToAhead: 0.123,
       segmentResults: [83.111, 82.222, 81.333], qStatus: "OUT Q2",
       latestLap: { lapTime: 84, sector1: 99.999, sector2: 99.999, sector3: 99.999 },
-      scopeLatestLap: { lapTime: 84, sector1: 26.111, sector2: 28.222, sector3: 29.667 },
+      scopeBestLap: { lapTime: 81.444, sector1: 26.111, sector2: 28.222, sector3: 29.667 },
     } },
   },
 });
@@ -280,7 +280,7 @@ test("Qualifying Standard separates result history from active Timing detail for
 test("Qualifying Timing supports absent sectors, missing scope data and final classifications", () => {
   const analytics = qualifyingAnalytics("Q3", true);
   const model = analytics.qualifying.drivers["1"];
-  Object.assign(model, { scopeBest: null, scopeLatestLap: null, benchmarkDelta: null, intervalToAhead: null });
+  Object.assign(model, { scopeBest: null, scopeBestLap: null, benchmarkDelta: null, intervalToAhead: null });
   const props = { variant: "qualifying", mode: "timing", drivers: [driver], replayAvailable: true, analytics };
   const absent = render(TimingTower, props);
   assert.deepEqual(tableHeaders(absent), ["P", "DRIVER / TEAM", "Q3", "GAP", "INT", "TYRE", "STATUS", "Q STATUS"]);
@@ -390,7 +390,7 @@ test("approved desktop Race extension keeps source intervals adjacent in every m
     const rows = [...page.window.document.querySelectorAll("button[role=row]")];
     assert.deepEqual(header, inventory);
     assert.equal(rows.length, drivers.length);
-    assert.ok(rows.every(row => row.children.length === inventory.length));
+    assert.ok(rows.every(row => row.querySelectorAll(":scope > :not(.tower-motion-effects)").length === inventory.length));
     assert.deepEqual(rows.map(row => row.children[3].textContent), ["—", "+0.000", "—", "—", "—", "—", "—", "+1.234", "+1 LAP"]);
     assert.equal(rows[1].children[2].textContent, "+0.685");
     assert.equal(rows[6].children[2].textContent, "DNF");
@@ -408,13 +408,13 @@ test("approved desktop Race extension keeps source intervals adjacent in every m
   page.window.close();
 });
 
-test("Race desktop places lap progress outside the circuit without changing shared map defaults", () => {
+test("Track presentation keeps lap progress outside the circuit on every posture", () => {
   const props = { session: { ...EMPTY_RACE_STATE.session, session_kind: "race", lap: 20, total_laps: 72 }, circuit: { ...EMPTY_RACE_STATE.circuit, path: [[0, 0], [10, 0], [5, 10]] }, drivers: [driver], positionMode: "timing_estimate", viewingMode: "replay" };
   const desktop = render(TrackMap, { ...props, lapInHeader: true });
   assert.match(desktop, /LAP 20 \/ 72/);
   assert.doesNotMatch(desktop, /class="map-center"/);
   assert.match(desktop, /POSITION · APPROX · TIMING-DERIVED/);
-  assert.match(render(TrackMap, props), /class="map-center"/);
+  assert.doesNotMatch(render(TrackMap, props), /class="map-center"/);
 });
 
 test("Session splitter clamps to usable panes, supports keyboard and ends cancelled drags", async () => {

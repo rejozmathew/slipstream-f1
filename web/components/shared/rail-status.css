@@ -1,0 +1,29 @@
+/* Status skins and transition timing transcribed from the authored shared rail. */
+.app-shell :is(.session-strip,.tv-session-rail) { position:relative; isolation:isolate; }
+.app-shell :is(.session-strip,.tv-session-rail) > :not(.rail-transition) { position:relative; z-index:2; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition[data-status="VSC"]),
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition[data-status="VSC_ENDING"]) { background:repeating-linear-gradient(-45deg,#ffcf2e 0 22px,#f2bd12 22px 44px); color:#121212; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition[data-status="VSC_ENDING"]) { background-size:62px 62px; animation:rail-vsc-ending 1s linear infinite; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition[data-status="SAFETY_CAR"]) { background:#ffcf2e; color:#121212; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition:is([data-status="RED"],[data-status="RED_FLAG"])) { background:#ff3b30; color:#fff; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition:is([data-status="VSC"],[data-status="VSC_ENDING"],[data-status="SAFETY_CAR"])) :is(.tv-flag,.track-stat,.session-title h1,.session-title p,.session-stat,.session-stat .data-value,.tv-session-identity strong,.tv-session-identity small,.tv-progress,.tv-progress small,.tv-progress span,.tv-rail-clock,.tv-rail-clock span) { background:transparent; color:#121212; border-color:#12121233; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition:is([data-status="RED"],[data-status="RED_FLAG"])) :is(.tv-flag,.track-stat,.session-title h1,.session-title p,.session-stat,.session-stat .data-value,.tv-session-identity strong,.tv-session-identity small,.tv-progress,.tv-progress small,.tv-progress span,.tv-rail-clock,.tv-rail-clock span) { background:transparent; color:#fff; border-color:#ffffff33; }
+.app-shell .session-strip:has(.rail-transition:is([data-status="VSC"],[data-status="VSC_ENDING"],[data-status="SAFETY_CAR"],[data-status="RED"],[data-status="RED_FLAG"])) .session-stat > span { color:inherit; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition[data-status="YELLOW"]) :is(.tv-flag,.track-stat,.track-stat .data-value) { background:#ffcf2e; color:#121212; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition[data-status="CHEQUERED"]) { background:conic-gradient(#f2f4f7 25%,#0b0d10 0 50%,#f2f4f7 0 75%,#0b0d10 0) 0 0 / 28px 28px; }
+.app-shell :is(.session-strip,.tv-session-rail):has(.rail-transition[data-status="CHEQUERED"]) :is(.tv-flag,.track-stat,.tv-rail-middle,.session-title,.session-stat) { background:#0b0d10ee; color:#fff; }
+.app-shell :is(.session-strip,.tv-session-rail) :is(.tv-viewer-mode,.session-mode) { background:#0b0f14; color:#e9eef4; }
+.app-shell .rail-transition { z-index:1; }
+.app-shell .rail-transition::after { background:var(--rail-color,#0b0f14); }
+.app-shell .rail-transition:is([data-status="VSC"],[data-status="VSC_ENDING"])::after { background:repeating-linear-gradient(-45deg,#ffcf2e 0 22px,#f2bd12 22px 44px); }
+.app-shell .rail-transition[data-status="CHEQUERED"]::after { background:conic-gradient(#f2f4f7 25%,#0b0d10 0 50%,#f2f4f7 0 75%,#0b0d10 0) 0 0 / 28px 28px; }
+.app-shell .rail-transition[data-status="YELLOW"]::after { background:linear-gradient(90deg,#ffcf2e 0 210px,#0b0f14 210px); }
+.app-shell .rail-transition[data-transition="escalate"]::after { animation:rail-reference-wipe var(--rail-wipe-duration) cubic-bezier(.65,0,.35,1); }
+.app-shell .session-strip:has(.rail-transition[data-transition="escalate"]) .track-stat { animation:rail-reference-blink .5s steps(1) .52s 3; }
+.app-shell .tv-session-rail:has(.rail-transition[data-transition="escalate"]) .tv-flag { animation:rail-reference-blink .5s steps(1) .7s 3; }
+@keyframes rail-reference-wipe { from { clip-path:inset(0 100% 0 0); opacity:1; } to { clip-path:inset(0 0 0 0); opacity:1; } }
+@keyframes rail-reference-blink { 0% { opacity:1; } 50% { opacity:.08; } }
+@keyframes rail-vsc-ending { to { background-position:62px 0; } }
+.app-shell[data-reduced-motion="true"] :is(.session-strip,.tv-session-rail,.tv-flag,.track-stat,.rail-transition::after) { animation:none !important; }
+.app-shell[data-reduced-motion="true"] :is(.session-strip,.tv-session-rail):has(.rail-transition[data-transition="escalate"]) :is(.tv-flag,.track-stat) { outline:3px solid currentColor; outline-offset:-6px; }
+@media(prefers-reduced-motion:reduce) { .app-shell :is(.session-strip,.tv-session-rail,.tv-flag,.track-stat,.rail-transition::after) { animation:none !important; } }

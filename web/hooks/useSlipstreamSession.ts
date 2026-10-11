@@ -63,6 +63,7 @@ export function useSlipstreamSession() {
   const [navigationGeneration, setNavigationGeneration] = useState(0);
   const [watchedUntil, setWatchedUntil] = useState<string | null>(null);
   const [playbackSpeed, setPlaybackSpeedState] = useState(10);
+  const [syncOffsetSeconds, setSyncOffsetSeconds] = useState(0);
   const [returnPoint, setReturnPoint] = useState<{ at: string; seq: number; playing: boolean; speed: number; delay: number } | null>(null);
   const [livePositionMode, setLivePositionMode] = useState<import("../domain/protocol").PositionMode>("unavailable");
   const [livePhase, setLivePhase] = useState<LiveProductPhase>("UNAVAILABLE");
@@ -115,6 +116,7 @@ export function useSlipstreamSession() {
     setNavigationGeneration((value) => value + 1);
     setWatchedUntil(null);
     setReturnPoint(null);
+    setSyncOffsetSeconds(0);
     pausedAtRef.current = null;
     setLiveDelaySeconds(0);
     setRequestedLiveDelaySeconds(0);
@@ -165,12 +167,18 @@ export function useSlipstreamSession() {
           const persistedSession = persistedKey
             ? result.sessions.find((item) => item.sessionKey === persistedKey)
             : null;
-          const resolvedKey = persistedSession?.sessionKey ?? result.defaultSessionKey;
+          const liveKey = intent.followLive ? result.liveSessionKey : null;
+          const savedLiveKey = intent.mode === "live" ? savedSessionKey() : null;
+          const fallbackKey = persistedSession?.sessionKey ?? result.defaultSessionKey;
+          const resolvedKey = liveKey ?? savedLiveKey ?? fallbackKey;
           const resolvedSession = persistedSession
             ?? result.sessions.find((item) => item.sessionKey === resolvedKey);
           resetSessionView();
           setSelectedSessionKey(resolvedKey);
-          setViewingMode(intent.followLive ? (resolvedSession?.liveAvailable ? "live" : "replay") : intent.mode === "live" && !resolvedSession?.liveAvailable ? "replay" : intent.mode);
+          const resolvedMode = resolvedSession?.replayReady && !resolvedSession.liveAvailable ? "replay"
+            : liveKey || savedLiveKey || (intent.followLive && resolvedSession?.liveAvailable) ? "live" : intent.mode;
+          setViewingMode(resolvedMode);
+          if (resolvedMode === "live" && resolvedKey) saveIntent(resolvedKey, "live", intent.followLive);
         } else if (followLiveRef.current && result.liveSessionKey && (
           viewingModeRef.current !== "live"
           || (result.liveSessionKey !== selectedSessionKeyRef.current
@@ -180,6 +188,7 @@ export function useSlipstreamSession() {
           cursorRef.current = null;
           setSelectedSessionKey(result.liveSessionKey);
           setViewingMode("live");
+          saveIntent(result.liveSessionKey, "live", true);
         }
         setCatalogError(null);
       } catch (error) {
@@ -282,6 +291,7 @@ export function useSlipstreamSession() {
           resetSessionView();
           cursorRef.current = null;
           setSelectedSessionKey(envelope.live.nextSessionKey);
+          saveIntent(envelope.live.nextSessionKey, "live", true);
         }
         if (envelope.mode === "replay" && envelope.handoff === "REPLAY_READY") {
           const next = followLiveRef.current ? catalogRef.current?.liveSessionKey : null;
@@ -291,6 +301,7 @@ export function useSlipstreamSession() {
             resetSessionView();
             cursorRef.current = null;
             setSelectedSessionKey(next);
+            saveIntent(next, "live", true);
           } else setViewingMode("replay");
         }
       }
@@ -515,8 +526,11 @@ export function useSlipstreamSession() {
 
   const replayMoment = (at: string) => {
     if (viewingMode !== "replay" || !playhead || !canCommand({ type: "seek", at })) return false;
-    const saved = { at: playhead, seq: sequence, playing: isPlaying, speed: playbackSpeed, delay: delayRef.current };
-    if (!sendReplayCommand({ type: "seek", at })) return false;
+    const saved = { at: playhead, seq: sequence, playing: isPlaying, speed: playbackSpeed, delay: syncOffsetSeconds };
+    // Arrive before the occurrence so the viewer can see the actual order change.
+    const start = metadata?.startTime ? Date.parse(metadata.startTime) : -Infinity;
+    const preroll = new Date(Math.max(start, Date.parse(at) - 5000)).toISOString();
+    if (!sendReplayCommand({ type: "seek", at: preroll })) return false;
     setReturnPoint((current) => current ?? saved);
     sendReplayCommand({ type: "play", speed: 1 });
     return true;
@@ -525,9 +539,20 @@ export function useSlipstreamSession() {
   const returnFromMoment = () => {
     if (!returnPoint || viewingMode !== "replay" || !sendReplayCommand({ type: "seek", seq: returnPoint.seq, playhead: returnPoint.at })) return false;
     setPlaybackSpeedState(returnPoint.speed);
-    delayRef.current = returnPoint.delay;
+    setSyncOffsetSeconds(returnPoint.delay);
     if (returnPoint.playing) sendReplayCommand({ type: "play", speed: returnPoint.speed });
     setReturnPoint(null);
+    return true;
+  };
+
+  const setReplaySyncOffset = (seconds: number) => {
+    if (viewingMode !== "replay" || !Number.isFinite(seconds)) return false;
+    const next = Math.max(0, Math.min(300, Math.round(seconds)));
+    const command: ReplayCommand = { type: "seek_relative", seconds: syncOffsetSeconds - next };
+    if (!sendReplayCommand(command)) return false;
+    setSyncOffsetSeconds(next);
+    // A sync adjustment keeps the broadcast running if it was already playing.
+    if (isPlaying) sendReplayCommand({ type: "play", speed: playbackSpeed });
     return true;
   };
 
@@ -583,8 +608,12 @@ export function useSlipstreamSession() {
     liveNotice,
     navigationGeneration,
     watchedUntil,
-    playbackSpeed,
+    // Live always advances at real time, independently of the saved replay
+    // speed. Presentation consumers use this clock for map/tower animation.
+    playbackSpeed: viewingMode === "live" ? 1 : playbackSpeed,
     setPlaybackSpeed,
+    syncOffsetSeconds,
+    setReplaySyncOffset,
     hasReturnPoint: returnPoint !== null,
     replayMoment,
     returnFromMoment,

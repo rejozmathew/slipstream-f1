@@ -120,7 +120,7 @@ test("replaying a moment preserves the original cursor, play state and speed", a
   await act(async () => current().setPlaybackSpeed(30));
   const originalGeneration = current().navigationGeneration;
   await act(async () => assert.equal(current().replayMoment(at(50)), true));
-  assert.deepEqual(socket.sent.slice(-2), [{ type: "seek", at: at(50) }, { type: "play", speed: 1 }]);
+  assert.deepEqual(socket.sent.slice(-2), [{ type: "seek", at: at(45) }, { type: "play", speed: 1 }]);
   assert.equal(current().hasReturnPoint, true);
   assert.ok(current().navigationGeneration > originalGeneration);
   await act(async () => socket.emit(frame(50, { playback: { playing: true } })));
@@ -145,6 +145,39 @@ test("returning to a paused point remains paused and replacement recordings rese
   assert.equal(current().watchedUntil, at(1));
 }));
 
+test("sync offset shifts by the change, preserves playing intent, and returns with the saved offset", async () => scenario("replay", async ({ current, sockets, frame }) => {
+  const socket = sockets.at(-1);
+  await act(async () => socket.emit(frame(100, { playback: { playing: true } })));
+  await act(async () => current().setPlaybackSpeed(5));
+  await act(async () => current().setReplaySyncOffset(30));
+  assert.deepEqual(socket.sent.slice(-2), [{ type: "seek_relative", seconds: -30 }, { type: "play", speed: 5 }]);
+  await act(async () => current().setReplaySyncOffset(10));
+  assert.deepEqual(socket.sent.slice(-2), [{ type: "seek_relative", seconds: 20 }, { type: "play", speed: 5 }]);
+  assert.equal(current().syncOffsetSeconds, 10);
+  await act(async () => current().replayMoment(at(50)));
+  await act(async () => current().setReplaySyncOffset(5));
+  await act(async () => current().returnFromMoment());
+  assert.equal(current().syncOffsetSeconds, 10);
+  assert.equal(current().playbackSpeed, 5);
+  await act(async () => socket.emit(frame(100, { playback: { playing: false } })));
+  await act(async () => current().setReplaySyncOffset(0));
+  assert.deepEqual(socket.sent.at(-1), { type: "seek_relative", seconds: 10 });
+}));
+
+test("moment lead-in clamps to recording start and live cannot acquire a replay sync offset", async () => {
+  await scenario("replay", async ({ current, sockets, frame }) => {
+    const socket = sockets.at(-1);
+    await act(async () => socket.emit(frame(80, { metadata: { sessionKey: "A", available: true, replayAvailable: true, startTime: at(0) } })));
+    await act(async () => current().replayMoment(at(2)));
+    assert.deepEqual(socket.sent.slice(-2), [{ type: "seek", at: at(0) }, { type: "play", speed: 1 }]);
+  });
+  await scenario("live", async ({ current, sockets, frame }) => {
+    await act(async () => sockets.at(-1).emit(frame(100)));
+    await act(async () => assert.equal(current().setReplaySyncOffset(30), false));
+    assert.equal(current().syncOffsetSeconds, 0);
+  });
+});
+
 test("a live paused cursor survives reconnect and each restored stream is silent", async () => scenario("live", async ({ current, sockets, frame, retry }) => {
   const socket = sockets.at(-1);
   await act(async () => socket.emit(frame(100, { live: { phase: "LIVE", status: "LIVE", paused: true, stale: false, delaySeconds: 30, requestedDelaySeconds: 30, navigationGeneration: 0 } })));
@@ -161,6 +194,16 @@ test("a live paused cursor survives reconnect and each restored stream is silent
   assert.ok(current().navigationGeneration > generation);
   assert.equal(current().liveDelaySeconds, 40);
   assert.equal(current().replayMoment(at(50)), false);
+}));
+
+test("live presentation always uses real-time speed instead of the default replay multiplier", async () => scenario("live", async ({ current, sockets, frame }) => {
+  await act(async () => sockets.at(-1).emit(frame(100)));
+  assert.equal(current().viewingMode, "live");
+  assert.equal(current().playbackSpeed, 1);
+  await act(async () => assert.equal(current().setPlaybackSpeed(30), false));
+  assert.equal(current().playbackSpeed, 1);
+  await act(async () => sockets.at(-1).emit(frame(101, { live: { phase: "LIVE", paused: true, delaySeconds: 44 } })));
+  assert.equal(current().playbackSpeed, 1);
 }));
 
 test("forward navigation acknowledges a new generation after buffered snapshots and quietly seeds its destination", async () => scenario("replay", async ({ current, sockets, frame }) => {
@@ -187,7 +230,8 @@ test("forward navigation acknowledges a new generation after buffered snapshots 
   assert.equal(node.querySelector(".story-moment"), null);
   await act(async () => socket.emit(snapshot(91, 1, [storyEvent(80), storyEvent(90), storyEvent(91)])));
   assert.equal(node.querySelectorAll(".story-is-new").length, 1);
-  assert.match(node.querySelector(".story-moment").textContent, /Flag 91/);
+  assert.equal(node.querySelector(".story-moment").dataset.eventId, storyEvent(91).id);
+  assert.match(node.querySelector(".story-moment").textContent, /Session suspended/);
 }, value => createElement("div", null,
   createElement(StoryFeed, { story: value.analytics?.story, mode: "replay", generation: value.navigationGeneration }),
   createElement(StoryMoments, { story: value.analytics?.story, mode: "replay", generation: value.navigationGeneration, playing: value.isPlaying, speed: 1 }),

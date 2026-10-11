@@ -22,6 +22,8 @@ class PirelliRefreshState:
     last_success_at: datetime | None = None
     last_reason: str | None = None
     last_error: str | None = None
+    normalized_releases: int = 0
+    skipped_releases: int = 0
 
 
 class PirelliRuntimeCoordinator:
@@ -30,6 +32,8 @@ class PirelliRuntimeCoordinator:
     def __init__(self, service: PirelliIngestionService) -> None:
         self.service = service
         self._states: dict[str, PirelliRefreshState] = {}
+        self.last_check_at: datetime | None = None
+        self.next_check_at: datetime | None = None
 
     @property
     def states(self) -> dict[str, PirelliRefreshState]:
@@ -43,6 +47,8 @@ class PirelliRuntimeCoordinator:
         resource_loader: Callable[[str], object],
         now: datetime,
     ) -> None:
+        self.last_check_at = _as_utc(now)
+        self.next_check_at = self.last_check_at + timedelta(minutes=30)
         races = [
             item
             for item in descriptors.values()
@@ -121,19 +127,25 @@ class PirelliRuntimeCoordinator:
         reason: str,
     ) -> None:
         issues: list[str] = []
+        normalized = skipped = 0
         try:
             for descriptor in sorted(meeting_targets, key=lambda item: item.date_start):
-                target = await asyncio.to_thread(self._target,
-                    meeting_key, descriptor, inventory, resource_loader
+                target = await asyncio.to_thread(
+                    self._target, meeting_key, descriptor, inventory, resource_loader
                 )
                 report = await self.service.refresh(target, now=attempted)
                 issues.extend(report.issues)
+                normalized += len(report.normalized_release_ids)
+                skipped += len(report.skipped_release_urls)
             if issues:
                 raise RuntimeError("; ".join(issues))
         except Exception as error:  # noqa: BLE001 - observable state is retried
             message = f"{type(error).__name__}: {error}"
             self._states[meeting_key] = replace(
-                self._states[meeting_key], last_error=message
+                self._states[meeting_key],
+                last_error=message,
+                normalized_releases=normalized,
+                skipped_releases=skipped,
             )
             logger.warning(
                 "Pirelli refresh failed for meeting %s (%s): %s",
@@ -143,7 +155,11 @@ class PirelliRuntimeCoordinator:
             )
             return
         self._states[meeting_key] = replace(
-            self._states[meeting_key], last_success_at=attempted, last_error=None
+            self._states[meeting_key],
+            last_success_at=attempted,
+            last_error=None,
+            normalized_releases=normalized,
+            skipped_releases=skipped,
         )
         logger.info(
             "Pirelli refresh completed for meeting %s (%s)", meeting_key, reason
@@ -180,6 +196,7 @@ class PirelliRuntimeCoordinator:
                 )
             except Exception:
                 logger.exception("Unexpected Pirelli coordinator failure")
+            self.next_check_at = _as_utc(clock()) + timedelta(minutes=30)
             await asyncio.sleep(30 * 60)
 
 
@@ -212,9 +229,7 @@ def build_ingestion_target(
             )
             for driver in resource.final_state.drivers.values()
         )
-    event_tag = pirelli_event_tag(
-        int(descriptor.year), str(descriptor.meeting_name)
-    )
+    event_tag = pirelli_event_tag(int(descriptor.year), str(descriptor.meeting_name))
     country = getattr(descriptor, "country", None)
     country_tag = (
         pirelli_event_tag(int(descriptor.year), f"{country} Grand Prix")

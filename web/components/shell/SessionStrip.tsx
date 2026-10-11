@@ -5,6 +5,7 @@ import type { CatalogSession, LiveProductPhase, RaceState, ViewingMode } from ".
 import { RailTransition } from "../shared/RailTransition";
 import { SessionProgress } from "../shared/SessionProgress";
 import { DataValue } from "../shared/DataValue";
+import { sessionStatusLabel } from "../../domain/sessionStatus";
 
 function countdownLabel(target: string | null, now: number) {
   if (!target) return "—";
@@ -37,7 +38,8 @@ export function SessionStrip({ session, selected, viewingMode, livePhase, liveNo
   const preEvent = viewingMode === "live" && livePhase === "PRE_EVENT";
   const race = session.layout_family === "race" || selected?.layoutFamily === "race";
   const canonicalStatus = session.display_status ?? session.track_status;
-  const displayStatus = !canonicalStatus || canonicalStatus === "UNKNOWN" ? null : canonicalStatus.replaceAll("_", " ");
+  const statusKey = canonicalStatus?.toLowerCase().replaceAll("_", "-") ?? "unknown";
+  const displayStatus = sessionStatusLabel(session);
   const modeLabel = viewingMode === "live" ? livePhase.replaceAll("_", " ") : "REPLAY";
   const startsIn = useMemo(() => countdownLabel(selected?.dateStart ?? date, now), [date, now, selected?.dateStart]);
   useEffect(() => {
@@ -46,19 +48,19 @@ export function SessionStrip({ session, selected, viewingMode, livePhase, liveNo
     return () => window.clearInterval(timer);
   }, [preEvent]);
   return (
-    <section className={`session-strip${preEvent ? " session-strip-pre-event" : ""}`} data-track-status={displayStatus?.toLowerCase().replaceAll(" ", "-") ?? "unknown"}>
+    <section className={`session-strip${preEvent ? " session-strip-pre-event" : ""}`} data-track-status={statusKey}>
       <RailTransition status={canonicalStatus} generation={navigationGeneration} />
       <div className="session-title">
         <span className={`session-mode ${viewingMode === "live" ? `live live-${livePhase.toLowerCase()}` : ""}`}>{modeLabel}</span>
         <h1>{session.meeting_name ?? selected?.meetingName ?? "Session unavailable"}</h1>
         <p>{session.name ?? selected?.sessionName ?? "Select a session"}</p>
-        {preEvent && <div className="pre-event-inline"><span>STARTS IN <strong>{startsIn}</strong></span><b>{sessionStartLabel(selected?.dateStart ?? date, gmtOffset)}</b><em>WAITING FOR PUBLIC TIMING FEED</em></div>}
+        {preEvent && <div className="pre-event-inline"><span>STARTS IN <strong>{startsIn}</strong></span><b>{sessionStartLabel(selected?.dateStart ?? date, gmtOffset)}</b></div>}
         {viewingMode === "replay" && liveNow && <div className="live-now-action"><span>LIVE NOW</span><button onClick={onGoLive}>GO LIVE</button></div>}
       </div>
       <div className="session-stat"><span>DATE</span><DataValue compact value={date ? formatSessionDate(date) : null} /></div>
       <div className="session-stat"><span>LOCAL</span><DataValue compact value={session.local_time ? `${session.local_time.slice(11, 19)} ${utcOffsetLabel(gmtOffset)}` : sessionStartLabel(selected?.dateStart ?? null, gmtOffset)} /></div>
       {!preEvent && <div className="session-stat lap-stat session-progress"><SessionProgress session={session} /></div>}
-      {(race || displayStatus) && <div className="session-stat track-stat" data-track-status={displayStatus?.toLowerCase().replaceAll(" ", "-") ?? "unknown"}><span>STATUS</span><DataValue compact value={displayStatus ?? "—"} /></div>}
+      {(race || displayStatus) && <div className="session-stat track-stat" data-track-status={statusKey}><span>STATUS</span><DataValue compact value={displayStatus ?? "—"} /></div>}
     </section>
   );
 }

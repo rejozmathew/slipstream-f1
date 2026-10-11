@@ -15,14 +15,18 @@ type ReplayControlsProps = {
   onSpeedChange?: (speed: number) => boolean | void;
   hasReturnPoint?: boolean;
   onReturn?: () => boolean | void;
+  syncOffsetSeconds?: number;
+  onSyncOffsetChange?: (seconds: number) => boolean | void;
 };
 
-export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, commandAvailable, onCommand, speed: controlledSpeed, onSpeedChange, hasReturnPoint, onReturn }: ReplayControlsProps) {
+export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, commandAvailable, onCommand, speed: controlledSpeed, onSpeedChange, hasReturnPoint, onReturn, syncOffsetSeconds = 0, onSyncOffsetChange }: ReplayControlsProps) {
   const [localSpeed, setLocalSpeed] = useState(10);
   const speed = controlledSpeed ?? localSpeed;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
-  const [delaySeconds, setDelaySeconds] = useState(0);
+  const [delaySeconds, setDelaySeconds] = useState(syncOffsetSeconds);
+  const [lastSyncOffset, setLastSyncOffset] = useState(syncOffsetSeconds);
+  if (lastSyncOffset !== syncOffsetSeconds) { setLastSyncOffset(syncOffsetSeconds); setDelaySeconds(syncOffsetSeconds); }
   const [scrubSeconds, setScrubSeconds] = useState<number | null>(null);
   const [pendingSeconds, setPendingSeconds] = useState<number | null>(null);
   const serverElapsed = useMemo(() => {
@@ -105,9 +109,9 @@ export function ReplayControls({ metadata, playhead, gmtOffset, isPlaying, comma
         {[0.5, 1, 2, 5, 10, 20, 30, 60, 120].map((value) => <option value={value} key={value}>{value}x</option>)}
       </select></label>
       <div className="delay-control">
-        <label><span>SYNC DELAY</span><input aria-label="Seconds behind session data" type="number" min={0} step={1} value={delaySeconds} disabled={!enabled} onChange={(event) => setDelaySeconds(Math.max(0, Number(event.target.value) || 0))} /></label>
+        <label><span>SYNC OFFSET</span><input aria-label="Replay sync offset in seconds" type="number" min={0} max={300} step={1} value={delaySeconds} disabled={!enabled} onChange={(event) => setDelaySeconds(Math.min(300, Math.max(0, Number(event.target.value) || 0)))} /></label>
         <span>SEC</span>
-        <button disabled={!enabled} onClick={() => onCommand({ type: "delay", seconds: delaySeconds })}>APPLY</button>
+        <button disabled={!enabled} onClick={() => onSyncOffsetChange?.(delaySeconds)}>APPLY</button>
       </div>
       </div>
     </section>

@@ -112,3 +112,13 @@ The proposed ZIP correctly identified the major documentation drift, but it was 
 ## Unresolved documentation/code inconsistency
 
 None identified in this reconciliation pass.
+
+## Reference fidelity correction — 2026-10-05
+
+The follow-up replaces the remaining approximations with the supplied reference compositions: TV footer and sync controls, Following/Strategy/Result, Battle hero, lap bars, map labels and timing-gap ribbon, typed Story cards/ticker, persistent desktop timing rail, and qualifying/practice panels. Sporting values remain server-authored.
+
+Status acceptance covers GREEN, YELLOW, VSC, VSC_ENDING, SAFETY_CAR, RED/RED_FLAG and CHEQUERED. Major caution/finish takeovers retain the reference eligibility rules; green, yellow and VSC-ending updates use the rail/feed. Yellow and chequered are included in escalation tests. Red suspension uses the exact reference wording. A labelled visual fixture using the production components is available at `/tests/status-preview.html` on the Vite development server.
+
+Validation: 517 backend tests passed, one skipped; 129 frontend tests passed; Ruff, TypeScript, ESLint and production build passed. The browser verified the real Hungarian VSC transition at 1×, all 22 TV rows, normal-speed STR/BOT row movement followed by corroborated pass cues, desktop Battle/Strategy, and actual Qualifying/Practice desktop and 390×844 phone layouts. A visual fixture verified the full status palette and major banners. Gemini Flash through the local Antigravity proxy supplied bounded regression suggestions, reviewed locally.
+
+These follow-up changes are in the working checkout and local production preview. They have not been pushed or deployed. Earlier milestone verification counts describe their original snapshots.

@@ -1,6 +1,6 @@
 /** Presentation-only widths. Sporting values remain authored by the server. */
-export function fitTowerColumns(headers: string[], available: number, showAll = false, scale = 1) {
-  const widths = headers.map((header) => header.startsWith("DRIVER") ? 140 : header === "P" ? 28 : header === "TYRE" ? 38 : ["PIT", "AGE", "STOPS", "STINT"].includes(header) ? 36 : header === "TYRE STRATEGY" ? 94 : header === "STATUS" || header === "Q STATUS" ? 86 : header.startsWith("S") && header.length === 2 ? 62 : 78).map((width) => width * scale);
+export function fitTowerColumns(headers: string[], available: number, showAll = false, scale = 1, minimumWidths: Record<string, number> = {}) {
+  const widths = headers.map((header) => minimumWidths[header] ?? (header.startsWith("DRIVER") ? 140 : header === "P" ? 28 : header === "TYRE" ? 38 : ["PIT", "AGE", "STOPS", "STINT"].includes(header) ? 36 : header === "TYRE STRATEGY" ? 94 : header === "STATUS" || header === "Q STATUS" ? 86 : header.startsWith("S") && header.length === 2 ? 62 : 78)).map((width) => width * scale);
   const priorities = ["S3", "S2", "S1", "LAST STOP", "AGE", "STINT", "STATUS", "PIT", "STOPS", "BEST", "LAST", "Q1", "SQ1", "Q2", "SQ2", "INT", "TYRE STRATEGY"];
   const hidden: number[] = [];
   let total = widths.reduce((sum, width) => sum + width, 0);

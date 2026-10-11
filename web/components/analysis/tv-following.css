@@ -1,0 +1,35 @@
+.ref-tv-following { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:calc(26 * var(--tv-unit)); min-height:0; height:100%; overflow:hidden; }
+.ref-driver-card { min-width:0; overflow:auto; }
+.ref-driver-card > header { display:flex; align-items:center; gap:calc(14 * var(--tv-unit)); padding:calc(16 * var(--tv-unit)); background:linear-gradient(90deg,color-mix(in srgb,var(--team,#77808f) 26%,#0b0f14),#0b0f14); box-shadow:inset calc(4 * var(--tv-unit)) 0 0 var(--team,#77808f); }
+.ref-driver-card > header > b { font:700 calc(54 * var(--tv-unit))/1 var(--mono); }
+.ref-driver-card > header > div { display:flex; flex-direction:column; gap:calc(5 * var(--tv-unit)); min-width:0; }
+.ref-driver-card > header strong { font:800 calc(46 * var(--tv-unit))/1 var(--sans); letter-spacing:.06em; }
+.ref-driver-card > header span { font:500 calc(18 * var(--tv-unit))/1.2 var(--sans); color:var(--muted); }
+.ref-driver-card > header em { margin-left:auto; font:700 calc(14 * var(--tv-unit))/1 var(--sans); font-style:normal; }
+.ref-driver-facts { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); margin-top:calc(12 * var(--tv-unit)); background:#0b0f14; }
+.ref-driver-facts > div { display:flex; flex-direction:column; align-items:flex-start; gap:calc(10 * var(--tv-unit)); padding:calc(18 * var(--tv-unit)); min-height:calc(110 * var(--tv-unit)); border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
+.ref-tv-following h3 { margin:0; font:700 calc(13 * var(--tv-unit))/1 var(--sans); letter-spacing:.18em; color:var(--quiet); }
+.ref-driver-facts > div > b { display:flex; align-items:center; gap:calc(10 * var(--tv-unit)); font:600 calc(30 * var(--tv-unit))/1 var(--mono); }
+.ref-driver-facts small { font:500 calc(13 * var(--tv-unit))/1.4 var(--sans); color:var(--muted); letter-spacing:.06em; }
+.ref-driver-facts .ref-last-pit { grid-column:1 / -1; }
+.ref-sectors { display:flex; gap:calc(8 * var(--tv-unit)); font:500 calc(14 * var(--tv-unit))/1.2 var(--mono); }
+.ref-tv-following .compound-badge i { width:calc(28 * var(--tv-unit)); height:calc(28 * var(--tv-unit)); font-size:calc(14 * var(--tv-unit)); }
+.ref-driver-events { list-style:none; margin:calc(20 * var(--tv-unit)) 0 0; padding:0; }
+.ref-driver-events li { display:grid; grid-template-columns:calc(50 * var(--tv-unit)) 1fr; gap:calc(18 * var(--tv-unit)); padding:calc(10 * var(--tv-unit)) 0; border-bottom:1px solid var(--line); font-size:calc(18 * var(--tv-unit)); }
+.ref-driver-events li > span { color:var(--quiet); font-family:var(--mono); }
+.ref-driver-events p { margin:calc(6 * var(--tv-unit)) 0; color:var(--muted); font-size:calc(14 * var(--tv-unit)); }
+.ref-following-right { display:flex; flex-direction:column; gap:calc(18 * var(--tv-unit)); min-width:0; overflow:auto; }
+.ref-following-map { height:calc(330 * var(--tv-unit)); min-height:calc(330 * var(--tv-unit)); }
+.ref-following-map > .map-panel { height:100%; }
+.ref-following-map .panel-heading { display:none; }
+.ref-map-unavailable { display:flex; flex-direction:column; gap:calc(18 * var(--tv-unit)); padding:calc(30 * var(--tv-unit)) calc(34 * var(--tv-unit)); border:1px solid var(--line); border-left:calc(4 * var(--tv-unit)) solid var(--quiet); background:#0b0f14; }
+.ref-map-unavailable b { font:600 calc(28 * var(--tv-unit))/1.2 var(--sans); }
+.ref-map-unavailable span { font:400 calc(20 * var(--tv-unit))/1.3 var(--sans); color:var(--muted); }
+.ref-laps { padding:calc(16 * var(--tv-unit)) calc(18 * var(--tv-unit)); background:#0b0f14; border:1px solid var(--line); }
+.ref-lap-bars { display:flex; gap:calc(4 * var(--tv-unit)); height:calc(170 * var(--tv-unit)); margin:calc(10 * var(--tv-unit)) 0; }
+.ref-lap-bar { display:grid; grid-template-rows:1fr calc(45 * var(--tv-unit)) calc(18 * var(--tv-unit)); flex:1; min-width:0; align-items:end; gap:calc(3 * var(--tv-unit)); text-align:center; }
+.ref-lap-bar i { display:block; height:var(--bar-height); background:linear-gradient(#90a0ae,#3f4954); }
+.ref-lap-bar.is-best i { background:#2fd97f; }.ref-lap-bar.is-pit i { background:#4b89ff; }
+.ref-lap-bar em { writing-mode:vertical-rl; transform:rotate(180deg); font:500 calc(12 * var(--tv-unit))/1 var(--mono); font-style:normal; justify-self:center; white-space:nowrap; color:var(--muted); }
+.ref-lap-bar > span { font:500 calc(12 * var(--tv-unit))/1 var(--mono); color:var(--quiet); }
+.ref-muted { font:400 calc(13 * var(--tv-unit))/1.4 var(--sans); color:var(--quiet); margin:0; }

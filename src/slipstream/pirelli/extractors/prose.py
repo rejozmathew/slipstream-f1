@@ -62,7 +62,9 @@ _NUMBER_WORDS = {
     "nine": 9.0,
     "ten": 10.0,
 }
-_DELTA_NUMBER = r"(?:\d+(?:\.\d+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten)"
+_DELTA_NUMBER = (
+    r"(?:\d+(?:\.\d+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten)"
+)
 _ANNOTATION_SUBJECT = re.compile(
     r"(?P<strategy>\b(?:race\s+)?(?:strateg(?:y|ies)|options?|alternatives?|tactics?)\b)"
     r"|(?P<other>\b(?:pit[- ]stops?|pit\s+windows?|windows?|laps?|sectors?)\b)",
@@ -274,8 +276,7 @@ def _strategy_annotations(
         item
         for item in caveats
         if not any(
-            other != item and other.casefold() in item.casefold()
-            for other in caveats
+            other != item and other.casefold() in item.casefold() for other in caveats
         )
     ]
 
@@ -350,6 +351,59 @@ def extract_strategy_prose(
     review: list[ExtractionIssue] = []
     unresolved: list[UnresolvedClaim] = []
     sentences = _SENTENCE.split(text)
+
+    # An explicitly preferred opening compound and the immediately following
+    # second-stint alternatives are ordered routes when the next sentence
+    # explicitly calls those alternatives one-stop. Do not attach the slower
+    # two-stop comparison to either route, or manufacture a stop lap/ranking.
+    for index in range(1, len(sentences) - 2):
+        previous, opening, finish, comparison = sentences[index - 1 : index + 3]
+        if not re.search(r"\btomorrow['’]s\s+race\b", previous, re.IGNORECASE):
+            continue
+        start = re.search(
+            rf"\b({_COMPOUND})\s+in\s+the\s+opening\s+phase\b"
+            r"[^.!?]{0,100}\bpreferred\s+choice\b",
+            opening,
+            re.IGNORECASE,
+        )
+        ends = re.match(
+            rf"For\s+the\s+second\s+part\s+of\s+the\s+race,\s+the\s+"
+            rf"({_COMPOUND})\s+and\s+({_COMPOUND})\s+offer\b",
+            finish,
+            re.IGNORECASE,
+        )
+        if (
+            not start
+            or not ends
+            or not re.search(
+                r"\bavailable\s+one[- ]stop\s+alternatives\b",
+                comparison,
+                re.IGNORECASE,
+            )
+        ):
+            continue
+        if re.search(
+            r"\b(?:not|never|historically|last year)\b",
+            opening + " " + finish,
+            re.IGNORECASE,
+        ):
+            continue
+        first = _compound(start.group(1))
+        for value in ends.groups():
+            second = _compound(value)
+            if first is not None and second is not None and first != second:
+                options.append(
+                    _make(
+                        source_url=source_url,
+                        artifact_id=artifact_id,
+                        compounds=(first, second),
+                        windows=(None,),
+                        evidence_text=f"{previous} {opening} {finish} {comparison}",
+                        rank_text=opening,
+                        annotate=False,
+                        applicability=applicability,
+                    )
+                )
 
     # 1) Explicit hyphenated sequences, but only inside a proven strategy context.
     direct_pattern = re.compile(

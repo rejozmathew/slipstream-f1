@@ -89,13 +89,13 @@ Pit lane traversal is not proof of a stationary tyre stop. A later compound obse
 
 The story never promotes the current top-N boundary to a guaranteed advancement result. Explicit source elimination is distinct from being currently below the cut. Qualifying analytics provides `cutLabel` (`ABOVE CUT`, `BELOW CUT`, `ELIMINATED`, `UNKNOWN`) and `settlement` (`RUNNING`, `SETTLING`, `SOURCE_COMPLETE`).
 
-The legacy qualifying `final` boolean identifies the final segment's flag; it is not sufficient for a FINAL or POLE claim. At the flag, the UI says laps are finishing. Explicit source completion can settle the session, while the classification remains labelled provisional. V1 has no inferred quiet-period finalization, predictive qualifying safety, or automatically inferred pole story.
+The legacy qualifying `final` boolean identifies the final segment's flag; it is not sufficient for a FINAL or POLE claim. At the flag, the UI says laps are finishing. Explicit source completion can settle the session, while the classification remains labelled provisional. A completed improving P1 lap emits `SEGMENT_P1` in early segments or `PROVISIONAL_POLE` in Q3/SQ3. Only explicit source completion emits `POLE`; practice completion emits a settled `SESSION_END`. Source elimination transitions emit `ELIMINATED` with the source segment. No quiet-period finalization or predictive qualifying safety is inferred.
 
 ## Replay and navigation
 
 Inspection expands an event's occurrence time, publication time, state, and supported context. Inspection never seeks. “Replay this moment” is a separate replay-only action.
 
-The hook saves the exact sequence, playhead, speed, play/pause state, and viewer delay before replaying a moment at 1×. The return action restores the saved sequence and fractional playhead; the server verifies the clock belongs to that sequence. An equal-timestamp return therefore cannot accidentally include another event. A second inspected moment keeps the original return point until it is used or the session changes.
+The hook saves the exact sequence, playhead, speed, play/pause state, and viewer delay before replaying a moment at 1× with a five-second lead-in, clamped to the recording start. The return action restores the saved sequence and fractional playhead; the server verifies the clock belongs to that sequence. An equal-timestamp return therefore cannot accidentally include another event. A second inspected moment keeps the original return point until it is used or the session changes. Desktop and TV share a replay sync offset: increasing it seeks backward by the difference while preserving play intent.
 
 Live has no historical seek. The feed explains that moments become replayable once a recording exists. Live pause is a private bounded viewer delay, described in [Session experience](session-experience.md), and does not turn Live into recorded replay.
 
@@ -105,7 +105,7 @@ During ordinary forward viewing, new events may animate. If a reader has scrolle
 
 ## TV and reduced motion
 
-TV keeps timing visible while the analysis area presents major moments. The ticker preserves recent history; its Activity view supports inspection and replay. A moment holds for five wall-clock seconds at ordinary speed and 2.2 seconds from 5×. Faster arrivals replace pending content instead of forming a stale queue. At 20× and above only results and red flags receive takeovers. Seek/reconnect rebuilds never count as fresh news.
+TV keeps timing visible while the analysis area presents major moments. The ticker shows the latest four highlights. Flags hold for 4.2 seconds, winner/pole/elimination cards for 9 seconds, and other moments for 5.6 seconds, with a 2.6-second minimum before queued replacement. From 5×, durations scale to 60% and pending moments collapse to the highest-priority recent item. At 20× and above only winner/pole results and red flags receive takeovers. Seek/reconnect rebuilds never count as fresh news. VSC uses a full yellow striped rail and banner; SC is solid yellow, red flags red, and the finish uses a chequered treatment. The bottom toolbar reserves space for every timing row and hides after six seconds of inactivity.
 
 Reduced motion removes entrance transforms and timing-row travel. Facts, labels, hierarchy, and readable hold time remain. Device motion and density preferences apply across desktop, phone, and TV. Density uses layout tokens, not CSS `zoom`.
 

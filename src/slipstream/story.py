@@ -257,6 +257,44 @@ class StoryEvidence:
                              drivers=(number,), priority=2 if fastest else 1,
                              data={"lapTime": lap_time, "lap": observation.get("lap"), "sessionBest": fastest})
 
+            if session.layout_family == "qualifying":
+                # Elimination is a source fact, never inferred from a ticking
+                # clock or from a temporary position below the cut line.
+                if driver.qualifying_eliminated is True and (not old or old.qualifying_eliminated is not True):
+                    eliminated_phase = driver.qualifying_phase_reached or phase
+                    emit("ELIMINATED", f"{_name(state, number)} out in {eliminated_phase or 'qualifying'}",
+                         "Source-confirmed elimination", drivers=(number,), priority=3,
+                         cause="CLASSIFICATION", data={"phase": eliminated_phase})
+                # Only a new completed lap can introduce a provisional P1.
+                # A later historical result packet must not replay that alert.
+                if isinstance(observation, dict) and observation.get("duration") is not None and observation.get("lap_validity") != "INVALID" and driver.position == 1 and phase:
+                    prior_leader = next((d for d in before.drivers.values() if d.position == 1), None)
+                    improved = old is None or _lap_seconds(driver.best_lap) != _lap_seconds(old.best_lap)
+                    if improved or prior_leader is None or prior_leader.number != number:
+                        final_segment = phase in {"Q3", "SQ3"}
+                        emit("PROVISIONAL_POLE" if final_segment else "SEGMENT_P1",
+                             f"{_name(state, number)} takes provisional pole" if final_segment else f"{_name(state, number)} goes fastest in {phase}",
+                             "Current order; laps in progress may change the result.", drivers=(number,),
+                             priority=3 if final_segment else 2, status="provisional",
+                             data={"lapTime": observation["duration"], "sessionClock": session.session_clock})
+
+        # Completion is an explicit source signal. A flag alone cannot declare
+        # pole or a practice winner while other cars finish their laps.
+        complete = event.kind == "session" and (
+            event.payload.get("session_complete") is True
+            or str(event.payload.get("status", "")).upper() in {"COMPLETE", "FINAL", "FINALIZED", "FINALISED", "ENDED"}
+        )
+        if complete and not race:
+            top = sorted((d for d in state.drivers.values() if d.position is not None), key=lambda d: d.position)
+            if top and top[0].position == 1 and (session.layout_family == "practice" or phase in {"Q3", "SQ3"}):
+                kind = "POLE" if session.layout_family == "qualifying" else "SESSION_END"
+                previous_result = next((e for e in reversed(self.events) if e.kind == kind and e.data.get("settled")), None)
+                if previous_result is None or previous_result.drivers[0] != top[0].number:
+                    emit(kind, f"{_name(state, top[0].number)} on pole" if kind == "POLE" else f"{_name(state, top[0].number)} fastest",
+                         "Session complete · provisional classification", drivers=tuple(d.number for d in top[:3]),
+                         priority=3, status="provisional", supersedes=previous_result,
+                         data={"settled": True, "top": [d.number for d in top[:3]], "lapTime": _lap_seconds(top[0].best_lap)})
+
         # Expire candidates on caution, pit/lifecycle changes, lap mismatch or
         # reversed order. Both drivers must supply fresh progress after the
         # confirmation interval; mere silence never confirms an overtake.

@@ -23,6 +23,7 @@ import aiohttp
 from .async_work import finish_owned
 from .events import NormalizedEvent, parse_timestamp
 from .evidence import SessionEvidence
+from .f1_laps import F1LapReconciler
 from .f1_timing import (
     finalize_f1_classifications,
     merge_f1_provider_value,
@@ -508,7 +509,7 @@ class F1LiveAdapter:
     )
 
     def __init__(
-        self, target_session_key: str, *, source: str = "f1-signalr-public"
+        self, target_session_key: str, *, source: str = "f1-signalr-public", lap_history=()
     ) -> None:
         self.target_session_key = str(target_session_key)
         self.source = source
@@ -525,6 +526,9 @@ class F1LiveAdapter:
         self._emitted_pits: set[tuple[str, int]] = set()
         self._lap_annotations: dict[str, dict[int, dict[str, bool]]] = {}
         self.event_topics: dict[int, str] = {}
+        self._lap_reconciler = F1LapReconciler(lap_history)
+        self._timing_initialized = False
+        self._previous_timing: dict[str, Any] = {}
 
     def ingest(self, row: dict[str, Any]) -> tuple[NormalizedEvent, ...]:
         self.event_topics = {}
@@ -915,7 +919,7 @@ class F1LiveAdapter:
                 if current_in_pit is not None:
                     self._in_pit[number] = current_in_pit
 
-        return normalize_f1_timing(
+        events = normalize_f1_timing(
             merged,
             patch,
             occurred_at,
@@ -924,7 +928,15 @@ class F1LiveAdapter:
             qualifying_phase=self._qualifying_phase,
             lap_annotations=self._lap_annotations,
             neutralized=self._lap_neutralized(),
+            allow_unnumbered_lap=True,
+            previous=self._previous_timing,
         )
+        self._previous_timing = merged
+        result = self._lap_reconciler.reconcile(events, patch, self._qualifying_phase,
+                                               initial=not self._timing_initialized,
+                                               lap_annotations=self._lap_annotations)
+        self._timing_initialized = self._timing_initialized or bool(events)
+        return result
 
     def _pit_lane_time_events(
         self, patch: Any, occurred_at: str
@@ -1567,7 +1579,7 @@ class PublicLiveSession:
                 self._normalized_recording_dir, str(session_key)
             )
             self._restore_recorded_events(())
-        adapter = F1LiveAdapter(str(session_key))
+        adapter = F1LiveAdapter(str(session_key), lap_history=self._events)
         self._adapter = adapter
         for row in rows:
             self._ingest_row(adapter, row)
@@ -1837,7 +1849,7 @@ class PublicLiveSession:
             and not self._replay_ready
             and self._collecting
         ):
-            adapter = F1LiveAdapter(session_key)
+            adapter = F1LiveAdapter(session_key, lap_history=self._events)
             self._adapter = adapter
             self._status = "CONNECTING" if not self._ever_connected else "STALE"
             self._reconnecting = self._ever_connected

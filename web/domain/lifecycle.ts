@@ -1,4 +1,8 @@
-import type { Driver } from "./protocol";
+import type { Driver, QualifyingDriverIntelligence } from "./protocol";
+
+export function qualifyingEliminated(driver: Pick<Driver, "qualifying_eliminated">, intelligence?: Pick<QualifyingDriverIntelligence, "cutState">): boolean {
+  return driver.qualifying_eliminated ?? intelligence?.cutState === "ELIMINATED";
+}
 
 export type DriverLifecycle = {
   status: string;

@@ -40,6 +40,8 @@ def normalize_f1_timing(
     qualifying_phase: str = "UNKNOWN",
     lap_annotations: Mapping[str, Mapping[int, Mapping[str, Any]]] | None = None,
     neutralized: bool | None = None,
+    allow_unnumbered_lap: bool = False,
+    previous: dict[str, Any] | None = None,
 ) -> list[NormalizedEvent]:
     """Normalize merged F1 TimingData while respecting sparse patch intent."""
 
@@ -87,14 +89,16 @@ def normalize_f1_timing(
             "sector_2": _number(_value(sectors[1])) if len(sectors) > 1 else None,
             "sector_3": _number(_value(sectors[2])) if len(sectors) > 2 else None,
         }
-        track_position = _timing_track_position(sectors, line_patch)
+        previous_line = (previous or {}).get("Lines", {}).get(raw_number, {})
+        track_position = _timing_track_position(sectors, line_patch, previous_line)
         if track_position is not None:
             updates["track_position"] = track_position
         last_lap_value = _value(item.get("LastLapTime"))
         if (
             last_lap_value
-            and isinstance(updates.get("lap"), int)
-            and ("LastLapTime" in line_patch or (not patch_lines and line_patch == {}))
+            and (isinstance(updates.get("lap"), int) or allow_unnumbered_lap)
+            and ((isinstance(line_patch.get("LastLapTime"), dict) and "Value" in line_patch["LastLapTime"])
+                 or (not patch_lines and line_patch == {}))
         ):
             app_line = (
                 app_lines.get(raw_number, {}) if isinstance(app_lines, dict) else {}
@@ -115,7 +119,7 @@ def normalize_f1_timing(
             )
             new_value = stint.get("New")
             duration = _duration_seconds(last_lap_value)
-            lap_number = int(updates["lap"])
+            lap_number = int(updates["lap"]) if isinstance(updates.get("lap"), int) else None
             annotation = dict(
                 (lap_annotations or {}).get(number, {}).get(lap_number, {})
             )
@@ -332,14 +336,16 @@ def _lap_started_at(occurred_at: str, duration: float | None) -> str:
 
 
 def _timing_track_position(
-    merged_sectors: list[Any], line_patch: dict[str, Any]
+    merged_sectors: list[Any], line_patch: dict[str, Any], previous_line: dict[str, Any] | None = None
 ) -> float | None:
     """Estimate lap fraction from official TimingData mini-sector progress.
 
     TimingData marks completed/current mini-sectors in sparse patches. The
     merged sector structure supplies the track-specific mini-sector count,
     while a lap update is the authoritative start/finish-line position.
-    Reset-only segment patches carry no new position evidence.
+    Reset-only patches and recolouring an already completed mini-sector carry
+    no new position evidence. In particular, losing a purple mini-sector is
+    not the car driving backwards to that part of the lap.
     """
 
     if len(merged_sectors) != 3:
@@ -368,19 +374,31 @@ def _timing_track_position(
         return (
             0.0
             if (_number(line_patch.get("NumberOfLaps"), integer=True) or 0) > 0
+            and line_patch.get("NumberOfLaps") != (previous_line or {}).get("NumberOfLaps")
             else None
         )
 
+    previous_sectors = _ordered_values((previous_line or {}).get("Sectors"))
+    completed = (2048, 2049, 2051)
     latest: int | None = None
     for sector_index, sector_patch in _indexed_values(patch_sectors):
         if sector_index >= len(sector_sizes) or not isinstance(sector_patch, dict):
             continue
         sector_size = sector_sizes[sector_index]
+        previous_segments = (
+            dict(_indexed_values(previous_sectors[sector_index].get("Segments")))
+            if sector_index < len(previous_sectors) and isinstance(previous_sectors[sector_index], dict)
+            else {}
+        )
         for segment_index, segment in _indexed_values(sector_patch.get("Segments")):
             if (
                 segment_index < sector_size
                 and isinstance(segment, dict)
-                and segment.get("Status") in (2048, 2049, 2051)
+                and segment.get("Status") in completed
+                and not (
+                    isinstance(previous_segments.get(segment_index), dict)
+                    and previous_segments[segment_index].get("Status") in completed
+                )
             ):
                 latest = max(
                     latest or 0, sum(sector_sizes[:sector_index]) + segment_index + 1

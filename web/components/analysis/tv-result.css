@@ -1,0 +1,16 @@
+.ref-tv-result { display:flex; flex-direction:column; gap:calc(24 * var(--tv-unit)); min-width:0; }
+.ref-tv-result header > span,.ref-result-facts section > span { font:700 calc(14 * var(--tv-unit))/1 var(--sans); color:var(--quiet); letter-spacing:.16em; }
+.ref-tv-result h2 { margin:calc(10 * var(--tv-unit)) 0 0; font:800 calc(32 * var(--tv-unit))/1.1 var(--sans); }
+.ref-result-podium { display:grid; grid-template-columns:1.25fr 1fr 1fr; align-items:end; gap:calc(18 * var(--tv-unit)); }
+.ref-result-pod { display:flex; flex-direction:column; gap:calc(10 * var(--tv-unit)); padding:calc(24 * var(--tv-unit)) calc(28 * var(--tv-unit)); min-width:0; min-height:calc(210 * var(--tv-unit)); background:linear-gradient(180deg,color-mix(in srgb,var(--team,#77808f) 35%,#0b0f14),#0b0f14); border-top:calc(3 * var(--tv-unit)) solid var(--team,#77808f); }
+.ref-result-p1 { min-height:calc(250 * var(--tv-unit)); }.ref-result-p3 { min-height:calc(185 * var(--tv-unit)); }
+.ref-result-pod > span { font:500 calc(20 * var(--tv-unit))/1 var(--mono); color:var(--muted); }
+.ref-result-pod > b { font:800 calc(60 * var(--tv-unit))/1 var(--sans); letter-spacing:.06em; }
+.ref-result-pod strong { font:600 calc(24 * var(--tv-unit))/1.1 var(--sans); }.ref-result-pod small { color:var(--muted); font-size:calc(18 * var(--tv-unit)); }
+.ref-result-pod em { margin-top:auto; font:500 calc(18 * var(--tv-unit))/1.3 var(--mono); font-style:normal; }
+.ref-result-facts { display:grid; grid-template-columns:1fr 1fr; gap:calc(20 * var(--tv-unit)); }
+.ref-result-facts section { display:flex; flex-direction:column; gap:calc(12 * var(--tv-unit)); padding:calc(24 * var(--tv-unit)); background:#0b0f14; border:1px solid var(--line); }
+.ref-result-facts strong { font:700 calc(46 * var(--tv-unit))/1 var(--mono); }.ref-result-facts small { font-size:.5em; color:var(--muted); }
+.ref-result-facts p,.ref-result-note { margin:0; font-size:calc(18 * var(--tv-unit)); color:var(--muted); }
+.ref-result-out { display:flex; flex-wrap:wrap; gap:calc(18 * var(--tv-unit)); font:700 calc(14 * var(--tv-unit))/1 var(--sans); color:var(--quiet); }
+.ref-result-wait { display:flex; flex-direction:column; gap:calc(18 * var(--tv-unit)); padding:calc(40 * var(--tv-unit)); color:var(--muted); }.ref-result-wait b { font-size:calc(34 * var(--tv-unit)); color:var(--ink); }.ref-result-wait span { font-size:calc(22 * var(--tv-unit)); }

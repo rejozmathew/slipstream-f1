@@ -378,27 +378,6 @@ button { transition:background-color 120ms ease,color 120ms ease,border-color 12
 .tv-live-notice { padding:8px 16px; border-bottom:1px solid var(--line); background:#241b0d; color:var(--amber); font:600 max(12px,calc(17 * var(--tv-unit)))/1.5 var(--sans); }
 
 .app-shell { --text:var(--ink); --panel:var(--surface); --font-mono:var(--mono); }
-.story-feed { border:1px solid var(--line-soft); background:var(--surface); }
-.story-feed-heading { padding:10px; font:700 9px/1.3 var(--sans); letter-spacing:.14em; }
-.story-filters button { padding:5px; border:1px solid transparent; border-radius:0; font:650 9px var(--sans); }
-.story-filters button[aria-pressed=true] { background:var(--surface-raised); color:var(--ink); border-color:var(--line); }
-.story-inspect { padding:10px; gap:8px; min-height:55px; }
-.story-time { color:var(--quiet); font-size:9px; min-width:28px; }
-.story-tag { font:650 9px/1.4 var(--sans); }
-.story-body strong { font:700 12px/1.4 var(--sans); }
-.story-detail { color:var(--muted); font:500 10px/1.4 var(--sans); }
-.story-kind-pass .story-tag { color:var(--green); }
-.story-kind-result .story-tag { color:var(--ink); }
-.story-new { background:var(--ink); color:var(--ground); }
-.story-facts { padding:0 12px 12px; }
-.session-moments .story-moment,.tv-moments .story-moment { position:relative; inset:auto; width:100%; border-color:var(--accent); padding:18px 40px 18px 20px; background:#111720f5; }
-.story-moment-kicker { color:var(--muted); }
-.session-moments .story-moment strong { font-size:22px; }
-.tv-moments { width:min(55%,760px); }
-.tv-ticker .tv-ticker-items { display:flex; gap:12px; max-height:none; align-self:stretch; }
-.tv-ticker-items > button { display:flex; flex:1; min-width:0; flex-direction:column; justify-content:center; text-align:left; gap:5px; border:0; border-left:1px solid var(--line); padding:6px 10px; background:transparent; color:var(--ink); }
-.tv-ticker-items small { font:650 max(9px,calc(12 * var(--tv-unit)))/1 var(--sans); color:var(--quiet); letter-spacing:.1em; }
-.tv-ticker-items strong { font:700 max(11px,calc(17 * var(--tv-unit)))/1.2 var(--sans); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .tv-activity-panel > .story-feed { max-height:45vh; min-height:200px; }
 .tv-story-detail { padding:0 0 18px; }
 .tv-story-detail h3 { margin:0 0 10px; font:750 24px var(--sans); }
@@ -417,7 +396,6 @@ button { transition:background-color 120ms ease,color 120ms ease,border-color 12
 .tv-result li strong { font:750 calc(22 * var(--tv-unit)) var(--sans); }
 .tv-result li small { font:500 calc(14 * var(--tv-unit)) var(--sans); color:var(--quiet); }
 .tv-result li em { margin-left:auto; font:600 calc(14 * var(--tv-unit)) var(--mono); color:var(--muted); }
-@media(max-width:900px) { .story-filters button { min-height:44px; } .session-moments .story-moment { padding:12px 42px 12px 14px; } .session-moments .story-moment strong { font-size:15px; } .session-moments .story-moment p { font-size:11px; margin:5px 0 0; } .session-moments .story-moment-kicker { font-size:9px; margin-bottom:5px; } .story-moment button { min-width:44px; min-height:44px; } }
 
 /* A TV-only web entry keeps one mounted viewer behind the session list. */
 .view-tv-sessions { display:block; padding:0; }
@@ -496,3 +474,9 @@ button { transition:background-color 120ms ease,color 120ms ease,border-color 12
   .phone-activity > .story-feed { flex:none; height:min(60dvh,520px); min-height:280px; }
   .phone-timing-row { min-height:44px; }
 }
+.qualifying-sector-legend { display:flex; flex-wrap:wrap; gap:6px 14px; margin:0; padding:12px; font:600 10px/1.5 var(--mono); border-bottom:1px solid var(--line-soft); }
+.qualifying-sector-legend small { flex-basis:100%; color:var(--muted); font-size:10px; }
+.qualifying-segment-history { min-height:0; overflow:auto; }
+.qualifying-driver-attempts { display:flex; flex-direction:column; }
+.qualifying-driver-attempts > .panel-heading, .qualifying-sector-legend { flex-shrink:0; }
+.qualifying-history-segment h3 { position:sticky; top:0; z-index:1; margin:0; padding:10px 12px; background:var(--panel); border-block:1px solid var(--line-soft); font:800 12px/1 var(--mono); }

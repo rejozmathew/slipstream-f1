@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import "./app/globals.css";
 import Home from "./app/page";
 import "./app/redesign.css";
+import "./views/tv-presentation.css";
+import "./components/shared/rail-status.css";
 
 const root = document.getElementById("root");
 
