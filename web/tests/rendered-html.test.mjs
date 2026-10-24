@@ -166,7 +166,8 @@ test("wires Strategy, Driver, Battle and navigation to canonical server contract
   assert.match(battleComposition, /analytics\?\.battle\.histories/);
   assert.doesNotMatch(battleView + battleComposition, /stateHistory/);
   assert.match(battleView, /STRATEGY COMPARISON/);
-  assert.match(trackMap, /car\.focus \? " is-focus" : focus\.size \? " is-dim" : ""/);
+  assert.match(trackMap, /car\.focus \? " is-focus" : ""/);
+  assert.doesNotMatch(trackMap, /is-dim/);
   assert.match(shell, /layout === "race" \|\| \(view !== "strategy" && view !== "battle"\)/);
   assert.match(shell, /querySelectorAll<HTMLElement>\("\.timing-table, \.analysis-stack"\)/);
 });
