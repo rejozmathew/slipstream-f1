@@ -90,7 +90,13 @@ export function useTrackMotion(ref: RefObject<SVGSVGElement | null>, targets: Tr
   const previous = useRef<(ReturnType<typeof motionContext> & { geometry: TrackGeometry | null }) | null>(null);
   useLayoutEffect(() => {
     const svg = ref.current;
-    if (!svg || !geometry) return;
+    if (!svg || !geometry) {
+      if (frame.current != null) window.cancelAnimationFrame(frame.current);
+      frame.current = null;
+      cars.current.clear();
+      previous.current = null;
+      return;
+    }
     const current = { ...motionContext(svg, context), geometry }, last = previous.current;
     previous.current = current;
     const jumped = !last || last.generation !== current.generation || last.identity !== current.identity || last.geometry !== geometry || (last.at != null && current.at != null && current.at < last.at);
@@ -159,6 +165,6 @@ export function useTrackMotion(ref: RefObject<SVGSVGElement | null>, targets: Tr
   }, [ref, targets, geometry, context]);
   useLayoutEffect(() => {
     const states = cars.current;
-    return () => { if (frame.current != null) window.cancelAnimationFrame(frame.current); states.clear(); };
+    return () => { if (frame.current != null) window.cancelAnimationFrame(frame.current); frame.current = null; states.clear(); };
   }, []);
 }

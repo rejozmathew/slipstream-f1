@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
+import { catalogMeetingLabel, orderedSeasonWeekends } from "../domain/sessionSelection.mjs";
 import { BrandMark, BrandOpening } from "../components/shared/Brand";
 import type { CatalogSession, ReplayCatalog, ViewingMode } from "../domain/protocol";
 import type { TVPreferences } from "../hooks/useProductPreferences";
@@ -29,7 +30,7 @@ export function TVSessionPicker({ catalog, selectedKey, viewingMode, preferences
   const sessions = catalog?.sessions ?? [];
   const years = [...new Set(sessions.map((session) => session.year))].sort((a, b) => b - a);
   const activeYear = year != null && years.includes(year) ? year : sessions.find((session) => session.sessionKey === selectedKey)?.year ?? years[0];
-  const yearSessions = sessions.filter((session) => session.year === activeYear);
+  const yearSessions = orderedSeasonWeekends(sessions, activeYear ?? null).flatMap((meeting) => meeting.sessions);
   const browsed = yearSessions.find((session) => session.sessionKey === browsedKey) ?? yearSessions[0];
   const selected = sessions.find((session) => session.sessionKey === selectedKey);
   const style = { "--tv-text-size": preferences.textSize ?? 1, "--safe-x": `${preferences.safeArea ?? 0}vw`, "--safe-y": `${preferences.safeArea ?? 0}vh` } as CSSProperties;
@@ -72,8 +73,8 @@ export function TVSessionPicker({ catalog, selectedKey, viewingMode, preferences
     {error && <p className="tv-library-notice" role="alert">{error}</p>}
     {!catalog ? <BrandOpening phase={error ? "Session catalog unavailable" : "Opening session catalog"} /> : <>
       <nav className="tv-library-years" aria-label="Season">{years.map((item) => <button key={item} aria-pressed={item === activeYear} onClick={() => { setYear(item); setBrowsedKey(null); }}>{item}</button>)}</nav>
-      <div className="tv-library-content"><section className="tv-session-list" aria-label="Available sessions">{yearSessions.length ? yearSessions.map((session) => <button key={session.sessionKey} aria-pressed={session.sessionKey === browsed?.sessionKey} onClick={() => setBrowsedKey(session.sessionKey)}><small>{session.meetingName}</small><strong>{session.sessionName}</strong><span>{dateLabel(session)} · {session.liveAvailable ? `LIVE ${session.livePhase.replaceAll("_", " ")}` : session.available ? "REPLAY READY" : "NOT DOWNLOADED"}</span></button>) : <p>No sessions are listed yet.</p>}</section>
-      <section className="tv-session-preview" aria-label="Selected session">{browsed ? <><span>{browsed.year} · {browsed.meetingName}</span><h2>{browsed.sessionName}</h2><p>{browsed.circuit ?? browsed.location ?? "Circuit information unavailable"}</p><p>{dateLabel(browsed)}</p><div className="tv-session-actions">
+      <div className="tv-library-content"><section className="tv-session-list" aria-label="Available sessions">{yearSessions.length ? yearSessions.map((session) => <button key={session.sessionKey} aria-pressed={session.sessionKey === browsed?.sessionKey} onClick={() => setBrowsedKey(session.sessionKey)}><small>{catalogMeetingLabel(session)}</small><strong>{session.sessionName}</strong><span>{dateLabel(session)} · {session.liveAvailable ? `LIVE ${session.livePhase.replaceAll("_", " ")}` : session.available ? "REPLAY READY" : "NOT DOWNLOADED"}</span></button>) : <p>No sessions are listed yet.</p>}</section>
+      <section className="tv-session-preview" aria-label="Selected session">{browsed ? <><span>{browsed.year} · {catalogMeetingLabel(browsed)}</span><h2>{browsed.sessionName}</h2><p>{browsed.circuit ?? browsed.location ?? "Circuit information unavailable"}</p><p>{dateLabel(browsed)}</p><div className="tv-session-actions">
         {browsed.liveAvailable && <button onClick={() => onWatch(browsed.sessionKey, "live")}>{browsed.sessionKey === selectedKey && viewingMode === "live" ? "RESUME LIVE" : "WATCH LIVE"}</button>}
         {browsed.available && <button onClick={() => onWatch(browsed.sessionKey, "replay")}>{browsed.sessionKey === selectedKey && viewingMode === "replay" ? "RESUME REPLAY" : "WATCH REPLAY"}</button>}
         {!browsed.available && catalog.downloadsEnabled && browsed.downloadable && (browsed.sessionKey !== selectedKey ? <button onClick={() => onSelect(browsed.sessionKey)}>SELECT REPLAY FOR DOWNLOAD</button> : <button disabled={downloadState === "downloading"} onClick={onDownload}>{downloadState === "downloading" ? "DOWNLOADING REPLAY…" : "DOWNLOAD REPLAY"}</button>)}

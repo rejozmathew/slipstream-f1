@@ -11,6 +11,14 @@ This document defines the compatibility boundary between source adapters, canoni
 
 Adding optional fields is compatible within version 1. Removing a field, changing its meaning, or changing a required type requires a new major version. Clients must ignore unknown object fields and unknown event types.
 
+## Replay catalog calendar metadata
+
+Catalog sessions optionally expose `roundNumber` (a positive championship round) and `isCancelled` (explicit source cancellation). Round numbers come from the public Jolpica season schedule, matched only to an unambiguous Grand Prix Race on the same UTC date. Sprint and testing sessions never establish a round; a matched weekend shares its round across sessions. Cancellation always suppresses a round assignment. Missing/ambiguous metadata stays unnumbered.
+
+Replay pickers order each season by round, with cancelled weekends and testing in separate groups. If any regular weekend lacks round metadata, that group's calendar dates determine order, keeping gaps in their correct place. A year change opens the first regular weekend; metadata refresh does not reset the selected session. TV uses the same ordering and labels.
+
+The optional calendar request has an eight-second timeout, runs only during the existing background catalog refresh, and cannot prevent session metadata from refreshing. A failure drops round labels for that refresh and retains date ordering. Legacy catalogs receive one metadata upgrade; normal catalog freshness then applies.
+
 ## Canonical state
 
 `RaceState` is the normalized contract used by the terminal, REST API, WebSocket, and browser. Provider response shapes must not appear in it.

@@ -18,7 +18,7 @@ import {
   replayKeyboardPosition,
   sessionClockLabel,
 } from "../domain/replayControls.mjs";
-import { preferredWeekendSession } from "../domain/sessionSelection.mjs";
+import { catalogMeetingLabel, orderedSeasonWeekends, preferredWeekendSession } from "../domain/sessionSelection.mjs";
 import {
   actualStrategyText,
   driverPirelliReferenceRows,
@@ -281,4 +281,39 @@ test("local scrub preview owns the thumb until the committed server position arr
   assert.equal(replayKeyboardPosition("PageUp", 0, 8928), 893);
   assert.equal(replayKeyboardPosition("ArrowLeft", 0, 8928), 0);
   assert.equal(replayKeyboardPosition("Enter", 10, 8928), null);
+});
+
+
+test("season weekends follow verified rounds and keep cancellation/testing separate", () => {
+  const session = (key, year, dateStart, roundNumber, extra = {}) => ({ sessionKey: `${year}-${key}`, meetingKey: key,
+    meetingName: key, year, dateStart, sessionKind: "race", roundNumber, ...extra });
+  const sessions = [session("future", 2026, "2026-11-22T06:00:00Z", 21),
+    session("old-bahrain", 2026, "2026-04-12T12:00:00Z", 4, { isCancelled: true }),
+    session("testing", 2026, "2026-02-11T12:00:00Z", null, { sessionKind: "unknown", meetingName: "Pre-Season Testing" }),
+    session("first", 2026, "2026-03-08T12:00:00Z", 1, { available: true }),
+    session("new-bahrain", 2026, "2026-10-04T07:00:00Z", 16, { available: false }),
+    session("first", 2025, "2025-03-16T12:00:00Z", 1),
+    session("first", 2026, "2026-03-06T12:00:00Z", 1, { sessionKey: "practice", sessionKind: "practice_1" })];
+  const original = sessions.slice();
+  const weekends = orderedSeasonWeekends(sessions, 2026);
+  assert.deepEqual(weekends.map((item) => item.meetingKey), ["first", "new-bahrain", "future", "old-bahrain", "testing"]);
+  assert.deepEqual(weekends.map((item) => item.group), ["races", "races", "races", "cancelled", "testing"]);
+  assert.deepEqual(weekends[0].sessions.map((item) => item.sessionKey), ["practice", "2026-first"]);
+  assert.equal(weekends[0].label, "R01 · first");
+  assert.equal(weekends[3].label, "old-bahrain · CANCELLED");
+  assert.deepEqual(sessions, original);
+  assert.equal(orderedSeasonWeekends(sessions, 2025).length, 1);
+  assert.deepEqual(orderedSeasonWeekends(sessions, 2024), []);
+});
+
+test("partial or absent round metadata keeps chronological gaps and unknown dates last", () => {
+  const sessions = [
+    { meetingKey: "c", dateStart: "2026-03-29T12:00:00Z", roundNumber: 3 },
+    { meetingKey: "d", dateStart: "bad" },
+    { meetingKey: "b", dateStart: "2026-03-14T22:00:00-08:00" },
+    { meetingKey: "a", dateStart: "2026-03-08T12:00:00Z", roundNumber: 1 },
+  ].map((item) => ({ ...item, sessionKey: item.meetingKey, meetingName: item.meetingKey, year: 2026, sessionKind: "race" }));
+  assert.deepEqual(orderedSeasonWeekends(sessions, 2026).map((item) => item.meetingKey), ["a", "b", "c", "d"]);
+  assert.equal(catalogMeetingLabel(sessions[2]), "b");
+  assert.equal(catalogMeetingLabel({ meetingName: "Unknown", roundNumber: 0 }), "Unknown");
 });

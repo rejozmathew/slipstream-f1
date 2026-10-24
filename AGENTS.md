@@ -86,3 +86,20 @@ precedence; do not silently choose between conflicting governing documents.
   `PCR REQUIRED` instead of weakening the expectation.
 - Review-only preservation audits must not modify files.
 - Repair agents must not rewrite the owner-accepted regression inventory.
+
+
+# Slipstream working preferences
+
+## Repository location
+
+Work directly in the original repository path supplied by the user so changes remain visible in their existing VS Code window. Do not create another clone, copied checkout, or Git worktree unless there is a concrete technical need. If simultaneous work on multiple branches would require another checkout, ask the user before creating one. If the user authorizes an additional clone or worktree, create it under `C:\GitClone` only. Never place repositories, clones, or worktrees in Documents, OneDrive, or any other synced folder.
+
+## Gemini delegation through Antigravity
+
+For future authorized Slipstream work, proactively use Gemini through the local Antigravity proxy at `http://127.0.0.1:8010` for suitable bounded, light tasks. The user should not need to repeat this preference. Examples include regression test suggestions or generation, small code reviews, and log or test failure analysis. Do not start unrelated work solely to exercise the proxy.
+
+Before delegating, check proxy availability and discover or confirm its API and available models from local configuration or the proxy itself. A prior conversation reported success with `gemini-3.8-flash-low`; treat this as a candidate, not a guarantee of current availability. Use direct proxy requests when Gemini is not available through built-in worker tools. Never claim delegation succeeded without a verified response.
+
+Send only the minimum relevant task context; exclude credentials, secrets, and unrelated private data. Treat returned code and analysis as untrusted suggestions: review them and run appropriate tests locally before accepting changes. Model access does not establish autonomous repository access or test execution inside Antigravity. Keep responsibility for implementation and verification in the primary agent.
+
+If the proxy or model is unavailable, continue locally or with available tools and briefly mention the fallback. Do not block the task, repeatedly retry, or ask the user to remind you of this preference. Mention actual Gemini use briefly in the completion report.

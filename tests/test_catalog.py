@@ -69,12 +69,15 @@ def test_recent_seasons_and_catalog_cache_preload_shapes(tmp_path: Path) -> None
     client = FakeOpenF1Client()
     path = tmp_path / "catalog.json"
 
-    catalog = sync_catalog(path, years, client=client, now=now)
+    catalog = sync_catalog(
+        path, years, client=client, now=now, fetch_rounds=lambda _: []
+    )
     cached = sync_catalog(
         path,
         years,
         client=client,
         now=now + timedelta(hours=1),
+        fetch_rounds=lambda _: [],
     )
 
     assert years == [2024, 2025, 2026]
@@ -216,9 +219,7 @@ def test_preloaded_circuit_enriches_an_older_local_recording(tmp_path: Path) -> 
         },
     ]
     (tmp_path / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
-    (tmp_path / "recording.json").write_text(
-        json.dumps(recording), encoding="utf-8"
-    )
+    (tmp_path / "recording.json").write_text(json.dumps(recording), encoding="utf-8")
 
     library = ReplayLibrary(tmp_path)
     resource = library.get("200")
