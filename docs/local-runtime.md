@@ -27,4 +27,7 @@ each car's observed cadence. Mini-sector recolouring is not movement. Long sourc
 gaps can still make cars slow or stop: the display does not invent future positions.
 Car circles stay at those path positions and use a uniform radius. When symbols
 overlap, connected driver labels move for readability; car circles do not move
-sideways off the track. Follow/leader emphasis uses outlines rather than size.
+sideways off the track. Only explicitly followed drivers receive a distinct
+outline; neighbours are not automatically highlighted and other cars are not dimmed.
+Regression checks cover corners, hairpins, chicanes, irregular shapes, rotations,
+lap crossings and unequal mini-sector inventories without circuit-specific code.

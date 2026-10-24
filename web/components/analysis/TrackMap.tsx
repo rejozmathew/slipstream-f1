@@ -8,7 +8,7 @@ import type { Driver, PositionMode, RaceState, ViewingMode } from "../../domain/
 import { useAxisMotion, useTrackMotion, useTrackViewport } from "../../hooks/useTrackPresentation";
 import { Panel } from "../shared/Panel";
 import { RaceOrderRibbon, TrackAxisDots, type RaceOrderRibbonProps } from "./RaceOrderRibbon";
-import { focusWithNeighbours, mapMarkerOffsets, packAxis, packMapCars, trackNormal, type MapCar, type TrackPosture, type TrackPresentationContext } from "./trackPresentation";
+import { mapMarkerOffsets, packAxis, packMapCars, trackNormal, type MapCar, type TrackPosture, type TrackPresentationContext } from "./trackPresentation";
 import "./trackPresentation.css";
 
 type TrackMapProps = TrackPresentationContext & {
@@ -36,7 +36,7 @@ export function TrackMap({ circuit, session, drivers, positionMode, viewingMode,
   const [failedReference, setFailedReference] = useState<string | null>(null);
   const map = useRef<HTMLDivElement>(null), svg = useRef<SVGSVGElement>(null), line = useRef<HTMLDivElement>(null);
   const viewport = useTrackViewport(map, posture), lineViewport = useTrackViewport(line, posture);
-  const focus = focusWithNeighbours(drivers, focusedDriverNumbers);
+  const focus = new Set(focusedDriverNumbers);
   const positioned = [...drivers].filter((driver) => isTrackMapActive(driver) && !driverLifecycle(driver).inPit && positionMode !== "unavailable" && (
     (positionMode === "precise_xy" && Number.isFinite(driver.x) && Number.isFinite(driver.y)) || hasProgress(driver)
   )).sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
@@ -72,7 +72,7 @@ export function TrackMap({ circuit, session, drivers, positionMode, viewingMode,
         {start && normal && <line className="circuit-start-finish" x1={start.x - normal.x * 16} y1={start.y - normal.y * 16} x2={start.x + normal.x * 16} y2={start.y + normal.y * 16} />}
         <g className="car-markers">{[...cars].sort((a, b) => Number(a.focus || a.priority === 0) - Number(b.focus || b.priority === 0)).map((car) => {
           const driver = car.driver, lifecycle = driverLifecycle(driver), group = representatives.get(driver.number), offset = markerOffsets.get(driver.number) ?? { x: 0, y: 0 };
-          return <g className={`car-marker ${lifecycleClassName(driver)}${car.focus ? " is-focus" : focus.size ? " is-dim" : ""}${driver.position === 1 ? " is-leader" : ""}`} key={driver.number} data-track-driver={driver.number} style={teamStyle(driver)} aria-label={driver.code ?? driver.number} transform={`translate(${car.point.x} ${car.point.y})`}>
+          return <g className={`car-marker ${lifecycleClassName(driver)}${car.focus ? " is-focus" : ""}${driver.position === 1 ? " is-leader" : ""}`} key={driver.number} data-track-driver={driver.number} style={teamStyle(driver)} aria-label={driver.code ?? driver.number} transform={`translate(${car.point.x} ${car.point.y})`}>
             <title>{[driver.name ?? driver.code ?? driver.number, lifecycle.label].filter(Boolean).join(" · ")}</title>
             {(offset.x !== 0 || offset.y !== 0) && <line className="track-car-anchor" x1={0} y1={0} x2={offset.x} y2={offset.y} />}
             <circle className="track-car-dot" cx={0} cy={0} r={radius} />

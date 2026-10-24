@@ -72,6 +72,10 @@ test("leader, followed driver and neighbours keep the same dot size as positions
   const before=sizes(drivers),after=sizes(drivers.map((item,index)=>({...item,position:5-index})));
   assert.equal(new Set(before.values()).size,1);
   assert.deepEqual(after,before);
+  const selected=render(TrackMap,{...mapProps,drivers,focusedDriverNumbers:["3"]});
+  assert.deepEqual([...selected.querySelectorAll('.car-marker.is-focus')].map(node=>node.getAttribute('data-track-driver')),["3"]);
+  assert.equal(selected.querySelectorAll('.car-marker.is-dim').length,0);
+  assert.equal(render(TrackMap,{...mapProps,drivers}).querySelectorAll('.car-marker.is-focus').length,0);
 });
 
 test("timing axis accepts only finite source gaps and explicit lap deficits", () => {
@@ -365,3 +369,55 @@ test("track viewport reads authored TV scale for pixel marker and label sizes", 
     await act(async()=>root.unmount());globalThis.ResizeObserver=oldObserver;window.HTMLElement.prototype.getBoundingClientRect=oldBounds;
   }
 });
+
+
+const circuitShapes = {
+  square: [[0,0],[100,0],[100,100],[0,100]],
+  chicanes: [[0,0],[160,0],[170,20],[140,30],[170,45],[120,80],[100,45],[70,80],[20,70]],
+  hairpin: [[0,0],[300,0],[320,10],[300,20],[40,20],[20,40],[280,50],[250,90],[0,80]],
+  irregular: [[0,0],[15,100],[70,130],[90,80],[60,55],[150,40],[175,0],[110,-40],[60,-20]],
+};
+for (const [shape,path] of Object.entries(circuitShapes)) for (const rotation of [0,37,180]) {
+  test(`${shape} rotated ${rotation}: overlapping moving dots stay on the circuit through lap wrap`, async () => {
+    let now=1000,id=0;
+    const frames=new Map();
+    window.requestAnimationFrame=callback=>{frames.set(++id,callback);return id;};
+    window.cancelAnimationFrame=key=>frames.delete(key);
+    Object.defineProperty(window.performance,"now",{configurable:true,value:()=>now});
+    const geo=buildTrackGeometry(path,rotation),points=[...geo.points,geo.points[0]];
+    const distance=point=>Math.min(...points.slice(1).map((b,index)=>{
+      const a=points[index],dx=b.x-a.x,dy=b.y-a.y;
+      const t=Math.max(0,Math.min(1,((point.x-a.x)*dx+(point.y-a.y)*dy)/(dx*dx+dy*dy||1)));
+      return Math.hypot(point.x-a.x-t*dx,point.y-a.y-t*dy);
+    }));
+    const container=document.getElementById("root"),root=createRoot(container);
+    const update=async(fraction,lap,second)=>act(async()=>root.render(createElement(TrackMap,{
+      ...mapProps,circuit:{...mapProps.circuit,path:path.map(point=>[...point]),rotation},
+      drivers:[1,2,3].map(number=>({...driver,number:String(number),position:number,track_position:fraction,lap})),
+      playing:true,speed:1,asOf:`2026-01-01T00:00:${String(second).padStart(2,"0")}Z`,
+    })));
+    const verify=()=>{
+      const nodes=[...container.querySelectorAll('[data-track-driver]')];
+      assert.equal(nodes.length,3);
+      for(const node of nodes){
+        const [x,y]=node.getAttribute('transform').match(/[-\d.]+/g).map(Number);
+        const dot=node.querySelector('.track-car-dot');
+        assert.ok(distance({x:x+Number(dot.getAttribute('cx')),y:y+Number(dot.getAttribute('cy'))})<.02,`${shape}: dot left path`);
+      }
+    };
+    try {
+      await update(.82,1,1);verify();
+      for(const [fraction,lap,second] of [[.93,1,2],[.02,2,3],[.13,2,4]]){
+        await update(fraction,lap,second);
+        for(let tick=0;tick<20;tick++){
+          now+=50;const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback(now));verify();
+          if(tick===10)await update(fraction,lap,second); // An unrelated snapshot must retain motion/geometry.
+        }
+      }
+    } finally {
+      await act(async()=>root.unmount());
+      assert.equal(frames.size,0);
+      delete window.requestAnimationFrame;delete window.cancelAnimationFrame;
+    }
+  });
+}

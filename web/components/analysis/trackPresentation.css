@@ -7,11 +7,9 @@
 .track-presentation .circuit-centerline { fill:none; stroke:#0b0f14; stroke-width:2; stroke-dasharray:2 10; opacity:.6; }
 .track-presentation .circuit-start-finish { stroke:#e9eef4; stroke-width:5; }
 .track-presentation .car-marker { transition:opacity .15s ease; filter:none; }
-.track-presentation .car-marker.is-dim { opacity:.45; }
 .track-presentation .car-marker circle { vector-effect:none; filter:none; }
 .track-presentation .car-marker .track-car-dot { fill:var(--team); stroke:#06080a; stroke-width:2.5; }
-.track-presentation .car-marker.is-leader .track-car-dot { stroke:#fff; stroke-width:3; }
-.track-presentation .car-marker.is-focus .track-car-dot { stroke:#fff; stroke-width:3.5; }
+.track-presentation .car-marker.is-focus .track-car-dot { stroke:#fff; }
 .track-presentation .car-marker .track-car-label { font-family:var(--sans); font-weight:700; letter-spacing:.04em; fill:#e9eef4; paint-order:stroke; stroke:#06080a; stroke-width:4px; stroke-linejoin:round; }
 .track-presentation .car-marker.is-focus .track-car-label { fill:#fff; }
 .track-presentation .track-car-anchor { stroke:var(--team); stroke-width:1.2; opacity:.45; }

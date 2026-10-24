@@ -2,8 +2,8 @@
 
 import pytest
 
-from slipstream.live import F1LiveAdapter
 from slipstream.f1_timing import _timing_track_position
+from slipstream.live import F1LiveAdapter
 
 
 @pytest.mark.parametrize("sizes", [(4, 4, 4), (5, 9, 8), (8, 8, 8), (7, 13, 11)])
