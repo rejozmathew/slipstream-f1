@@ -3,6 +3,18 @@
 import pytest
 
 from slipstream.live import F1LiveAdapter
+from slipstream.f1_timing import _timing_track_position
+
+
+@pytest.mark.parametrize("sizes", [(4, 4, 4), (5, 9, 8), (8, 8, 8), (7, 13, 11)])
+def test_progress_uses_each_circuits_actual_unequal_segment_inventory(sizes):
+    sectors = [{"Segments": [{"Status": 0} for _ in range(size)]} for size in sizes]
+    for sector_index, size in enumerate(sizes):
+        for segment_index in range(size):
+            patch = {"Sectors": {str(sector_index): {"Segments": {str(segment_index): {"Status": 2049}}}}}
+            assert _timing_track_position(sectors, patch) == pytest.approx(
+                (sum(sizes[:sector_index]) + segment_index + 1) / sum(sizes)
+            )
 
 
 @pytest.mark.parametrize("source", ["f1-signalr-public", "f1-static-public"])

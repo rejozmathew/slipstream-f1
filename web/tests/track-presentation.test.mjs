@@ -53,7 +53,10 @@ test("all 22 coincident timing points have distinct visible symbols without chan
   const page=render(TrackMap,{...mapProps,drivers});
   const dots=[...page.querySelectorAll('.track-car-dot')];
   assert.equal(dots.length,22);
-  assert.equal(new Set(dots.map(dot=>`${dot.getAttribute('cx')},${dot.getAttribute('cy')}`)).size,22);
+  assert.ok(dots.every(dot=>dot.getAttribute('cx')==='0' && dot.getAttribute('cy')==='0'),"car dots stay at their path anchors");
+  const badges=[...page.querySelectorAll('.track-car-badge')];
+  assert.equal(badges.length,21,"every displaced car retains an individually visible label");
+  assert.equal(new Set(badges.map(badge=>badge.getAttribute('transform'))).size,21);
   assert.match(page.querySelector('.track-group-note').textContent,/separated/);
   // Neighbouring groups must share collision checks, or expanding one cluster
   // can hide the cars in the next mini-sector again.
@@ -61,6 +64,14 @@ test("all 22 coincident timing points have distinct visible symbols without chan
   const nearbyOffsets=mapMarkerOffsets(packMapCars(neighbours,12,14,6),12);
   const nearby=neighbours.map(car=>({x:car.point.x+nearbyOffsets.get(car.driver.number).x,y:car.point.y+nearbyOffsets.get(car.driver.number).y}));
   for(let i=0;i<nearby.length;i++) for(let j=i+1;j<nearby.length;j++) assert.ok(Math.hypot(nearby[i].x-nearby[j].x,nearby[i].y-nearby[j].y)>=28.79);
+});
+
+test("leader, followed driver and neighbours keep the same dot size as positions change", () => {
+  const drivers=Array.from({length:5},(_,index)=>({...driver,number:String(index+1),position:index+1,track_position:.1+index*.15}));
+  const sizes=rows=>new Map([...render(TrackMap,{...mapProps,drivers:rows,focusedDriverNumbers:["3"]}).querySelectorAll("[data-track-driver]")].map(node=>[node.getAttribute("data-track-driver"),node.querySelector(".track-car-dot").getAttribute("r")]));
+  const before=sizes(drivers),after=sizes(drivers.map((item,index)=>({...item,position:5-index})));
+  assert.equal(new Set(before.values()).size,1);
+  assert.deepEqual(after,before);
 });
 
 test("timing axis accepts only finite source gaps and explicit lap deficits", () => {
@@ -144,9 +155,9 @@ test("map motion stays between received endpoints and snaps on navigation, reduc
   const flush=delta=>{now+=delta;const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback(now));};
   // Test-only fixture harness; the production hook owns its TypeScript input contract.
   // eslint-disable-next-line react/prop-types
-  function Harness({fraction,generation=1,reduced=false,speed=1,asOf,playing=true}) {
+  function Harness({fraction,generation=1,reduced=false,speed=1,asOf,playing=true,hasGeometry=true}) {
     const ref=useRef(null),point=geometry.pointAt(fraction);
-    useTrackMotion(ref,[{number:"1",point,fraction,lap:12}],geometry,{navigationGeneration:generation,playing,reducedMotion:reduced,speed,asOf});
+    useTrackMotion(ref,[{number:"1",point,fraction,lap:12}],hasGeometry ? geometry : null,{navigationGeneration:generation,playing,reducedMotion:reduced,speed,asOf});
     return createElement("svg",{ref},createElement("g",{"data-track-driver":"1",transform:`translate(${point.x} ${point.y})`}));
   }
   const container=document.getElementById("root"),root=createRoot(container);
@@ -176,6 +187,16 @@ test("map motion stays between received endpoints and snaps on navigation, reduc
     flush(200);
     await update({fraction:.5,generation:2,asOf:"2026-01-01T00:00:07Z",playing:false});
     assert.deepEqual(current(),at(.5));assert.equal(frames.size,0);
+    await update({fraction:.6,generation:2,asOf:"2026-01-01T00:00:08Z"});
+    assert.equal(frames.size,1);
+    await update({fraction:.6,generation:2,hasGeometry:false,asOf:"2026-01-01T00:00:08Z"});
+    assert.equal(frames.size,0,"missing geometry cancels the pending animation");
+    await update({fraction:.6,generation:2,asOf:"2026-01-01T00:00:08Z"});
+    assert.deepEqual(current(),at(.6));assert.equal(frames.size,0);
+    await update({fraction:.7,generation:2,asOf:"2026-01-01T00:00:09Z"});
+    assert.equal(frames.size,1,"motion resumes after geometry returns");
+    await act(async()=>root.unmount());
+    assert.equal(frames.size,0,"unmount cancels its animation");
   } finally { await act(async()=>root.unmount()); delete window.requestAnimationFrame;delete window.cancelAnimationFrame; }
 });
 

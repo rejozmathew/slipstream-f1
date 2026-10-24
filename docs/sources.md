@@ -14,6 +14,10 @@ Historical source capability is intentionally conservative. The Dutch 2026 OpenF
 
 OpenF1 is the whole-session historical fallback. It is used only when a complete official F1 static reconstruction is unavailable; its timing facts are never filled into or blended with an official reconstruction.
 
+### Jolpica championship calendar
+
+The public [Jolpica race schedule](https://github.com/jolpica/jolpica-f1/blob/main/docs/endpoints/races.md) supplies season/round numbers and race dates for replay-catalog labels and ordering. One bounded `/ergast/f1/{year}/races.json?limit=100` request per catalog season is optional. Only unique same-UTC-date Grand Prix matches are accepted; cancelled and ambiguous weekends stay unnumbered. This metadata does not supply timing, classification, or live sporting state. No Jolpica implementation code is copied.
+
 ### Official Formula 1 static timing archive
 
 Historical download first resolves the session through the official `static/<year>/Index.json` archive and requests only the same low-volume public topics used by Live: session/driver/timing, lap count, control messages, clock, and weather. Timestamp-prefixed `.jsonStream` patches are deep-merged with explicit `false` preserved, then passed through the same F1 `TimingData` normalizer used by SignalR. CarData, Position, TeamRadio, and other large/protected topics remain excluded.

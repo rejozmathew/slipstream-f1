@@ -712,6 +712,8 @@ export type CatalogSession = {
   year: number;
   meetingKey: string;
   meetingName: string;
+  roundNumber?: number | null;
+  isCancelled?: boolean;
   sessionName: string;
   sessionType: string;
   sessionKind: SessionKind;

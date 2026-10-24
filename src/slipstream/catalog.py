@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any
 
 from .adapters.openf1 import OpenF1Client
+from .adapters.season_calendar import SeasonRound, fetch_season_rounds, utc_date
+from .session import classify_session
+
+logger = logging.getLogger(__name__)
 
 CATALOG_FORMAT = "slipstream.openf1-catalog.v1"
 
@@ -27,6 +35,7 @@ def sync_catalog(
     client: OpenF1Client | None = None,
     max_age: timedelta = timedelta(hours=24),
     now: datetime | None = None,
+    fetch_rounds: Callable[[int], list[SeasonRound]] = fetch_season_rounds,
 ) -> dict[str, Any]:
     """Cache session metadata and linked circuit paths for the requested seasons."""
     clock = now or datetime.now(UTC)
@@ -60,24 +69,36 @@ def sync_catalog(
                 "date_start": meeting.get("date_start"),
                 "date_end": meeting.get("date_end"),
                 "year": meeting.get("year") or year,
+                "is_cancelled": meeting.get("is_cancelled"),
                 "circuit": _normalize_circuit(circuit_payload, circuit_url),
             }
         sessions.extend(
             _select_session_fields(session, year)
-            for session in source.get(
-                "sessions", year=year, allow_not_found=True
-            )
+            for session in source.get("sessions", year=year, allow_not_found=True)
             if session.get("session_key") is not None
         )
+
+        try:
+            rounds = fetch_rounds(year)
+        except (OSError, ValueError, KeyError, TypeError, HTTPException) as error:
+            # Optional calendar metadata must never prevent catalog refresh.
+            logger.warning(
+                "Round calendar unavailable for %s: %s", year, type(error).__name__
+            )
+            rounds = []
+        _attach_round_numbers(meetings, sessions, year, rounds)
 
     payload: dict[str, Any] = {
         "format": CATALOG_FORMAT,
         "schema_version": 1,
+        "round_metadata_version": 1,
         "source": "openf1",
         "updated_at": clock.isoformat().replace("+00:00", "Z"),
         "years": sorted(set(years)),
         "meetings": meetings,
-        "sessions": sorted(sessions, key=lambda item: str(item.get("date_start") or "")),
+        "sessions": sorted(
+            sessions, key=lambda item: str(item.get("date_start") or "")
+        ),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
@@ -101,7 +122,9 @@ def _is_fresh(
     max_age: timedelta,
     now: datetime,
 ) -> bool:
-    if not payload or not set(years).issubset(set(payload.get("years", []))):
+    if payload.get("round_metadata_version") != 1 or not set(years).issubset(
+        set(payload.get("years", []))
+    ):
         return False
     try:
         updated = datetime.fromisoformat(str(payload["updated_at"]))
@@ -154,3 +177,48 @@ def _normalize_circuit(
         "source": source_url if isinstance(source_url, str) else None,
         "availability": {"path": "available"},
     }
+
+
+def _attach_round_numbers(
+    meetings: dict[str, dict[str, Any]],
+    sessions: list[dict[str, Any]],
+    year: int,
+    rounds: list[SeasonRound],
+) -> None:
+    """Match unique Grand Prix dates, never meeting IDs, names or list positions."""
+    races = []
+    for session in sessions:
+        if session.get("year") != year:
+            continue
+        meeting = meetings.get(str(session.get("meeting_key")), {})
+        if session.get("is_cancelled") is True or meeting.get("is_cancelled") is True:
+            continue
+        if (
+            classify_session(
+                session.get("session_type"), session.get("session_name")
+            ).kind.value
+            != "race"
+        ):
+            continue
+        race_date = utc_date(session.get("date_start"))
+        if race_date:
+            races.append((str(session.get("meeting_key")), race_date))
+    dates = Counter(date for _, date in races)
+    meeting_counts = Counter(key for key, _ in races)
+    round_dates = Counter(item.race_date for item in rounds)
+    round_numbers = Counter(item.number for item in rounds)
+    by_date = {
+        item.race_date: item.number
+        for item in rounds
+        if round_dates[item.race_date] == round_numbers[item.number] == 1
+    }
+    for key, race_date in races:
+        if (
+            key in meetings
+            and dates[race_date] == meeting_counts[key] == 1
+            and race_date in by_date
+        ):
+            meetings[key]["round_number"] = by_date[race_date]
+            meetings[key]["round_source"] = (
+                f"https://api.jolpi.ca/ergast/f1/{year}/races.json"
+            )

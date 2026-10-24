@@ -12,6 +12,8 @@
 
 ### Corrected
 
+- Replay season pickers show verified championship rounds in order, group cancelled weekends and testing separately, and use calendar dates when round metadata is unavailable. Desktop, phone and TV share ordering without resetting the selected session on refresh.
+
 - Pirelli race guidance in mixed Sprint/Qualifying reports is retained when the article explicitly identifies the next day's Grand Prix, opening compound, and one-stop finishing alternatives. Unpublished stop laps and rankings stay unspecified; refresh attempts and results are exposed in diagnostics.
 - Track maps separate overlapping display symbols, including neighbouring clusters, without changing source progress. Active-car coverage and stopped/pit trays retain their factual meanings.
 - Qualifying stays live when the next segment is explicitly `SCHEDULED` after the cached timetable ends, including recovery after a server restart. The Q2-to-Q3 waiting interval no longer disconnects the collector or changes the default session to an older replay.

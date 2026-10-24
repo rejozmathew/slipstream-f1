@@ -46,6 +46,8 @@ class SessionDescriptor:
     circuit_data: dict[str, Any] | None = None
     country: str | None = None
     complete: bool | None = None
+    round_number: int | None = None
+    is_cancelled: bool | None = None
 
     @property
     def session_kind(self) -> str:
@@ -121,6 +123,16 @@ class SessionDescriptor:
             "downloadable": self.is_downloadable(now),
             "circuitShapeAvailable": self.circuit_shape_available,
             "positionMode": self.position_mode,
+            **(
+                {"roundNumber": self.round_number}
+                if self.round_number is not None
+                else {}
+            ),
+            **(
+                {"isCancelled": self.is_cancelled}
+                if self.is_cancelled is not None
+                else {}
+            ),
         }
 
     def serialize_now_independent(self) -> dict[str, Any]:
@@ -364,7 +376,8 @@ class ReplayLibrary:
                         identity.get("status") in {"RUNNING", "SUSPENDED", "FINISHED"}
                         or (
                             descriptor.layout_family == "qualifying"
-                            and identity.get("qualifying_phase") in {"Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"}
+                            and identity.get("qualifying_phase")
+                            in {"Q1", "Q2", "Q3", "SQ1", "SQ2", "SQ3"}
                             and identity.get("status") == "SCHEDULED"
                         )
                     )
@@ -703,6 +716,14 @@ def _catalog_descriptors(raw: dict[str, Any]) -> dict[str, SessionDescriptor]:
             },
             circuit_data=circuit_data if isinstance(circuit_data, dict) else None,
             country=session.get("country_name") or meeting.get("country_name"),
+            round_number=(
+                meeting.get("round_number")
+                if type(meeting.get("round_number")) is int
+                and meeting["round_number"] > 0
+                else None
+            ),
+            is_cancelled=session.get("is_cancelled") is True
+            or meeting.get("is_cancelled") is True,
         )
     return descriptors
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { preferredWeekendSession } from "../../domain/sessionSelection.mjs";
+import { orderedSeasonWeekends, preferredWeekendSession } from "../../domain/sessionSelection.mjs";
 import type { CatalogSession, ReplayCatalog, ViewingMode } from "../../domain/protocol";
 
 type ReplayLibraryProps = {
@@ -22,8 +22,8 @@ export function ReplayLibrary({ catalog, selected, selectedKey, viewingMode, dow
   const sessions = catalog?.sessions ?? [];
   const years = [...new Set(sessions.map((item) => item.year))].sort((a, b) => b - a);
   const selectedYear = selected?.year ?? years[0] ?? null;
-  const yearSessions = sessions.filter((item) => item.year === selectedYear);
-  const meetings = yearSessions.filter((item, index, items) => items.findIndex((candidate) => candidate.meetingKey === item.meetingKey) === index);
+  const meetings = orderedSeasonWeekends(sessions, selectedYear);
+  const yearSessions = meetings.flatMap((meeting) => meeting.sessions);
   const selectedMeetingKey = selected?.meetingKey ?? meetings[0]?.meetingKey ?? null;
   const meetingSessions = yearSessions.filter((item) => item.meetingKey === selectedMeetingKey);
   const selectionState = viewingMode === "live"
@@ -58,12 +58,8 @@ export function ReplayLibrary({ catalog, selected, selectedKey, viewingMode, dow
         <header><strong>SELECT SESSION</strong><span>SEASON / WEEKEND / SESSION</span></header>
         <div className="replay-library-fields">
           <label className="season-select"><span>SEASON</span><select aria-label="Season" value={selectedYear ?? ""} disabled={!catalog} onChange={(event) => {
-            const targetYearSessions = sessions.filter((item) => item.year === Number(event.target.value));
-            const firstMeeting = targetYearSessions[0]?.meetingKey;
-            selectSession(preferredWeekendSession(
-              targetYearSessions.filter((item) => item.meetingKey === firstMeeting),
-              selectedKey,
-            ));
+            const firstMeeting = orderedSeasonWeekends(sessions, Number(event.target.value))[0];
+            selectSession(preferredWeekendSession(firstMeeting?.sessions ?? [], selectedKey));
           }}>
             {!catalog && <option>CATALOG UNAVAILABLE</option>}
             {years.map((year) => <option value={year} key={year}>{year}</option>)}
@@ -74,7 +70,10 @@ export function ReplayLibrary({ catalog, selected, selectedKey, viewingMode, dow
               selectedKey,
             ));
           }}>
-            {meetings.map((meeting) => <option value={meeting.meetingKey} key={meeting.meetingKey}>{meeting.meetingName}</option>)}
+            {([['races', 'Race weekends'], ['cancelled', 'Cancelled weekends'], ['testing', 'Testing']] as const).map(([group, label]) => {
+              const options = meetings.filter((meeting) => meeting.group === group);
+              return options.length ? <optgroup label={label} key={group}>{options.map((meeting) => <option value={meeting.meetingKey} key={meeting.meetingKey}>{meeting.label}</option>)}</optgroup> : null;
+            })}
           </select></label>
           <label className="session-select"><span>SESSION</span><select aria-label="Weekend session" value={selectedKey ?? ""} disabled={!catalog} onChange={(event) => selectSession(meetingSessions.find((item) => item.sessionKey === event.target.value) ?? null)}>
             {meetingSessions.map((session) => <option value={session.sessionKey} key={session.sessionKey}>{session.sessionName}{session.liveAvailable ? " - LIVE NOW" : session.available ? " - REPLAY" : " - NOT DOWNLOADED"}</option>)}

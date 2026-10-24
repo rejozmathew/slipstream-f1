@@ -15,6 +15,8 @@
 .track-presentation .car-marker .track-car-label { font-family:var(--sans); font-weight:700; letter-spacing:.04em; fill:#e9eef4; paint-order:stroke; stroke:#06080a; stroke-width:4px; stroke-linejoin:round; }
 .track-presentation .car-marker.is-focus .track-car-label { fill:#fff; }
 .track-presentation .track-car-anchor { stroke:var(--team); stroke-width:1.2; opacity:.45; }
+.track-presentation .track-car-badge rect { fill:#0b0f14; stroke:var(--team); stroke-width:1.8; }
+.track-presentation .track-car-badge text { fill:#e9eef4; font-family:var(--sans); font-weight:800; }
 .track-group-note { padding:0 14px 6px; color:var(--quiet); font:10px/1.4 var(--mono); }
 .track-presentation .track-car-count circle { fill:#e9eef4; stroke:#06080a; stroke-width:2; }
 .track-presentation .track-car-count text { font-family:var(--mono); font-weight:800; fill:#0b0f14; }

@@ -75,8 +75,11 @@ export function TrackMap({ circuit, session, drivers, positionMode, viewingMode,
           return <g className={`car-marker ${lifecycleClassName(driver)}${car.focus ? " is-focus" : focus.size ? " is-dim" : ""}${driver.position === 1 ? " is-leader" : ""}`} key={driver.number} data-track-driver={driver.number} style={teamStyle(driver)} aria-label={driver.code ?? driver.number} transform={`translate(${car.point.x} ${car.point.y})`}>
             <title>{[driver.name ?? driver.code ?? driver.number, lifecycle.label].filter(Boolean).join(" · ")}</title>
             {(offset.x !== 0 || offset.y !== 0) && <line className="track-car-anchor" x1={0} y1={0} x2={offset.x} y2={offset.y} />}
-            <circle className="track-car-dot" cx={offset.x} cy={offset.y} r={radius * (car.focus ? 1.3 : driver.position === 1 ? 1.12 : 1)} />
-            {group?.label && <text className="track-car-label" x={group.label.x} y={group.label.y} textAnchor="middle" dominantBaseline="central" style={{ fontSize: font * (car.focus ? 1.12 : 1) }}>{driver.code ?? driver.number}</text>}
+            <circle className="track-car-dot" cx={0} cy={0} r={radius} />
+            {(offset.x !== 0 || offset.y !== 0) ? <g className="track-car-badge" transform={`translate(${offset.x} ${offset.y})`}>
+              <rect x={-radius * 1.1} y={-radius * .65} width={radius * 2.2} height={radius * 1.3} rx={radius * .2} />
+              <text textAnchor="middle" dominantBaseline="central" style={{ fontSize: radius * .64 }}>{driver.code ?? driver.number}</text>
+            </g> : group?.label && <text className="track-car-label" x={group.label.x} y={group.label.y} textAnchor="middle" dominantBaseline="central" style={{ fontSize: font * (car.focus ? 1.12 : 1) }}>{driver.code ?? driver.number}</text>}
           </g>;
         })}</g>
       </svg> : reference ? <div className="circuit-reference">
@@ -95,7 +98,7 @@ export function TrackMap({ circuit, session, drivers, positionMode, viewingMode,
       </div>}
     </div>
     <footer className="panel-footer track-map-footer"><span>{geometry ? "SHAPE · OBSERVED" : reference ? "MAP · OFFICIAL REFERENCE" : "SHAPE · UNAVAILABLE"}</span>{(geometry || lineAvailable) && positionMode !== "unavailable" && <span>{positionMode === "timing_estimate" ? "POSITION · APPROX · TIMING-DERIVED" : "POSITION · SOURCE X/Y"}</span>}<span title={coverage.unpositionedLabels.join(", ") || "All active cars positioned"}>ACTIVE COVERAGE · {coverage.positioned}/{coverage.eligible}{coverage.unpositioned ? ` · ${coverage.unpositioned} UNPOSITIONED` : ""}</span></footer>
-    {grouped && <div className="track-group-note">Overlapping cars separated for visibility</div>}
+    {grouped && <div className="track-group-note">Overlapping labels separated · dots stay on track</div>}
     {ribbon && <RaceOrderRibbon drivers={drivers} focusedDriverNumbers={focusedDriverNumbers} posture={viewport.posture} battlePairs={battlePairs} {...motion} />}
   </Panel>;
 }

@@ -20,6 +20,7 @@ const server = await createServer({ configLoader: "runner", cacheDir: "../.codex
 after(() => server.close());
 const { EMPTY_RACE_STATE } = await server.ssrLoadModule("/domain/protocol.ts");
 const { TrackMap } = await server.ssrLoadModule("/components/analysis/TrackMap.tsx");
+const { ReplayLibrary } = await server.ssrLoadModule("/components/shell/ReplayLibrary.tsx");
 const { LiveControls } = await server.ssrLoadModule("/components/shell/LiveControls.tsx");
 const { ReplayRecordingNotice } = await server.ssrLoadModule("/components/shell/ReplayRecordingNotice.tsx");
 const { SessionStrip } = await server.ssrLoadModule("/components/shell/SessionStrip.tsx");
@@ -509,4 +510,37 @@ test("session widths migrate independently and persist without changing Race or 
     if (root) await act(() => root.unmount());
     if (before == null) window.localStorage.removeItem(key); else window.localStorage.setItem(key, before);
   }
+});
+
+
+test("replay year changes choose the first round and catalog refresh preserves selection", async () => {
+  const entry = (sessionKey, meetingKey, year, dateStart, roundNumber, extra = {}) => ({ sessionKey, meetingKey, year,
+    dateStart, roundNumber, meetingName: meetingKey, sessionName: "Race", sessionKind: "race", available: true, ...extra });
+  const sessions = [entry("future", "Future GP", 2026, "2026-11-22T06:00:00Z", 21),
+    entry("testing", "Pre-Season Testing", 2026, "2026-02-11T12:00:00Z", null, { sessionKind: "unknown" }),
+    entry("cancelled", "Cancelled GP", 2026, "2026-04-12T12:00:00Z", null, { isCancelled: true }),
+    entry("first", "First GP", 2026, "2026-03-08T12:00:00Z", 1),
+    entry("practice", "First GP", 2026, "2026-03-06T12:00:00Z", 1, { sessionKind: "practice_1", sessionName: "Practice 1" }),
+    entry("old", "Previous GP", 2025, "2025-03-16T12:00:00Z", 1)];
+  const selections = [];
+  const props = { catalog: { sessions }, selected: sessions[5], selectedKey: "old", viewingMode: "replay",
+    downloadState: "idle", downloadError: null, onSelect: (key) => selections.push(key),
+    onGoLive() {}, onWatchReplay() {}, onDownload() {} };
+  const container = document.getElementById("test-root");
+  const root = createRoot(container);
+  try {
+    await act(() => root.render(createElement(ReplayLibrary, props)));
+    const season = container.querySelector('[aria-label="Season"]');
+    season.value = "2026";
+    await act(() => season.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+    assert.deepEqual(selections, ["first"]);
+    const updated = { ...props, selected: sessions[0], selectedKey: "future", catalog: { sessions: [...sessions].reverse() } };
+    await act(() => root.render(createElement(ReplayLibrary, updated)));
+    const weekend = container.querySelector('[aria-label="Race weekend"]');
+    assert.deepEqual([...weekend.options].map((item) => item.textContent),
+      ["R01 · First GP", "R21 · Future GP", "Cancelled GP · CANCELLED", "Pre-Season Testing"]);
+    assert.equal(weekend.value, "Future GP");
+    assert.deepEqual([...weekend.querySelectorAll("optgroup")].map((item) => item.label), ["Race weekends", "Cancelled weekends", "Testing"]);
+    assert.deepEqual(selections, ["first"]);
+  } finally { await act(() => root.unmount()); }
 });
